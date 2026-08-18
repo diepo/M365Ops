@@ -31,13 +31,14 @@ function Add-M365OpsChatHistoryTurn {
     }
 
     $history = @(Get-M365OpsChatHistory -TenantName $TenantName)
-    if ($UserText) { $history += [pscustomobject]@{ role = 'user'; text = (& $redact $UserText) } }
+    $now = Get-Date -Format 'o'
+    if ($UserText) { $history += [pscustomobject]@{ role = 'user'; text = (& $redact $UserText); timestamp = $now } }
     if ($AssistantText) {
         # Bug reale (18/08/2026): senza salvare gli allegati, un report generato in un turno
         # perdeva per sempre i pulsanti di download non appena la pagina veniva ricaricata (la
         # cronologia veniva ridisegnata solo con testo) - il file restava sul disco ma
         # diventava irraggiungibile dalla chat, l'utente doveva andare a cercarselo a mano.
-        $entry = [pscustomobject]@{ role = 'assistant'; text = (& $redact $AssistantText) }
+        $entry = [pscustomobject]@{ role = 'assistant'; text = (& $redact $AssistantText); timestamp = $now }
         if ($Attachments -and $Attachments.Count -gt 0) { $entry | Add-Member -NotePropertyName 'attachments' -NotePropertyValue $Attachments }
         $history += $entry
     }

@@ -483,16 +483,26 @@
   const delegatedLoginCode = document.getElementById('delegated-login-code');
   let delegatedPollTimer = null;
 
-  function addMessage(role, text, pending, attachments) {
+  function addMessage(role, text, pending, attachments, timestamp) {
     const div = document.createElement('div');
     div.className = 'msg ' + role;
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:4px;';
     const tag = document.createElement('span');
     tag.className = 'role-tag';
+    tag.style.marginBottom = '0';
     tag.textContent = { user: 'Tu', system: 'Assistente', ai: 'AI', error: 'Errore' }[role] || role;
+    const timeTag = document.createElement('span');
+    timeTag.className = 'msg-time';
+    timeTag.style.cssText = 'font-size:11px; color:var(--text-faint); font-weight:normal; text-transform:none; letter-spacing:normal; flex-shrink:0;';
+    const d = timestamp ? new Date(timestamp) : new Date();
+    timeTag.textContent = isNaN(d.getTime()) ? '' : d.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    header.appendChild(tag);
+    header.appendChild(timeTag);
     const body = document.createElement('div');
     body.className = 'mono';
     body.textContent = text;
-    div.appendChild(tag);
+    div.appendChild(header);
     div.appendChild(body);
 
     if (attachments && attachments.length > 0) {
@@ -564,7 +574,7 @@
     try {
       const histRes = await fetch('/api/chat/history');
       const history = await histRes.json();
-      history.forEach(turn => addMessage(turn.role === 'user' ? 'user' : 'ai', turn.text, false, turn.attachments));
+      history.forEach(turn => addMessage(turn.role === 'user' ? 'user' : 'ai', turn.text, false, turn.attachments, turn.timestamp));
     } catch (e) {
       // Storico e' solo un miglioramento di comodita' - non deve mai impedire l'avvio della chat.
     }
