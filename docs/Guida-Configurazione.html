@@ -1,0 +1,2005 @@
+<!--
+  M365Ops - Guida alla Configurazione
+  ====================================
+  Questo file HTML è la SORGENTE di riferimento del documento (non solo il PDF).
+  Per aggiornarlo: modifica questo file, poi rigenera il PDF con:
+
+    $edge = (Get-Command msedge.exe -ErrorAction SilentlyContinue).Source
+    & $edge --headless --disable-gpu --print-to-pdf="docs\Guida-Configurazione.pdf" --print-to-pdf-no-header (Resolve-Path "docs\Guida-Configurazione.html").Path
+
+  Convenzioni per chi estende questa guida:
+  - Ogni sezione principale è un <section class="page"> con un h2 numerato: aggiungine
+    una nuova copiando il blocco più simile, non serve toccare le altre.
+  - I blocchi di comando vanno in <pre class="code">...</pre> (font monospace, sfondo grigio).
+  - I box di attenzione/nota vanno in <div class="note"> o <div class="warn">.
+  - Aggiorna la tabella "Stato attuale" (sezione 12) e la Roadmap (sezione 13) ogni volta
+    che una funzionalità passa da "pianificata" a "implementata", così il documento resta
+    sincronizzato con lo stato reale del progetto invece di invecchiare.
+-->
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>M365Ops - Guida alla Configurazione</title>
+<style>
+  @page { margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #16222E;
+    margin: 0;
+  }
+  .cover {
+    min-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px;
+    background: linear-gradient(135deg, #0B3450 0%, #14618F 100%);
+    color: white;
+    page-break-after: always;
+  }
+  .cover .tag { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; opacity: .8; margin-bottom: 18px; }
+  .cover h1 { font-size: 40px; margin: 0 0 10px 0; }
+  .cover .subtitle { font-size: 16px; opacity: .9; max-width: 520px; }
+  .cover .meta { margin-top: 60px; font-size: 12px; opacity: .75; border-top: 1px solid rgba(255,255,255,.3); padding-top: 14px; }
+  .toc { page-break-after: always; }
+  .toc h2 { border: none; }
+  .toc ol { line-height: 2; font-size: 13px; }
+  .toc a { color: #14618F; text-decoration: none; }
+  section.page { page-break-before: always; }
+  section.page:first-of-type { page-break-before: auto; }
+  h2 {
+    font-size: 19px;
+    color: #0B3450;
+    border-bottom: 2px solid #14618F;
+    padding-bottom: 6px;
+    margin-top: 0;
+  }
+  h3 { font-size: 14.5px; color: #14618F; margin-top: 22px; }
+  h4 { font-size: 12.5px; color: #16222E; margin-bottom: 4px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 6px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  code {
+    background: #EEF2F5; color: #0B3450; padding: 1px 5px; border-radius: 3px;
+    font-family: Consolas, 'Courier New', monospace; font-size: 11.5px;
+  }
+  pre.code {
+    background: #16222E; color: #E8EDF1; padding: 12px 14px; border-radius: 6px;
+    font-family: Consolas, 'Courier New', monospace; font-size: 11px; line-height: 1.5;
+    overflow-x: auto; margin: 10px 0;
+  }
+  pre.code .c { color: #8AB4D8; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 16px 0; font-size: 11.5px; }
+  th, td { border: 1px solid #D9DFE5; padding: 6px 9px; text-align: left; vertical-align: top; }
+  th { background: #EBEEF2; color: #16222E; }
+  tr:nth-child(even) td { background: #FAFBFC; }
+  .note, .warn, .ok {
+    border-left: 4px solid #14618F; background: #EEF5FA; padding: 10px 14px; margin: 12px 0;
+    font-size: 11.5px; border-radius: 0 4px 4px 0;
+  }
+  .warn { border-left-color: #B8862B; background: #FBF3E4; }
+  .ok { border-left-color: #2E8B57; background: #EAF6EF; }
+  .badge {
+    display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+    background: #DCE7EF; color: #0B3450; margin-left: 6px;
+  }
+  .badge.done { background: #DCF0E3; color: #1E6B3E; }
+  .badge.pending { background: #FBE7C6; color: #8A5A00; }
+  .badge.future { background: #E6E1F5; color: #4B3B8F; }
+  footer.pagefoot { font-size: 10px; color: #8494A3; text-align: right; margin-top: 24px; }
+  .tree { font-family: Consolas, 'Courier New', monospace; font-size: 11px; background: #F7F9FA; padding: 10px 14px; border-radius: 6px; white-space: pre; }
+</style>
+</head>
+<body>
+
+<!-- ============================== COPERTINA ============================== -->
+<div class="cover">
+  <div class="tag">Modern Workplace Automation</div>
+  <h1>M365Ops</h1>
+  <div class="subtitle">Guida alla configurazione iniziale — Intune, Entra ID, Exchange Online e motore AI con integrazione MCP (Lokka), pensata per essere estesa nel tempo.</div>
+  <div class="meta">
+    Tenant di riferimento in questa guida: contoso.onmicrosoft.com (profilo "contoso-test")<br>
+    Versione documento: 1.22 — 18 Agosto 2026
+  </div>
+</div>
+
+<!-- ============================== INDICE ============================== -->
+<div class="toc">
+<h2>Indice</h2>
+<ol>
+  <li>Cos'è M365Ops e principio di fondo</li>
+  <li>Architettura</li>
+  <li>Prerequisiti software</li>
+  <li>App Registration in Entra ID</li>
+  <li>Certificato ed Exchange.ManageAsApp</li>
+  <li>Ruoli RBAC su Exchange Online</li>
+  <li>Registrazione del tenant nel modulo</li>
+  <li>Motore AI (Claude / Azure OpenAI)</li>
+  <li>Connettori MCP (Lokka) — configurazione per-tenant</li>
+  <li>Autenticazione delegata (utente + MFA) — tenant senza App Registration</li>
+  <li>Le 50+ cmdlet Exchange Online e come le usa l'AI</li>
+  <li>Avvio dell'applicazione</li>
+  <li>Uso quotidiano</li>
+  <li>Sicurezza — principi non negoziabili</li>
+  <li>Stato attuale del progetto</li>
+  <li>Roadmap ed estensioni future</li>
+  <li>Script personalizzati (Scripts\Custom)</li>
+  <li>Portabilità — spostare l'ambiente su un altro PC</li>
+  <li>Log delle azioni — storico e debug</li>
+  <li>Stato e utilizzo del motore AI</li>
+  <li>Stato e reset MFA — dettagli tecnici</li>
+  <li>Report AI-orchestrati con grafici — dettagli tecnici</li>
+  <li>Memoria della conversazione — dettagli tecnici</li>
+  <li>Appendice A — struttura dei file</li>
+  <li>Appendice B — comandi rapidi di riferimento</li>
+</ol>
+</div>
+
+<!-- ============================== 1 ============================== -->
+<section class="page">
+<h2>1. Cos'è M365Ops e principio di fondo</h2>
+<p>
+M365Ops è un modulo PowerShell + interfaccia web di chat per amministrare un tenant Microsoft 365
+Modern Workplace (Intune, Entra ID, Exchange Online) combinando:
+</p>
+<ul>
+  <li>un <strong>catalogo comandi locale</strong>, deterministico e a costo zero, per le richieste note e ripetitive;</li>
+  <li>un <strong>motore AI con accesso reale ai dati</strong> (tool-calling), usato quando la richiesta non rientra nel catalogo;</li>
+  <li>un principio di conferma umana obbligatoria per ogni azione di scrittura.</li>
+</ul>
+<div class="note">
+<strong>Principio di fondo.</strong> L'interpretazione dei dati (spiegare perché un device non è
+conforme, raggruppare pattern, decidere una causa probabile) vive nel motore AI, <em>non</em> in
+regole scritte a mano nel codice. Le cmdlet del modulo restituiscono solo dati grezzi o eseguono
+azioni — mai interpretazione cablata. Vedi <code>Get-M365OpsCompliancePatterns.ps1</code> come
+esempio di riferimento.
+</div>
+<h3>Perché non un semplice bot a regole fisse</h3>
+<p>
+Un sistema a sole regole hardcoded (if/else su ogni possibile domanda) non scala e non generalizza:
+funziona solo per le domande previste in anticipo. M365Ops usa le regole solo per instradare le
+richieste ovvie a costo zero (senza chiamare l'AI), e delega al modello AI — con accesso reale ai
+dati tramite tool — tutto ciò che richiede ragionamento o non è stato previsto esplicitamente.
+</p>
+</section>
+
+<!-- ============================== 2 ============================== -->
+<section class="page">
+<h2>2. Architettura</h2>
+<div class="tree">Browser (Gui/index.html — chat)
+        │  HTTP (localhost:8743)
+        ▼
+Gui/Server.ps1  ──────────────────────────────────────────────┐
+   │  cataloga i comandi noti (CommandCatalog.ps1)             │
+   │  gestisce conferme "propose → confirm → execute"          │
+   ▼                                                            │
+Modulo M365Ops (Public/*.ps1, Private/*.ps1)                    │
+   │                                                            │
+   ├─► Microsoft Graph API (v1.0 / beta) — app-only OAuth2      │
+   │      client credentials, scope graph.microsoft.com/.default│
+   │                                                            │
+   ├─► Lokka (MCP server, @merill/lokka via npx) ────────────────┤
+   │      esecutore generico di chiamate Graph/Azure REST,      │
+   │      usato PRIMA delle cmdlet interne quando risponde l'AI │
+   │                                                            │
+   ├─► Exchange Online PowerShell — app-only via certificato    │
+   │      (mailbox condivise, permessi FullAccess/SendAs)       │
+   │                                                            │
+   └─► Motore AI (Invoke-M365OpsAgentTools) — Claude API         │
+          tool-calling multi-round, propone le scritture         │
+          ma non le esegue mai da solo                           ┘</div>
+<h3>Flusso di una richiesta in chat</h3>
+<ol>
+  <li>Il messaggio arriva a <code>Handle-ChatMessage</code> in <code>Gui/Server.ps1</code>.</li>
+  <li>Se c'è un'azione in sospeso in attesa di conferma, la gestisce prima di tutto.</li>
+  <li>Altrimenti prova il <strong>catalogo comandi</strong> (regex/trigger locali, zero costo AI).</li>
+  <li>Se nessun comando corrisponde, passa la richiesta a <code>Invoke-M365OpsAgentTools</code>,
+      che chiama Claude con gli strumenti Lokka disponibili al primo giro, e le cmdlet interne
+      come fallback nei giri successivi.</li>
+  <li>Se l'AI propone una scrittura (<code>propose_graph_write</code>), l'azione resta in sospeso
+      finché l'utente non conferma esplicitamente in chat.</li>
+</ol>
+</section>
+
+<!-- ============================== 3 ============================== -->
+<section class="page">
+<h2>3. Prerequisiti software</h2>
+<table>
+<tr><th>Componente</th><th>Uso</th><th>Verifica</th><th>Installazione automatica</th></tr>
+<tr><td>PowerShell 7+</td><td>esecuzione del modulo e del server web</td><td><code>pwsh -v</code></td><td><span class="badge done">sì</span> — <code>M365Ops.bat</code> lo controlla PRIMA di avviare qualsiasi altra cosa e lo installa da solo via winget se manca (sezione 3.1)</td></tr>
+<tr><td>Node.js + npx</td><td>avvio del server MCP Lokka (<code>npx -y @merill/lokka</code>)</td><td><code>npx -v</code></td><td><span class="badge done">sì</span> — pulsante "Installa automaticamente" nel banner delle Impostazioni (sezione 3.1)</td></tr>
+<tr><td>Modulo <code>ImportExcel</code></td><td>export report in formato .xlsx</td><td><code>Get-Module -ListAvailable ImportExcel</code></td><td><span class="badge done">sì</span> — al primo uso (vedi nota sotto)</td></tr>
+<tr><td>Modulo <code>ExchangeOnlineManagement</code></td><td>connessione app-only a Exchange Online</td><td><code>Get-Module -ListAvailable ExchangeOnlineManagement</code></td><td><span class="badge done">sì</span> — al primo uso (vedi nota sotto)</td></tr>
+<tr><td>Microsoft Edge</td><td>generazione PDF (report ed export, incl. questo documento) via <code>--headless --print-to-pdf</code></td><td>presente di default su Windows 11</td><td><span class="badge done">sì</span> — stesso pulsante di Node.js, utile solo su PC senza Edge preinstallato (raro su Windows 11)</td></tr>
+<tr><td>Modulo <code>IntuneWin32App</code></td><td>solo per <code>New-M365OpsWin32App</code> (packaging app Win32)</td><td><code>Get-Module -ListAvailable IntuneWin32App</code></td><td><span class="badge done">sì</span> — al primo uso (vedi nota sotto)</td></tr>
+</table>
+<div class="note">Tutti i moduli PowerShell mancanti vengono installati automaticamente al primo
+uso dalle rispettive cmdlet (<code>Install-Module ... -Scope CurrentUser</code>), non serve
+preinstallarli manualmente.</div>
+
+<h3>3.1 Controllo e installazione automatica (17/08/2026)</h3>
+<p>Su richiesta esplicita, l'app non si limita più a segnalare i prerequisiti mancanti: li
+installa da sola dove tecnicamente possibile, in due punti diversi a seconda di COSA manca.</p>
+<div class="ok"><strong>PowerShell 7</strong> — controllato da <code>M365Ops.bat</code> stesso,
+PRIMA di avviare <code>pwsh.exe</code>: se manca, lancia <code>winget install Microsoft.PowerShell</code>
+in modo silenzioso e poi procede normalmente. Deve stare nel file <code>.bat</code> (eseguito da
+<code>cmd.exe</code>, sempre presente su Windows) e non in uno script PowerShell — se manca
+proprio PowerShell 7, non esiste alcun modo di eseguire codice PowerShell per sistemarlo da solo.
+Se <code>winget</code> stesso non è disponibile (raro, PC molto datati), la finestra mostra il
+link diretto per l'installazione manuale invece di restare bloccata senza spiegazioni.</div>
+<div class="ok"><strong>Node.js e Microsoft Edge</strong> — il banner "Ambiente non completo" già
+esistente (tab Impostazioni) mostra ora un pulsante <strong>"Installa automaticamente"</strong>
+quando uno dei due manca, che chiama <code>Install-M365OpsPrerequisites</code>
+(<code>POST /api/install-prerequisites</code>): esegue <code>winget install</code> per quello
+mancante e aggiorna subito il PATH del processo corrente dal registro di sistema, così il
+risultato è utilizzabile senza dover riavviare l'intero server. Serve comunque un click esplicito
+dell'operatore — non parte da sola in background — stesso principio del pulsante "Riavvia"
+esistente.</div>
+<p>Se <code>winget</code> non è disponibile sul PC, sia <code>M365Ops.bat</code> sia il pulsante
+lo segnalano chiaramente invece di fallire in modo oscuro, con l'indicazione di dove scaricare
+l'installer manualmente.</p>
+</section>
+
+<!-- ============================== 4 ============================== -->
+<section class="page">
+<h2>4. App Registration in Entra ID</h2>
+<p>Ogni tenant gestito da M365Ops richiede una propria App Registration, con autenticazione
+<strong>app-only (client credentials)</strong> — mai login interattivo ripetuto.</p>
+
+<h3>4.1 Creazione e client secret</h3>
+<ol>
+  <li>portal.azure.com → Microsoft Entra ID → <strong>App registrations</strong> → New registration</li>
+  <li>Certificates &amp; secrets → New client secret → copia subito il valore (non sarà più visibile)</li>
+  <li>Il valore del secret <strong>non va mai salvato in un file</strong>: si imposta una sola volta come
+      variabile d'ambiente Windows (vedi sezione 7)</li>
+</ol>
+
+<h3>4.2 Permessi Microsoft Graph (Application, non Delegated)</h3>
+<table>
+<tr><th>Permesso</th><th>Motivo</th></tr>
+<tr><td><code>DeviceManagementManagedDevices.Read.All</code></td><td>lettura device Intune, stato compliance</td></tr>
+<tr><td><code>DeviceManagementConfiguration.ReadWrite.All</code></td><td>creazione/lettura profili di configurazione</td></tr>
+<tr><td><code>DeviceManagementApps.ReadWrite.All</code></td><td>creazione/assegnazione app Intune (Win32, Store)</td></tr>
+<tr><td><code>Group.ReadWrite.All</code></td><td>creazione gruppi e gestione membri</td></tr>
+<tr><td><code>User.ReadWrite.All</code></td><td>ricerca utenti per nome/UPN E creazione/modifica utenti - <code>User.Read.All</code> da solo NON basta per creare un utente (403 "Insufficient privileges", incontrato dal vivo il 17/08/2026 su un tenant che aveva solo il permesso di lettura)</td></tr>
+<tr><td><code>Mail.Send</code></td><td>invio report generati (CSV/XLSX/PDF) via email</td></tr>
+<tr><td><code>Team.ReadBasic.All</code></td><td>elenco Team del tenant (report Teams/canali) - non ancora aggiunto su tutti i tenant, verificare se un 403 compare su <code>/teams</code></td></tr>
+<tr><td><code>Channel.ReadBasic.All</code></td><td>elenco canali di un Team - richiesto insieme a Team.ReadBasic.All, uno dei due da solo non basta per un report completo</td></tr>
+<tr><td><code>SecurityAlert.Read.All</code></td><td>lettura alert di sicurezza (Defender) - solo se si usa <code>graph_api_call</code> su <code>/security/alerts_v2</code> (sezione 17.7)</td></tr>
+<tr><td><code>SecurityIncident.Read.All</code></td><td>lettura incidenti di sicurezza - solo per <code>/security/incidents</code> (sezione 17.7)</td></tr>
+<tr><td><code>ThreatHunting.Read.All</code></td><td>query KQL avanzate (equivalente di "Explorer") - solo per lo strumento <code>security_hunting_query</code> (sezione 17.7); richiede ANCHE la licenza Microsoft Defender for Endpoint Plan 2, non solo il permesso - senza quella licenza Graph risponde comunque 403 anche a permesso concesso</td></tr>
+</table>
+<div class="warn">Dopo aver aggiunto i permessi, cliccare sempre <strong>"Grant admin consent"</strong> —
+senza consenso admin le chiamate app-only falliscono con errore di autorizzazione anche se il
+permesso risulta "aggiunto" nella lista.</div>
+<div class="note">Un 403 "Insufficient privileges to complete the operation" / "Authorization_RequestDenied"
+su una scrittura significa quasi sempre questo: manca il permesso Application specifico per
+QUELL'azione (es. serve <code>User.ReadWrite.All</code> per creare un utente, non basta
+<code>User.Read.All</code>) oppure il permesso c'è ma manca ancora il "Grant admin consent" -
+mai un bug del codice, sempre da controllare prima nel portale.</div>
+
+<h3>4.3 Permesso SharePoint (API separata da Microsoft Graph)</h3>
+<p>Aggiunto il 17/08/2026 per il supporto SharePoint/OneDrive (sezione 17.9): a differenza di
+<strong>tutti</strong> gli altri permessi di questa pagina, che sono sotto l'API <strong>Microsoft
+Graph</strong>, SharePoint online (via PnP.PowerShell, usato per l'elenco siti/permessi/OneDrive)
+richiede un consenso separato sotto un'API diversa, chiamata semplicemente <strong>"SharePoint"</strong>
+nel selettore "APIs my organization uses" del portale.</p>
+<ol>
+  <li>App registration → API permissions → Add a permission → tab "APIs my organization uses" → cerca <strong>"SharePoint"</strong> (non "Microsoft Graph")</li>
+  <li>Application permissions → <code>Sites.FullControl.All</code> → Add permissions</li>
+  <li><strong>Grant admin consent</strong> (esattamente come per Microsoft Graph, sezione 4.2)</li>
+</ol>
+<div class="warn">Verificato dal vivo il 17/08/2026: senza questo permesso, l'autenticazione col
+certificato riesce comunque (nessun errore di login) ma <strong>ogni</strong> chiamata reale
+(anche solo leggere un sito) fallisce con "Unexpected response from the server... status code is
+Unauthorized" - un errore diverso nella forma dal classico 403 di Graph, ma stesso significato:
+permesso mancante, non un bug.</div>
+<div class="note"><strong>Questo permesso riguarda SOLO i tenant App-only.</strong> Su un tenant
+Delegato non esiste un'App Registration a cui concedere <code>Sites.FullControl.All</code> - la
+lettura SharePoint dipende invece dal <strong>ruolo Entra ID dell'utente</strong> con cui si fa
+login (tipicamente serve <em>SharePoint Administrator</em> o <em>Global Administrator</em>).
+Verificato dal vivo il 17/08/2026 su Fabrikam-Prod (Delegato): il login a codice dispositivo può
+completarsi correttamente (autenticazione riuscita) e le chiamate fallire comunque con
+<code>"Attempted to perform an unauthorized operation."</code> - un problema di ruolo, distinto e
+successivo rispetto al login stesso. Se capita, verifica il ruolo dell'utente in Entra ID →
+Roles and administrators, non l'App Registration.</div>
+<div class="warn"><strong>Il ruolo va assegnato PRIMA di fare login, non dopo.</strong> Un ruolo
+Entra ID concesso mentre una sessione SharePoint delegata è già attiva non si applica al token già
+emesso (i ruoli sono valutati al momento del login, non rivalutati in tempo reale) - se dopo aver
+assegnato il ruolo l'errore "Attempted to perform an unauthorized operation." persiste identico,
+la causa più probabile non è che il ruolo non sia stato assegnato correttamente, ma che serva un
+<strong>nuovo login</strong>: pulsante "Connetti / Test connessione SharePoint" nel tab <strong>Tenant</strong>
+(sezione "Stato connessioni", non nel tab MCP/Connettori - vedi sezione 10.7), non semplicemente
+ripetere la domanda in chat.</div>
+<div class="ok"><strong>Bug reale trovato e corretto il 17/08/2026</strong> grazie al test dal
+vivo su Fabrikam-Prod: il polling del login a codice dispositivo (SharePoint, Teams, Exchange e il
+login Graph generico - stesso schema in tutti e 4) usava <code>setInterval</code>, che pianifica il
+giro successivo a orario fisso <em>indipendentemente</em> da quanto impiega quello precedente a
+rispondere. Se lo scambio del token era più lento del solito, due poll potevano finire in volo
+insieme: il primo completava con successo e ripuliva lo stato lato server, il secondo (già partito)
+trovava lo stato appena rimosso e mostrava "nessun login in corso" <em>sopra</em> il messaggio di
+successo appena scritto - un login riuscito che sembrava fallito. Prova diretta nei log: la chiave
+di sessione veniva salvata correttamente, poi risultava assente 22 secondi dopo con due tentativi
+di lettura falliti nello stesso secondo. Corretto sostituendo <code>setInterval</code> con un
+<code>setTimeout</code> che pianifica il giro successivo SOLO dopo aver ricevuto risposta da quello
+corrente, rendendo la sovrapposizione impossibile per costruzione.</div>
+
+<h3>4.4 Permesso Teams (API separata, terza diversa da Graph e da SharePoint)</h3>
+<p>Aggiunto il 17/08/2026 per il supporto Teams (sezione 17.11): l'elenco Team/canali/membri
+funziona SUBITO con lo stesso certificato di Exchange, verificato dal vivo, nessun permesso
+aggiuntivo. I <strong>criteri</strong> (riunione/chiamata/messaggistica) e la
+<strong>configurazione di accesso esterno/ospiti</strong> invece richiedono una terza API
+separata, chiamata <strong>"Skype and Teams Tenant Admin API"</strong>.</p>
+<ol>
+  <li>App registration → API permissions → Add a permission → tab "APIs my organization uses" → cerca <strong>"Skype and Teams Tenant Admin API"</strong></li>
+  <li>Application permissions → <code>application_access</code> → Add permissions</li>
+  <li><strong>Grant admin consent</strong></li>
+</ol>
+<div class="note">Non ancora verificato se basta il permesso da solo o se serve ANCHE assegnare
+al service principal dell'App Registration un ruolo Entra ID (es. "Teams Administrator") - la
+documentazione Microsoft per l'autenticazione app-only di questo modulo menziona entrambi in
+scenari diversi. Se dopo aver concesso il permesso le cmdlet di policy continuano a fallire con
+lo stesso errore, il prossimo passo da provare è assegnare quel ruolo al service principal
+(Entra ID → Enterprise applications → cerca l'App Registration → Roles and administrators).</div>
+<div class="warn">Verificato dal vivo il 17/08/2026 senza questo permesso: <code>Get-Team</code>/
+<code>Get-TeamChannel</code>/<code>Get-TeamUser</code> funzionano comunque, ma
+<code>Get-CsTeamsMeetingPolicy</code>/<code>Get-CsTeamsCallingPolicy</code>/
+<code>Get-CsTeamsMessagingPolicy</code> e le cmdlet di configurazione ospiti falliscono con
+"Access Denied. Provide different credential or request access." - un terzo errore diverso da
+"Unauthorized" (SharePoint) e da 403 (Graph), ma stesso significato: permesso mancante.</div>
+
+<h3>4.5 Ruolo Purview per le retention policy (RBAC nel portale Compliance, non un permesso App Registration)</h3>
+<p>Aggiunto il 18/08/2026 per il supporto retention policy (sezione 17.12). A differenza di
+Graph/SharePoint/Teams sopra, qui non basta un permesso API sull'App Registration: Microsoft
+Purview usa un sistema di <strong>ruoli RBAC separato</strong>, assegnato direttamente nel
+portale compliance, non in Entra ID.</p>
+<div class="warn"><strong>Correzione del 18/08/2026 rispetto alla prima stesura di questa sezione:</strong>
+un service principal (l'App Registration usata in modalita' AppOnly) NON puo' essere aggiunto
+DIRETTAMENTE come membro di un gruppo di ruoli Purview dal portale - a differenza di un utente
+Delegato, per cui l'assegnazione diretta funziona davvero cosi' come descritto sotto. Per un
+service principal serve un passaggio intermedio, verificato sulla documentazione reale (non a
+memoria) dopo che l'utente ha chiesto esplicitamente conferma di questa procedura.</div>
+<p><strong>Tenant Delegato</strong> (login utente, nessuna App Registration): assegnazione diretta,
+un solo passaggio.</p>
+<ol>
+  <li>Vai su <a href="https://compliance.microsoft.com">compliance.microsoft.com</a> → <strong>Ruoli e ambiti</strong> → <strong>Autorizzazioni</strong></li>
+  <li>Cerca il gruppo di ruoli <strong>"Compliance Administrator"</strong> (o un ruolo piu' mirato tipo "Records Management"/"Retention Management" se disponibile nel tenant)</li>
+  <li>Aggiungi come membro l'utente delegato (lo stesso UPN gia' usato per Exchange)</li>
+</ol>
+<p><strong>Tenant AppOnly</strong> (service principal/certificato): un service principal non e'
+assegnabile direttamente a un gruppo di ruoli Purview - serve un gruppo di sicurezza Entra ID
+come tramite:</p>
+<ol>
+  <li>Crea un gruppo di sicurezza Entra ID con l'opzione <strong>"Azure AD roles can be assigned to this group" = Yes</strong> attiva alla creazione (va impostata alla creazione, non modificabile dopo su un gruppo gia' esistente)</li>
+  <li>Aggiungi il service principal dell'App Registration (AppOnly) come membro di quel gruppo</li>
+  <li>Da Security & Compliance PowerShell, assegna il GRUPPO (non il service principal) al ruolo:
+    <code>Add-RoleGroupMember -Identity "Compliance Administrator" -Member "&lt;nome del gruppo di sicurezza&gt;"</code></li>
+</ol>
+<div class="warn"><strong>Limite aggiuntivo per AppOnly, dalla stessa fonte:</strong> anche dopo aver
+assegnato il ruolo, l'autenticazione app-only (certificato) copre solo i permessi Application - non
+sufficiente per alcuni cmdlet di ricerca compliance specifici (es. <code>Start-ComplianceSearch</code>,
+<code>New-ComplianceSearchAction</code>), che richiederebbero permessi Delegated anche su un tenant
+configurato AppOnly. Non ancora verificato se questa limitazione tocca anche
+<code>Get-RetentionCompliancePolicy</code> (lettura semplice, non una ricerca) - da confermare
+quando il ruolo sara' assegnato sul tenant di test.</div>
+<div class="warn">Verificato dal vivo il 18/08/2026 SENZA questo ruolo: <code>Connect-IPPSSession</code>
+autentica correttamente (nessun errore di connessione) ma espone SOLO i cmdlet coperti dai ruoli
+gia' assegnati - sul tenant di test, solo quelli di Quarantena (<code>Get-QuarantineMessage</code>
+e affini, gia' funzionanti). <code>Get-RetentionCompliancePolicy</code> risulta quindi "term not
+recognized", lo STESSO messaggio che comparirebbe per un nome di comando sbagliato - a differenza
+di SharePoint/Teams, che rispondono con un errore di permesso esplicito ("Unauthorized"/"Access
+Denied"). Se la lettura fallisce con questo messaggio, la causa piu' probabile e' il ruolo
+mancante, non un errore di battitura nel nome del cmdlet.</div>
+</section>
+
+<!-- ============================== 5 ============================== -->
+<section class="page">
+<h2>5. Certificato ed Exchange.ManageAsApp</h2>
+<p>Exchange Online PowerShell in modalità app-only <strong>non supporta i client secret</strong>:
+richiede autenticazione a certificato.</p>
+
+<h3>5.1 Generazione del certificato (una tantum, sul PC amministrativo)</h3>
+<pre class="code">$cert = New-SelfSignedCertificate -Subject "CN=M365Ops-Exchange" `
+    -CertStoreLocation "Cert:\CurrentUser\My" -KeyExportPolicy Exportable `
+    -KeySpec Signature -KeyLength 2048 -KeyAlgorithm RSA -HashAlgorithm SHA256
+
+Export-Certificate -Cert $cert -FilePath "Config\M365Ops-Exchange.cer"
+$cert.Thumbprint   <span class="c"># salva questo valore: serve al passo 5.3</span></pre>
+<p>Il file <code>.cer</code> (chiave pubblica, nessun segreto) va caricato sul portale; la chiave
+privata resta nel certificate store di Windows di questo PC e non va mai copiata altrove.</p>
+
+<h3>5.2 Caricamento su Entra ID</h3>
+<ol>
+  <li>App registration → Certificates &amp; secrets → tab <strong>Certificates</strong> → Upload certificate</li>
+  <li>Seleziona <code>Config\M365Ops-Exchange.cer</code></li>
+</ol>
+
+<h3>5.3 Permesso Exchange.ManageAsApp</h3>
+<div class="ok">Non è un permesso Microsoft Graph — è un'API separata, si trova in un punto diverso del portale.</div>
+<ol>
+  <li>API permissions → <strong>Add a permission</strong></li>
+  <li>Tab <strong>"APIs my organization uses"</strong> (non "Microsoft APIs") → cerca <strong>"Office 365 Exchange Online"</strong></li>
+  <li><strong>Application permissions</strong> (non Delegated) → spunta <strong>Exchange.ManageAsApp</strong> → Add permissions</li>
+  <li><strong>Grant admin consent</strong></li>
+</ol>
+</section>
+
+<!-- ============================== 6 ============================== -->
+<section class="page">
+<h2>6. Ruoli RBAC su Exchange Online</h2>
+<p>Avere il permesso <code>Exchange.ManageAsApp</code> non basta: il service principal dell'app deve
+anche essere <strong>registrato dentro Exchange Online</strong> e ricevere un ruolo RBAC. Questo passo
+richiede una sessione interattiva come Global/Exchange Admin (non può essere automatizzato
+dall'app stessa, che gira app-only).</p>
+
+<pre class="code"><span class="c"># una tantum, sul PC amministrativo</span>
+Install-Module ExchangeOnlineManagement -Scope CurrentUser
+Connect-ExchangeOnline -UserPrincipalName tuo-admin@contoso.onmicrosoft.com</pre>
+
+<h3>6.1 Registrare il service principal in Exchange Online</h3>
+<div class="warn">Serve l'<strong>Object ID della Enterprise Application</strong> (Entra ID → Enterprise
+applications → cerca il nome dell'app → Overview → Object ID) — è diverso dall'Object ID della
+App Registration.</div>
+<pre class="code">New-ServicePrincipal -AppId "00000000-0000-0000-0000-000000000001" `
+    -ObjectId "&lt;Object-ID-della-Enterprise-Application&gt;" `
+    -DisplayName "M365Ops"</pre>
+
+<h3>6.2 Assegnazione del ruolo — due opzioni</h3>
+<h4>Opzione A — Full admin (tenant di test) <span class="badge">usata su contoso-test</span></h4>
+<pre class="code">Add-RoleGroupMember "Organization Management" -Member "M365Ops"</pre>
+<p>Il ruolo più ampio disponibile. Comodo in un tenant di test dove non serve calibrare i permessi,
+ma va evitato su un tenant cliente reale in produzione.</p>
+
+<h4>Opzione B — Permessi minimi (consigliata per tenant di produzione)</h4>
+<pre class="code">New-RoleGroup -Name "M365Ops-ReadOnly" `
+    -Roles "View-Only Recipients","View-Only Configuration" `
+    -Members "M365Ops"</pre>
+<p>Sufficiente per le funzionalità attuali (lettura mailbox condivise e permessi FullAccess/SendAs/
+SendOnBehalf), che sono di sola lettura.</p>
+
+<h3>6.3 Verifica</h3>
+<pre class="code">Get-ServicePrincipal | Where-Object DisplayName -eq "M365Ops"
+Get-RoleGroupMember "Organization Management"   <span class="c"># o "M365Ops-ReadOnly"</span>
+Get-ManagementRoleAssignment -RoleAssignee "M365Ops"   <span class="c"># conferma i ruoli effettivi assegnati</span>
+Disconnect-ExchangeOnline -Confirm:$false</pre>
+<p>Poi, dall'app, tab Manutenzione/MCP → pulsante "Test connessione Exchange".</p>
+
+<div class="warn">
+<strong>Attenzione ai tempi di propagazione.</strong> Anche se <code>Get-RoleGroupMember</code>
+mostra subito il service principal come membro, l'assegnazione RBAC può impiegare
+<strong>fino a 60 minuti</strong> (tipicamente 15-30) prima di diventare effettiva per
+l'autenticazione app-only/certificato. In questa finestra la connessione fallisce con:
+<pre class="code">Errore: The user "&lt;tenant&gt;\&lt;AppId&gt;" isn't assigned to any management roles.</pre>
+Non è un errore di configurazione: se <code>Get-ManagementRoleAssignment -RoleAssignee</code>
+restituisce righe, basta attendere e riprovare — non serve rifare i passi precedenti.
+</div>
+</section>
+
+<!-- ============================== 7 ============================== -->
+<section class="page">
+<h2>7. Registrazione del tenant nel modulo</h2>
+<p>Il file <code>Config\tenants.json</code> è la fonte di verità per ogni tenant configurato.
+<strong>Non contiene mai segreti</strong>: solo ID, thumbprint del certificato (non è un segreto) e
+il NOME della variabile d'ambiente che contiene il client secret.</p>
+
+<pre class="code">Import-Module .\M365Ops.psd1
+
+Set-M365OpsTenant -Name "contoso-test" -TenantId "contoso.onmicrosoft.com" `
+    -ClientId "00000000-0000-0000-0000-000000000001" -SecretEnvVar "M365_CLIENT_SECRET" `
+    -ExchangeCertThumbprint "0000000000000000000000000000000000000000" `
+    -EmailSender "diego@contoso.com"
+
+<span class="c"># il secret si imposta UNA VOLTA sul PC, fuori da questo modulo</span>
+setx M365_CLIENT_SECRET "il-valore-copiato-dal-portale"
+setx ANTHROPIC_API_KEY  "la-tua-api-key-claude"
+
+Connect-M365Ops -TenantProfile "contoso-test"</pre>
+
+<h3>Aggiungere un secondo tenant (in parallelo, senza toccare il primo)</h3>
+<pre class="code">Set-M365OpsTenant -Name "cliente-x" -TenantId "clientex.onmicrosoft.com" `
+    -ClientId "&lt;app-registration-id-cliente-x&gt;" -SecretEnvVar "M365_CLIENT_SECRET_CLIENTEX"
+setx M365_CLIENT_SECRET_CLIENTEX "..."
+Connect-M365Ops -TenantProfile "cliente-x"</pre>
+<div class="note">Ogni tenant ha la propria App Registration, il proprio certificato Exchange, il
+proprio mittente email e i propri connettori MCP (sezione 9) — tutto annidato nel <em>proprio</em>
+oggetto dentro <code>tenants.json</code>, senza condivisione con altri profili.</div>
+</section>
+
+<!-- ============================== 8 ============================== -->
+<section class="page">
+<h2>8. Motore AI (Claude / Azure OpenAI)</h2>
+<table>
+<tr><th>Provider</th><th>Variabili richieste</th><th>Tool-calling reale (chat con dati)</th></tr>
+<tr><td>Claude (default)</td><td><code>ANTHROPIC_API_KEY</code></td><td><span class="badge done">implementato</span></td></tr>
+<tr><td>Azure OpenAI</td><td><code>AZURE_OPENAI_KEY</code>, <code>AZURE_OPENAI_ENDPOINT</code>, <code>AZURE_OPENAI_DEPLOYMENT</code></td><td><span class="badge done">implementato</span></td></tr>
+</table>
+<p>Il provider si sceglie dal tab "Motore AI" delle impostazioni dell'app (persistito su
+<code>Config\ai-provider.json</code> — sopravvive al riavvio del server) e vale per <strong>tutto</strong>:
+sia la chat libera con accesso reale ai dati (<code>Invoke-M365OpsAgentTools</code>) sia le
+chiamate singole senza strumenti (analisi pattern, diagnosi/correzione errori). Non è più vero,
+dal 15/08/2026, che la chat richieda sempre Claude a prescindere dal selettore.</p>
+
+<h3>8.1 Due API diverse, stesso set di strumenti</h3>
+<p>Claude (Anthropic Messages API) e Azure OpenAI (Chat Completions API, parametro
+<code>tools</code>/<code>tool_choice</code>) hanno una forma di richiesta e risposta
+strutturalmente diversa — verificato sulla documentazione Microsoft Learn reale, non
+assunto per analogia. <code>Invoke-M365OpsAgentTools</code> gestisce questa differenza
+ramificando <strong>solo</strong> la parte che parla con l'API (costruzione della richiesta,
+lettura della risposta); le <strong>definizioni degli strumenti</strong> (quali dati
+leggono/scrivono) e la logica che li esegue restano un unico blocco condiviso tra i due
+provider — ogni chiamata a uno strumento, da qualunque provider arrivi, viene prima
+ricondotta alla stessa forma interna prima di essere eseguita, così aggiungere uno strumento
+nuovo richiede una sola modifica, non due.</p>
+
+<h3>8.2 Un limite reale di Azure OpenAI: 1024 caratteri per descrizione strumento</h3>
+<p>Azure OpenAI rifiuta (o tronca, a seconda del client) una descrizione di funzione oltre i
+1024 caratteri — Claude non ha questo limite. Due strumenti di questo modulo (<code>exo_query</code>
+e <code>propose_exo_write</code>, che elencano l'intero catalogo delle 50+ cmdlet Exchange
+nella propria descrizione) superano abbondantemente quella soglia. Invece di troncarli a metà
+elenco perdendo cmdlet in modo silenzioso, per il ramo Azure la descrizione lunga viene
+accorciata nella definizione dello strumento e il contenuto integrale spostato nel messaggio
+di sistema della conversazione — il modello vede comunque l'elenco completo, solo in una
+posizione diversa della richiesta.</p>
+
+<div class="warn"><strong>Bug reale corretto lo stesso giorno.</strong> La prima versione del
+supporto Azure OpenAI aveva un difetto di scoping identico a un altro già risolto in
+precedenza: <code>Invoke-M365OpsAgentTools</code> vive nel modulo, quindi il suo
+<code>$script:</code> è lo scope del <em>modulo</em>, non quello di <code>Server.ps1</code> —
+un valore di default basato su <code>$script:ActiveAIProvider</code> dentro la funzione vedeva
+sempre <code>$null</code> e cadeva silenziosamente su Claude, a prescindere dalla scelta reale
+in GUI. Corretto obbligando <code>Server.ps1</code> a passare <code>-Provider</code> in modo
+esplicito ad ogni chiamata, come già avviene per ogni altra funzione AI del modulo.</div>
+
+<h3>8.3 Configurare un deployment Azure OpenAI in Azure AI Foundry</h3>
+<p>Serve un <strong>deployment</strong> (non basta avere una sottoscrizione Azure) — un modello
+scelto e attivato dentro una risorsa Azure OpenAI/progetto Azure AI Foundry, con un nome che poi
+va inserito nell'app. Percorso completo, testato dal vivo il 15/08/2026:</p>
+<ol>
+<li>Vai su <a href="https://ai.azure.com">ai.azure.com</a> (Azure AI Foundry) → apri o crea un progetto.</li>
+<li><strong>Deployments</strong> → <strong>Deploy a base model</strong>.</li>
+<li>Scegli un modello — vedi 8.3.1 per quale.</li>
+<li>Dai un nome al deployment (può essere uguale al nome del modello, es. <code>gpt-5-mini</code>) → conferma.</li>
+<li>A deployment completato ("Succeeded"), nel pannello di destra trovi i tre valori che
+    servono all'app: <strong>Project endpoint</strong>, <strong>API Key</strong> (icona occhio per
+    rivelarla), e il nome del deployment appena scelto.</li>
+<li>Nell'app, tab <strong>Motore AI</strong> → provider Azure OpenAI → incolla i tre valori
+    (endpoint, chiave, nome deployment esatto — case-sensitive) → Salva → <strong>Testa
+    connessione</strong>.</li>
+</ol>
+
+<h3>8.3.1 Quale modello scegliere</h3>
+<p>Nel catalogo modelli di Azure AI Foundry, evita:</p>
+<ul>
+<li><strong>varianti "codex"</strong> — specializzate per generazione di codice, non per
+    ragionamento/uso di strumenti generico: non è il compito di questa app;</li>
+<li><strong>tier "nano"</strong> — il più economico, ma anche il meno affidabile su
+    orchestrazione multi-passo di strumenti (esattamente il compito di
+    <code>Invoke-M365OpsAgentTools</code>);</li>
+<li><strong>tier "pro"</strong> — capacità più alta ma latenza/costo maggiori, non
+    necessari qui: la chat fa già fino a 8 giri di chiamate per una singola domanda.</li>
+</ul>
+<p>Il <strong>tier "mini"</strong> del modello più recente disponibile nel catalogo è il
+compromesso giusto tra costo, velocità e affidabilità sul tool-calling — usato e verificato
+dal vivo con <code>gpt-5-mini</code>.</p>
+
+<h3>8.3.2 Due incidenti reali, entrambi corretti nel codice (non serve più pensarci)</h3>
+<div class="warn">
+<strong>1. Due formati di endpoint diversi.</strong> Il portale Azure mostra l'endpoint in due
+forme diverse a seconda di dove lo copi: quella "classica" della risorsa Azure OpenAI
+(<code>https://risorsa.openai.azure.com/</code>) e quella più recente "Project endpoint" di
+Azure AI Foundry (<code>https://risorsa.services.ai.azure.com/openai/v1</code>). Il modulo
+costruisce sempre la stessa chiamata REST classica
+(<code>/openai/deployments/{deployment}/chat/completions?api-version=...</code>), che va
+applicata alla <em>radice</em> della risorsa — incollare la seconda forma senza normalizzare
+produceva un URL con <code>/openai/</code> duplicato e un 404. Corretto: l'endpoint viene
+normalizzato automaticamente (rimosso un eventuale <code>/openai/v1</code> o <code>/openai</code>
+finale) prima di costruire la chiamata, qualunque delle due forme incolli.
+</div>
+<div class="warn">
+<strong>2. <code>max_tokens</code> rifiutato dai modelli "reasoning".</strong> I modelli più
+recenti (serie o1/o3/o4 e famiglia gpt-5.x, incluso <code>gpt-5-mini</code>) rispondono <strong>400
+Bad Request</strong> al parametro <code>max_tokens</code>, e vogliono
+<code>max_completion_tokens</code> al suo posto — non deducibile in anticipo dal solo nome del
+deployment. Corretto: il modulo prova prima con <code>max_tokens</code> (compatibile con i
+modelli più vecchi) e, solo se Azure risponde con quell'errore specifico, riprova automaticamente
+con <code>max_completion_tokens</code> — nessuna azione manuale richiesta, la scelta giusta viene
+anche ricordata tra un giro di tool-calling e il successivo nella stessa conversazione.
+</div>
+<div class="ok"><strong>Testato dal vivo.</strong> Dopo questi due fix, una domanda reale
+("elenco licenze del tenant") ha attraversato l'intero ciclo nuovo — costruzione della richiesta,
+chiamata a <code>graph_api_call /subscribedSkus</code>, e risposta finale — con Azure OpenAI
+(<code>gpt-5-mini</code>) come provider attivo, in circa 15 secondi.</div>
+</section>
+
+<!-- ============================== 9 ============================== -->
+<section class="page">
+<h2>9. Connettori MCP (Lokka) — configurazione per-tenant</h2>
+<p>Lokka è un server MCP open-source che esegue chiamate Graph/Azure REST generiche. È lo
+strumento <strong>primario</strong> usato dall'AI per leggere e proporre scritture — le cmdlet
+interne del modulo restano come fallback, usate solo se Lokka non copre il caso.</p>
+<div class="note">Sui tenant <strong>Delegati</strong>, Lokka (client credentials) non è mai
+disponibile — ma gli strumenti <code>graph_api_call</code>/<code>propose_graph_write</code> restano
+comunque offerti all'AI: a runtime scelgono da soli se passare da Lokka o da una chiamata diretta
+con <code>Invoke-M365OpsGraphRequest</code> usando lo stesso token delegato già in uso per le
+altre funzioni. Bug reale corretto: in una prima versione questi strumenti venivano esclusi del
+tutto sui tenant Delegati, impedendo di leggere dati Graph generici (es. licenze utente via
+<code>/users/{id}/licenseDetails</code>) nonostante il token valido fosse già disponibile.</div>
+<p>La configurazione (comando, argomenti, mapping variabili) vive dentro la sotto-sezione
+<code>McpServers</code> del profilo tenant attivo in <code>tenants.json</code>, modificabile anche
+da GUI (tab MCP-Connettori):</p>
+<pre class="code">{
+  "contoso-test": {
+    ...
+    "McpServers": {
+      "lokka": { "command": "npx", "args": "-y @merill/lokka", "envMapping": "none" }
+    }
+  }
+}</pre>
+<div class="note">Perché tenant-scoped: due tenant diversi possono avere connettori, credenziali
+o versioni del server MCP diverse in parallelo, senza che la configurazione dell'uno interferisca
+con quella dell'altro.</div>
+<pre class="code"><span class="c"># riconnettere Lokka manualmente dopo una modifica</span>
+Connect-M365OpsLokka
+<span class="c"># rimuovere un server MCP (Lokka torna ai valori di default anziche' sparire)</span>
+Remove-M365OpsMcpServer -Name "nome-server"</pre>
+<p>Dalla GUI: ogni server elencato sotto "Altri server MCP" ha un pulsante "Rimuovi" (con
+conferma). Lokka non è rimovibile da lì (è builtIn): "rimuoverlo" significherebbe solo
+azzerare una personalizzazione, quindi si gestisce modificando i campi comando/argomenti.</p>
+</section>
+
+<!-- ============================== 10 ============================== -->
+<section class="page">
+<h2>10. Autenticazione delegata (utente + MFA) — tenant senza App Registration</h2>
+<p>Tutto il modulo, finora, presume che tu possa creare un'App Registration sul tenant target
+(sezione 4). Nella pratica capita spesso di gestire tenant dove hai ruoli admin delegati
+(Exchange Administrator, User Administrator, Teams Administrator...) ma <strong>non</strong> i
+permessi per registrare un'app (serve Global Administrator, Application Administrator o Cloud
+Application Administrator). Per questi casi esiste una seconda modalità, per-tenant, che non
+richiede alcuna App Registration.</p>
+
+<h3>10.1 Come funziona</h3>
+<p>Il profilo tenant si imposta con <code>AuthMode: Delegated</code> invece di <code>AppOnly</code>.
+In questa modalità il modulo non usa client credentials: usa un <strong>login interattivo con il
+tuo utente</strong> (username + password + MFA), tramite il client pubblico multi-tenant di
+Microsoft "Microsoft Graph Command Line Tools" (id <code>14d82eec-204b-4c2f-b7e8-296a70dab67e</code>)
+— un'app di Microsoft stessa, già presente in ogni tenant, che non richiede nessuna registrazione
+da parte tua. Il token risultante riflette esattamente i ruoli RBAC già assegnati al tuo utente su
+quel tenant: se hai Exchange Administrator, puoi leggere/scrivere ciò che quel ruolo permette; se
+non hai un ruolo su una risorsa, quella chiamata fallirà — esattamente come nel portale.</p>
+
+<h3>10.2 Isolamento tra tenant — non negoziabile</h3>
+<div class="warn">
+Un tenant AppOnly e un tenant Delegated (o due tenant Delegated diversi) non condividono MAI
+stato. Ad ogni cambio tenant (<code>Connect-M365Ops -TenantProfile ...</code>), il modulo:
+<ul>
+<li>chiude esplicitamente la sessione Exchange Online precedente, se attiva;</li>
+<li>ferma il sottoprocesso Lokka precedente, se attivo.</li>
+</ul>
+Senza questo, Lokka (un unico sottoprocesso globale) e la sessione Exchange Online (remoting
+implicito, anch'esso globale) potrebbero restare agganciati al tenant precedente e far eseguire
+un comando pensato per il tenant appena attivato contro quello sbagliato. Il cambio tenant è
+sempre un'azione esplicita tua — non avviene mai automaticamente in mezzo a una conversazione.
+</div>
+
+<h3>10.3 Configurazione</h3>
+<pre class="code">Set-M365OpsTenant -Name "cliente-y" -TenantId "clientey.onmicrosoft.com" `
+    -AuthMode Delegated -DelegatedUpn "mario.rossi@clientey.onmicrosoft.com"
+Connect-M365Ops -TenantProfile "cliente-y"</pre>
+<p>Oppure dalla GUI: tab Tenant → "Modalità di autenticazione" → Delegata → inserisci il tuo UPN
+su quel tenant → Salva profilo. Compare un riquadro "Login delegato" con un pulsante
+<strong>"Accedi con il mio utente"</strong>.</p>
+
+<h3>10.4 Primo login (device code flow)</h3>
+<ol>
+<li>Clic su "Accedi con il mio utente": l'app mostra un URL (<code>microsoft.com/devicelogin</code>) e un codice a 9 caratteri.</li>
+<li>Apri l'URL in un browser (anche su un altro dispositivo), inserisci il codice, accedi con il tuo utente e completa l'MFA.</li>
+<li>La GUI verifica in background (polling automatico) e conferma appena il login è completato — nessuna azione ulteriore da parte tua.</li>
+</ol>
+<p>Il token viene tenuto in cache <strong>solo in memoria</strong> per la durata del processo
+(mai scritto su disco, stesso principio di zero-segreti-in-chiaro delle altre credenziali) e
+si auto-rinnova finché resta usato regolarmente; se il server si riavvia, va rifatto il login.</p>
+
+<h3>10.5 Limiti noti di questa modalità</h3>
+<table>
+<tr><th>Aspetto</th><th>AppOnly</th><th>Delegated</th></tr>
+<tr><td>Serve App Registration</td><td>Sì</td><td>No</td></tr>
+<tr><td>Esecuzione unattended</td><td>Sì, sempre</td><td>No — richiede un login umano ogni volta che la sessione scade</td></tr>
+<tr><td>Permessi effettivi</td><td>Quelli concessi all'app (admin consent)</td><td>Quelli del ruolo RBAC del tuo utente su quel tenant</td></tr>
+<tr><td>Lokka (MCP)</td><td>Disponibile</td><td>Non disponibile — richiede client credentials. L'AI usa solo <code>exo_query</code>/le cmdlet dirette</td></tr>
+<tr><td>Connessione Exchange</td><td>Silenziosa (certificato)</td><td>Apre una finestra di login interattiva — blocca il server finché non completi</td></tr>
+</table>
+<div class="note">In pratica: usa AppOnly ovunque puoi (è il modello con cui è stato pensato tutto
+il resto del sistema); usa Delegated solo sui tenant dove non hai alternativa, sapendo che quel
+tenant specifico richiederà un tuo login occasionale invece di girare 24/7 senza interazione.</div>
+
+<h3>10.6 Rischio di blocco — perché la connessione Exchange delegata non è mai automatica</h3>
+<p>Il server di questo modulo gestisce le richieste HTTP <strong>una alla volta</strong>
+(single-threaded): se una richiesta si blocca in attesa di qualcosa, <strong>l'intera app resta
+ferma per chiunque</strong>, non solo per chi ha fatto quella richiesta specifica.</p>
+<div class="warn">
+<strong>Incidente reale.</strong> Su un tenant Delegated appena attivato (login Graph già
+completato, ma sessione Exchange non ancora stabilita), una domanda in chat ("elenco licenze")
+ha fatto sì che l'AI provasse una cmdlet Exchange (<code>exo_query</code>). Ogni cmdlet Exchange
+chiama <code>Connect-M365OpsExchange</code> come primo passo, che in modalità Delegated avrebbe
+aperto un login interattivo — bloccando il server per <em>tutti</em>, per minuti, senza alcun
+feedback, finché il processo non è stato terminato manualmente da riga di comando.
+</div>
+<p><strong>Prima correzione (fail-fast):</strong> <code>Connect-M365OpsExchange</code> su un tenant
+Delegato senza sessione già attiva fallisce <strong>immediatamente</strong> con un messaggio
+chiaro invece di tentare un login bloccante, quando la connessione scatterebbe come effetto
+collaterale implicito di un tool AI (es. <code>exo_query</code>).</p>
+<p><strong>Seconda correzione (device code non bloccante) — la connessione esplicita stessa non
+blocca più:</strong> il primo tentativo di connessione esplicita (pulsante "Connetti Exchange")
+usava <code>Connect-ExchangeOnline -Device</code>, che stampa il codice solo nella console del
+processo — invisibile per un server lanciato in background — e blocca comunque l'intera app fino
+al completamento. Ora il pulsante usa lo stesso principio già collaudato per il login Graph
+(sezione 10.4): richiesta del codice device separata e non bloccante (client id
+<code>fb78d390-0c51-40cd-8e17-fdbfab77341b</code>, estratto e verificato empiricamente dal .dll
+del modulo <code>ExchangeOnlineManagement</code> — il client "legacy" <code>a0c73c16-...</code>
+talvolta citato online risulta disabilitato sui tenant moderni), polling non bloccante per il
+completamento, e solo alla fine <code>Connect-ExchangeOnline -AccessToken</code> (rapido, nessuna
+interazione umana necessaria a quel punto) per stabilire la sessione vera e propria. Il codice
+compare direttamente nella GUI, non serve più che qualcuno lo legga dalla console per te.</p>
+<div class="ok">Testato dal vivo, incidente reale: prima il server è rimasto bloccato senza feedback
+finché non è stato terminato a mano da riga di comando; il codice generato era visibile solo
+nella console del processo (<code>To sign in, use a web browser to open the page
+https://login.microsoft.com/device and enter the code ...</code>). Con la correzione, lo stesso
+flusso ora restituisce il codice immediatamente nella risposta HTTP, senza mai bloccare il server.</div>
+
+<h3>10.7 GUI riorganizzata — stato connessioni sempre visibile</h3>
+<p>Il tab <strong>Tenant</strong> ora mostra, subito sotto l'elenco profili, un pannello "Stato
+connessioni — tenant attivo" con un indicatore per ciascuno (pallino verde/giallo): modalità
+(App-only/Delegata), Microsoft Graph, Exchange Online, e Lokka (solo App-only, non pertinente in
+modalità Delegata). La sezione <strong>Exchange Online</strong> (pulsante di connessione/test) è
+stata spostata qui da MCP/Connettori, dato che è dal tab Tenant che si gestisce tutto il resto
+del tenant attivo — il tab MCP/Connettori ora contiene solo Lokka e altri server MCP.</p>
+<div class="ok">Il provider AI selezionato nel tab "Motore AI" è persistito su
+<code>Config\ai-provider.json</code> (solo il nome, non è un segreto) — un riavvio del server
+lo ricarica automaticamente, non torna più a Claude come default se stavi usando Azure OpenAI.</div>
+
+<h3>10.8 Permessi Microsoft Graph richiesti in modalità Delegata</h3>
+<p>A differenza di AppOnly (dove i permessi si scelgono e si concedono manualmente in fase di
+App Registration, sezione 4.2), in modalità Delegata i permessi sono uno <strong>scope OAuth
+richiesto al login</strong>: il token contiene solo ciò che è stato esplicitamente domandato in
+<code>Private\Invoke-M365OpsDeviceCodeFlow.ps1</code> (<code>$script:M365OpsDeviceCodeScopes</code>),
+non ciò che l'utente avrebbe "in teoria" tramite i propri ruoli RBAC. Uno scope non richiesto qui
+produce un 403 che sembra un problema di consenso admin per un'app estranea, ma è quasi sempre
+solo che il token non l'ha mai chiesto — incontrato due volte dal vivo
+(<code>Organization.Read.All</code> per il report licenze, <code>UserAuthenticationMethod.ReadWrite.All</code>
+per lo stato/reset MFA) prima di arrivare all'elenco completo sotto.</p>
+<table>
+<tr><th>Permesso</th><th>Motivo</th></tr>
+<tr><td><code>DeviceManagementManagedDevices.Read.All</code></td><td>lettura device Intune, stato compliance</td></tr>
+<tr><td><code>DeviceManagementConfiguration.ReadWrite.All</code></td><td>profili di configurazione</td></tr>
+<tr><td><code>DeviceManagementApps.ReadWrite.All</code></td><td>app Intune (Win32, Store), assegnazioni</td></tr>
+<tr><td><code>Group.ReadWrite.All</code></td><td>creazione gruppi, gestione membri</td></tr>
+<tr><td><code>User.ReadWrite.All</code></td><td>lettura e scrittura su utenti (es. disabilitare un account)</td></tr>
+<tr><td><code>UserAuthenticationMethod.ReadWrite.All</code></td><td>stato MFA e reset (sezione 21) — scope dedicato, <em>non</em> coperto da User.ReadWrite.All</td></tr>
+<tr><td><code>Directory.Read.All</code></td><td>lettura oggetti directory generici oltre a utenti/gruppi</td></tr>
+<tr><td><code>Organization.Read.All</code></td><td>informazioni tenant, licenze (<code>/subscribedSkus</code>, <code>/organization</code>)</td></tr>
+<tr><td><code>AuditLog.Read.All</code></td><td>log di sign-in</td></tr>
+<tr><td><code>RoleManagement.Read.Directory</code></td><td>lettura assegnazioni di ruolo (sola lettura — vedi nota sotto)</td></tr>
+<tr><td><code>Reports.Read.All</code></td><td>report di utilizzo (usage report Microsoft 365)</td></tr>
+<tr><td><code>Sites.Read.All</code></td><td>lettura siti SharePoint</td></tr>
+<tr><td><code>Application.Read.All</code></td><td>visibilità sulle App Registration del tenant (sola lettura)</td></tr>
+<tr><td><code>SecurityEvents.Read.All</code></td><td>segnali di sicurezza/Identity Protection</td></tr>
+<tr><td><code>Policy.Read.All</code></td><td>lettura policy del tenant (es. Conditional Access — sola lettura)</td></tr>
+<tr><td><code>Team.ReadBasic.All</code> / <code>Channel.ReadBasic.All</code></td><td>dati Teams di base</td></tr>
+<tr><td><code>Mail.Send</code></td><td>invio report generati via email</td></tr>
+<tr><td><code>offline_access</code></td><td>refresh token — senza, la sessione non si rinnova da sola</td></tr>
+</table>
+<div class="warn"><strong>Scritture ad alto raggio d'azione escluse di proposito.</strong>
+<code>RoleManagement.ReadWrite.Directory</code> (assegna/revoca ruoli admin),
+<code>Policy.ReadWrite.ConditionalAccess</code> (un Conditional Access sbagliato può bloccare
+fuori l'intero tenant) e <code>Application.ReadWrite.All</code> (può creare credenziali su
+un'app) non sono nello scope richiesto — vanno aggiunti solo su richiesta esplicita per una
+funzionalità reale già costruita, mai "perché potrebbe servire".</div>
+<div class="note">Ogni volta che si aggiunge un nuovo scope, serve un <strong>nuovo login</strong>
+(tab Tenant → "Accedi con il mio utente") — un token già in cache non guadagna retroattivamente
+un permesso non richiesto al momento in cui è stato emesso. La prima volta che un nuovo scope
+viene effettivamente usato può comparire una schermata di consenso durante il login stesso,
+normale per un permesso mai richiesto prima su quel tenant.</div>
+
+<h3>10.9 Connessione Intune in modalità Delegata — un limite del modulo di terze parti, non nostro</h3>
+<p>La pacchettizzazione app Win32 (<code>New-M365OpsWin32App</code>) passa dal modulo di terze
+parti <code>IntuneWin32App</code>, che gestisce la propria autenticazione in modo indipendente
+dal resto di questo progetto — non condivide il token Graph già in uso per tutto il resto.</p>
+<div class="warn"><strong>Incidente reale.</strong> Il flusso a codice dispositivo
+(<code>Connect-MSIntuneGraph -DeviceCode</code>) di <code>IntuneWin32App</code> ha un bug reale
+su PowerShell 7: il gestore d'errore del ciclo di polling chiama
+<code>$ErrorResponse.GetResponseStream()</code>, un metodo che esiste solo su
+<code>System.Net.WebResponse</code> (.NET Framework), non su
+<code>System.Net.Http.HttpResponseMessage</code> (le eccezioni di PS7) — crolla sul primissimo
+"in attesa che l'utente completi il login", cioè sempre, a prescindere da quanto in fretta si
+inserisca il codice. Il flusso a codice dispositivo per Intune quindi <strong>non può
+funzionare</strong> su questo sistema, indipendentemente da qualunque cosa faccia questo modulo.</div>
+<p>Corretto passando a <code>-Interactive</code> (<code>Connect-MSIntuneGraph -Interactive</code>),
+un flusso PKCE con redirect su <code>localhost</code> scritto da zero dal modulo stesso, che non
+condivide quel bug — apre il browser di sistema con <strong>selezione account esplicita</strong>
+(<code>prompt=select_account</code>), utile anche per essere certi di quale utenza si stia usando.</p>
+<h4>Connessione esplicita, mai implicita</h4>
+<p>Come per Exchange (sezione 10.6), la connessione Intune su un tenant Delegato non parte mai
+da sola dentro un'azione automatica: <code>Connect-M365OpsIntune</code> fallisce subito con un
+messaggio chiaro se non c'è già una sessione valida, a meno di essere chiamata esplicitamente
+con <code>-AllowInteractive</code> — riservato al pulsante dedicato <strong>"Connetti Intune
+(browser)"</strong> nel tab Tenant. Il pulsante avvisa esplicitamente che il server resterà
+bloccato (a thread singolo, sezione 10.6) finché non completi il login nel browser appena
+aperto — va quindi cliccato PRIMA di chiedere in chat di pacchettizzare un'app, mai durante una
+richiesta composta dove bloccherebbe l'app senza preavviso.</p>
+<h4>Verifica dal vivo, non solo un flag</h4>
+<p>La connessione non si considera valida solo perché <code>Connect-MSIntuneGraph</code> non ha
+sollevato un errore: <code>Test-M365OpsIntuneAuthValid</code> chiama Graph con il token appena
+ottenuto (<code>/organization</code>) e confronta il tenant risolto con quello attivo — se non
+combaciano (token/cache riusato da un'altra sessione) o la chiamata fallisce, la connessione
+viene rifiutata e va rifatta, invece di scoprire il problema più tardi dentro
+<code>New-M365OpsWin32App</code> con un errore criptico del modulo. La GUI mostra l'utenza e il
+tenant effettivamente verificati, non solo un'icona verde presunta.</p>
+</section>
+
+<!-- ============================== 11 ============================== -->
+<section class="page">
+<h2>11. Le 50+ cmdlet Exchange Online e come le usa l'AI</h2>
+<p>Oltre alle due cmdlet iniziali (mailbox condivise e relativi permessi), il modulo espone oggi
+oltre 50 cmdlet Exchange Online, organizzate per area. Tutte richiedono <code>Connect-M365OpsExchange</code>
+(chiamata automaticamente al loro interno) e rispettano lo stesso principio di conferma umana per
+le scritture.</p>
+<table>
+<tr><th>Area</th><th>Esempi di cmdlet</th></tr>
+<tr><td>Mailbox condivise</td><td><code>New-M365OpsSharedMailbox</code>, <code>Grant-/Revoke-M365OpsMailboxPermission</code>, <code>Add-/Remove-M365OpsSendOnBehalf</code>, <code>Get-M365OpsSharedMailboxReport</code></td></tr>
+<tr><td>Gruppi Exchange</td><td>Distribution list, mail-security group, dynamic distribution group — Get/New/Remove, gestione membri, <code>Get-M365OpsGroupsOverviewReport</code></td></tr>
+<tr><td>Mail flow</td><td><code>Get-/New-/Set-/Remove-M365OpsTransportRule</code>, <code>Get-M365OpsMailFlowReport</code></td></tr>
+<tr><td>Tracking</td><td><code>Get-M365OpsMessageTrace</code>, <code>Get-M365OpsMessageTraceDetail</code></td></tr>
+<tr><td>Domini</td><td><code>Get-M365OpsAcceptedDomains</code></td></tr>
+<tr><td>Contatti</td><td><code>Get-/New-/Remove-M365OpsMailContact</code>, <code>Get-M365OpsMailUsers</code></td></tr>
+<tr><td>Mailbox risorsa</td><td><code>Get-M365OpsResourceMailboxes</code>, <code>New-M365OpsRoomMailbox</code>/<code>EquipmentMailbox</code>, policy di prenotazione</td></tr>
+<tr><td>Migrazioni</td><td><code>Get-M365OpsMigrationBatches</code>/<code>MigrationUserStatus</code>/<code>MigrationEndpoints</code> (lettura); <code>New-M365OpsMigrationBatch</code> — SOLO su un endpoint già configurato (mai credenziali nuove da chat), creato sempre non avviato; <code>Start-M365OpsMigrationBatch</code> per avviarlo, passo separato</td></tr>
+<tr><td>Report mailbox</td><td>Utilizzo/quota, mailbox inattive, inoltri automatici, risposte automatiche, delegati aggregati, regole sospette, litigation hold</td></tr>
+<tr><td>Sicurezza</td><td><code>Get-M365OpsInboxRulesReport</code> (regole sospette), <code>Get-M365OpsSharedMailboxSignInStatus</code> (mailbox condivise con login abilitato — rischio)</td></tr>
+<tr><td>Calendario / Cartelle pubbliche</td><td><code>Get-/Set-M365OpsCalendarPermission</code>, <code>Get-M365OpsPublicFolders</code></td></tr>
+</table>
+
+<h3>11.1 Come l'AI le usa</h3>
+<p>L'AI non ha 50 strumenti separati da scegliere (costerebbe troppo token e confonderebbe il
+modello): ha due strumenti generici, sullo stesso principio di <code>graph_api_call</code>/
+<code>propose_graph_write</code> usati per Lokka:</p>
+<ul>
+<li><strong>exo_query</strong> — sola lettura, il modello specifica quale cmdlet (dalla lista
+consentita) e con quali parametri, viene eseguita subito;</li>
+<li><strong>propose_exo_write</strong> — come <code>propose_graph_write</code>: il modello propone
+cmdlet + parametri + motivazione, ma non esegue mai nulla. La proposta torna in chat con
+"Cmdlet: ... Parametri: ... Motivo: ...", in attesa di conferma esplicita.</li>
+</ul>
+<p>Entrambi gli strumenti validano il nome della cmdlet contro una lista consentita (non è
+possibile far eseguire all'AI una cmdlet PowerShell arbitraria).</p>
+
+<h3>11.2 Report via catalogo (senza costo AI)</h3>
+<p>I report più richiesti sono anche comandi diretti del catalogo, zero costo AI: "esporta report
+utilizzo mailbox in excel", "esporta report mailbox condivise in pdf", "esporta report mailbox
+totali", "esporta report mail flow", "esporta report inoltri", "esporta report regole sospette".</p>
+<div class="note">Nota sul routing: un trigger generico come "permessi mailbox" senza specificare
+"condivise" passa volutamente all'AI (non al comando dedicato alle sole mailbox condivise) — così
+può usare <code>Get-M365OpsMailboxDelegatesReport</code>, che copre <em>tutte</em> le mailbox, non
+solo quelle condivise, ed essere esplicita sui limiti invece di rispondere con uno scope ristretto
+senza dirlo.</div>
+
+<h3>11.3 Migrazioni — solo su endpoint già esistenti</h3>
+<p>La creazione di un <strong>nuovo</strong> endpoint di migrazione (che richiede le credenziali
+del sistema sorgente esterno — server IMAP, Exchange on-premises, ecc.) resta volutamente fuori
+da questo modulo: va fatta manualmente dal centro amministrazione Exchange o con
+<code>New-MigrationEndpoint</code> diretto, con supervisione — inserire credenziali di un sistema
+esterno tramite la chat non è un caso d'uso che vogliamo abilitare.</p>
+<p>Quello che l'AI <em>può</em> fare è creare un <strong>batch</strong> su un endpoint <em>già
+configurato</em>: prima cerca gli endpoint disponibili con <code>exo_query</code> su
+<code>Get-M365OpsMigrationEndpoints</code>, poi propone <code>New-M365OpsMigrationBatch</code>
+con quell'identity esatta — <code>New-M365OpsMigrationBatch</code> rifiuta qualunque
+<code>SourceEndpoint</code> che non corrisponda esattamente a uno di quelli configurati, invece
+di lasciar passare un nome indovinato. Il batch viene sempre creato <strong>non avviato</strong>:
+avviarlo è un passo separato ed esplicito (<code>Start-M365OpsMigrationBatch</code>), con la sua
+stessa conferma umana di ogni altra scrittura.</p>
+
+<h4>Opzioni reali supportate</h4>
+<table>
+<tr><th>Opzione</th><th>Cmdlet</th><th>Effetto</th></tr>
+<tr><td><code>-Users</code></td><td><code>New-M365OpsMigrationBatch</code></td><td>Elenco preciso di indirizzi da migrare (batch mirato) — via CSV caricato o elencati in chat</td></tr>
+<tr><td><code>-Cutover</code></td><td><code>New-M365OpsMigrationBatch</code></td><td>Batch sull'intera organizzazione, nessun elenco</td></tr>
+<tr><td><code>-AutoComplete</code></td><td><code>New-M365OpsMigrationBatch</code></td><td>Ogni mailbox si finalizza da sola non appena sincronizzata; <strong>di default assente</strong> — resta in sospeso, serve conferma manuale</td></tr>
+<tr><td><code>-CompleteAfter &lt;data/ora&gt;</code></td><td><code>New-M365OpsMigrationBatch</code></td><td>Programma la finalizzazione a un momento preciso nel futuro (es. fuori orario lavorativo) invece che subito</td></tr>
+<tr><td><code>-StartAfter &lt;data/ora&gt;</code></td><td><code>Start-M365OpsMigrationBatch</code></td><td>Programma l'inizio della sincronizzazione invece di farla partire immediatamente all'avvio</td></tr>
+</table>
+
+<h4>Caricare un elenco di indirizzi da CSV</h4>
+<p>Sopra la casella di chat c'è un pulsante <strong>"Carica CSV migrazione..."</strong> (prima
+colonna del file: <code>EmailAddress</code>, un indirizzo per riga). Una volta caricato, il
+contenuto viene fornito automaticamente all'AI quando chiedi di creare un batch — non serve
+incollare gli indirizzi a mano in chat.</p>
+
+<h4>Basta un solo prompt in chat — esempio verificato dal vivo</h4>
+<p>Sì: dopo aver caricato il CSV, un singolo messaggio in linguaggio naturale è sufficiente.
+L'AI cerca da sola l'endpoint disponibile via <code>exo_query</code>, legge gli indirizzi dal
+CSV caricato, e costruisce la proposta completa:</p>
+<pre class="code"><span class="c">Utente:</span> crea un batch di migrazione chiamato TestBatch1 con gli indirizzi
+del csv caricato, usando l'endpoint disponibile, senza completamento automatico
+
+<span class="c">Risposta (proposta, non ancora eseguita):</span>
+Cmdlet: New-M365OpsMigrationBatch
+Parametri: {"SourceEndpoint":"Hybrid Migration Endpoint - EWS (Default Web Site)",
+            "Name":"TestBatch1",
+            "Users":["mario.rossi@contoso.com","anna.bianchi@contoso.com"],
+            "AutoComplete":false}
+Motivo: [spiegazione in italiano di cosa fa, mostrata prima della conferma]
+
+(rispondi 'si' per eseguirla davvero, 'no' per annullare)</pre>
+<p>Per programmare una finalizzazione futura basta aggiungerlo alla stessa frase, es. "...e
+completala automaticamente il 1 settembre alle 22" — l'AI traduce la data in <code>CompleteAfter</code>
+senza bisogno di comandi PowerShell separati.</p>
+
+<h3>11.4 Copertura completa dei parametri — mai a memoria, sempre da Microsoft Learn</h3>
+<p>Le cmdlet di scrittura di questo modulo non limitano a priori quali parametri nativi puoi
+usare: ognuna espone anche <strong><code>ExtraParams</code></strong> (un oggetto libero) per
+qualunque parametro reale della cmdlet Exchange/Graph sottostante non già previsto
+esplicitamente — es. <code>Alias</code>, <code>RetentionPolicy</code>, <code>ModeratedBy</code>
+su <code>New-Mailbox</code>, e così per ogni altra cmdlet.</p>
+<p>Per evitare che l'AI inventi un nome di parametro plausibile-ma-sbagliato (un rischio reale
+con la sola conoscenza pregressa del modello, che può essere incompleta o superata), ha accesso
+a uno strumento aggiuntivo:</p>
+<ul>
+<li><strong>lookup_ms_docs</strong> — consulta la pagina reale e aggiornata di Microsoft Learn
+per una cmdlet Exchange (URL diretto alla pagina di riferimento, con sintassi completa e tipo
+di ogni parametro) o, in fallback, la ricerca Microsoft Learn per argomenti Graph. Il modello è
+istruito a usarlo <em>prima</em> di includere in <code>ExtraParams</code> un parametro non già
+verificato in conversazione, e quando l'utente chiede esplicitamente "quali altre opzioni ci
+sono per X".</li>
+</ul>
+<div class="ok"><strong>Testato dal vivo.</strong> Alla domanda "quali altre opzioni ha
+New-Mailbox oltre a quelle che usi di solito per creare una mailbox condivisa? dammene 5",
+l'AI ha consultato <code>lookup_ms_docs "New-Mailbox"</code> e risposto con 5 parametri reali
+(<code>RetentionPolicy</code>, <code>AddressBookPolicy</code>, <code>ModeratedBy</code>/
+<code>ModerationEnabled</code>, <code>Archive</code>, <code>ThrottlingPolicy</code>), spiegando
+anche come usarli via <code>ExtraParams</code> in <code>propose_exo_write</code>.</div>
+<p>Questo principio è scritto anche nel <code>README.md</code> del modulo e in
+<code>Scripts\Custom\README.md</code> come convenzione permanente per chi (umano o AI) scrive
+o corregge codice in questo progetto: mai una chiamata a una cmdlet nativa costruita a memoria,
+sempre verificata contro la documentazione reale prima di proporla.</p>
+</section>
+
+<!-- ============================== 12 ============================== -->
+<section class="page">
+<h2>12. Avvio dell'applicazione</h2>
+<h3>12.1 Avvio con un click — M365Ops.bat</h3>
+<p>Nella cartella radice del progetto, <code>M365Ops.bat</code> (che richiama
+<code>Launch-M365Ops.ps1</code>) è il modo consigliato per l'uso quotidiano: un doppio click
+avvia il server <strong>e</strong> apre il browser sulla chat, senza passare dal terminale.</p>
+<div class="ok">Non duplica mai la sessione. Prima di avviare qualunque cosa, controlla con una
+vera chiamata HTTP a <code>/api/status</code> se un'istanza è già attiva sulla porta: se sì,
+si limita ad aprire il browser sulla sessione già in corso (stesso tenant, stessa cronologia
+chat) invece di avviarne una seconda in conflitto sulla stessa porta o lasciarne una orfana in
+background. Legge inoltre <code>Config\last-active-tenant.txt</code> (scritto da
+<code>Connect-M365Ops</code> ad ogni cambio tenant) per far ripartire il server esattamente sul
+tenant su cui stavi lavorando l'ultima volta, non su un default fisso.</div>
+<h3>12.2 Avvio manuale da terminale</h3>
+<pre class="code">cd &lt;percorso-della-cartella-M365Ops&gt;
+.\Start-M365OpsWebApp.ps1</pre>
+<p>Il server web parte su <code>http://localhost:8743/</code>, carica automaticamente l'ultimo
+tenant attivo e avvia la connessione a Lokka. Dal tab Manutenzione della GUI è disponibile un
+pulsante di riavvio che non richiede di tornare al terminale.</p>
+<div class="warn">Il riavvio (pulsante GUI o <code>POST /api/restart</code>) è l'unico modo
+sicuro di far ripartire il server: essendo a thread singolo, la richiesta di riavvio viene
+"eseguita" solo subito dopo aver chiuso la risposta HTTP corrente, quindi non può mai
+interrompere una scrittura confermata a metà. Terminare il processo dall'esterno (es. Task
+Manager, <code>Stop-Process -Force</code>) non ha questa garanzia: se c'è una richiesta
+bloccante in corso (es. una scrittura Graph appena confermata con "sì"), un kill esterno può
+interromperla a metà - un incidente reale del 15/08/2026, poi verificato senza conseguenze solo
+controllando a mano lo stato del tenant dopo un nuovo login.</div>
+</section>
+
+<!-- ============================== 11 ============================== -->
+<section class="page">
+<h2>13. Uso quotidiano</h2>
+<p>Il modulo non copre solo Intune: gestisce Intune/Entra ID (via Graph, direttamente o tramite
+Lokka) ed Exchange Online (tramite le 50+ cmdlet della sezione 11) nello stesso strumento di chat.
+Ecco esempi reali per ciascuna area.</p>
+
+<h3>13.1 Intune (device e compliance)</h3>
+<ul>
+  <li>"elenca i dispositivi" / "dispositivi non conformi"</li>
+  <li>"analizza i pattern di non conformità" (usa l'AI)</li>
+  <li>"esporta dispositivi in excel"</li>
+</ul>
+
+<h3>13.2 Entra ID (utenti e gruppi)</h3>
+<ul>
+  <li>"panoramica utente mario.rossi@contoso.com" — gruppi, dispositivi, app e policy assegnate</li>
+  <li>"panoramica gruppo Marketing" — membri, app e policy assegnate al gruppo</li>
+  <li>"crea gruppo Vendite-Test con membro mario.rossi@contoso.com" (richiede conferma)</li>
+  <li>"trova l'utente Mario Rossi" — risoluzione nome → UPN</li>
+  <li>qualunque altra domanda su utenti/gruppi/licenze non coperta sopra passa all'AI, che
+      interroga Microsoft Graph direttamente tramite Lokka (sezione 9)</li>
+</ul>
+
+<h3>13.3 Exchange Online</h3>
+<ul>
+  <li>"permessi delle mailbox condivise" — solo condivise, comando diretto da catalogo</li>
+  <li>"tira fuori tutti i permessi delle mailbox" — generico, passa all'AI che usa
+      <code>Get-M365OpsMailboxDelegatesReport</code> e copre <em>tutte</em> le mailbox</li>
+  <li>"esporta report mailbox condivise in pdf" / "esporta report utilizzo mailbox in excel"</li>
+  <li>"quali mailbox hanno l'inoltro automatico configurato?" (report sicurezza)</li>
+  <li>"crea una mailbox condivisa fatture@contoso.com" (richiede conferma)</li>
+  <li>"dai FullAccess su fatture@contoso.com a mario.rossi@contoso.com" (richiede conferma)</li>
+  <li>"elenca le regole di trasporto" / "crea una regola che blocca gli allegati .exe" (creata
+      sempre disabilitata, richiede conferma per l'attivazione)</li>
+  <li>"quali domini sono accettati dal tenant?"</li>
+</ul>
+
+<h3>13.4 Report ed export (trasversali)</h3>
+<p>Qualunque area sopra supporta l'export diretto in CSV/Excel/PDF e l'invio per email
+dell'ultimo report generato ("invialo per email a nome@dominio.it").</p>
+<p>Per richieste generiche ("fammi un report licenze", "report caselle di posta con grafico per
+dimensione") l'AI usa lo strumento <code>generate_report</code>: raccoglie prima i dati REALI del
+tenant (mai inventati/riassunti a memoria) con <code>graph_api_call</code>/<code>exo_query</code>,
+poi genera un file Excel (dati completi) e un PDF con grafici a barre/torta calcolati dal codice
+via <code>Group-Object</code> - mai chiedendo il conteggio all'AI, per evitare che un conteggio
+sbagliato su tanti record diventi un errore silenzioso in un report. I grafici sono SVG generati
+internamente, nessuna libreria esterna o dipendenza da internet in fase di stampa. Entrambi i
+file compaiono in chat come pulsanti di download diretti - non serve più andare a cercarli sul
+disco, e il testo di risposta non mostra mai il percorso assoluto del file.</p>
+
+<h3>13.5 Stato e reset MFA di un utente</h3>
+<ul>
+  <li>"stato mfa di mario.rossi@contoso.com" / "che metodi di autenticazione ha registrato mario.rossi?"
+      — sola lettura, elenca i metodi registrati (Authenticator, telefono, FIDO2, Windows Hello,
+      app OATH, Temporary Access Pass), mai la password</li>
+  <li>"resetta l'mfa di mario.rossi@contoso.com" / "fallo riregistrare l'mfa" — <strong>richiede
+      sempre conferma esplicita</strong> prima di rimuovere qualunque metodo: e' un'azione con
+      impatto immediato (l'utente perde l'accesso ai metodi rimossi finche' non li riconfigura).
+      La password non viene mai toccata.</li>
+</ul>
+<div class="note">Non esiste in Microsoft Graph v1.0 un singolo flag "MFA abilitata" per utente
+(dipende da Conditional Access, non da questa API) - lo stato si deduce da quali metodi risultano
+registrati oltre alla password (verificato su Microsoft Learn, sezione 21). Serve lo scope
+<code>UserAuthenticationMethod.ReadWrite.All</code> <strong>più</strong> un ruolo Entra
+(Global Reader per la sola lettura; Authentication Administrator o Privileged Authentication
+Administrator per il reset) - un requisito di ruolo separato dallo scope, un 403 con lo scope
+corretto ma senza il ruolo è normale, non un bug.</div>
+
+<h3>13.6 Memoria della conversazione</h3>
+<p>Dal 15/08/2026 l'AI ricorda gli scambi precedenti con lo stesso tenant: gli ultimi turni della
+conversazione sono salvati in locale (<code>Config\ChatHistory-&lt;tenant&gt;.json</code>, con le
+eventuali password redatte prima del salvataggio) e rimandati come contesto ad ogni nuova domanda
+- una domanda di follow-up ("e per quell'utente creato prima?") funziona senza dover ripetere il
+contesto da zero. Un refresh della pagina ricarica lo stesso storico (e un'eventuale proposta di
+scrittura ancora in sospeso), invece di mostrare una chat vuota. Il pulsante <strong>"Nuova
+conversazione"</strong> (o scrivere "nuova conversazione"/"dimentica tutto" in chat) azzera lo
+storico per il tenant attivo, per ripartire puliti su un argomento non correlato.</p>
+
+<h3>13.7 Conferma umana obbligatoria — vale sempre, senza eccezioni</h3>
+<div class="warn">
+Ogni azione di scrittura (creazione, modifica, eliminazione) segue sempre il flusso
+<em>proponi → conferma → esegui</em>, indipendentemente da:
+<ul>
+<li><strong>dove avviene la scrittura</strong> — Microsoft Graph (<code>propose_graph_write</code>,
+    via Lokka) o Exchange Online (<code>propose_exo_write</code>, sezione 11.1): stesso principio,
+    stesso meccanismo di proposta;</li>
+<li><strong>la modalità di autenticazione del tenant</strong> — AppOnly o Delegated (sezione 10):
+    il gate di conferma vive nel livello chat/AI, non nel livello di autenticazione, quindi si
+    applica identicamente in entrambi i casi.</li>
+</ul>
+Le due liste di cmdlet consentite all'AI (lettura ed effettivamente eseguibili subito, vs.
+scrittura e solo proponibili) sono statiche e senza sovrapposizioni: una cmdlet di scrittura non
+può mai finire nel percorso di sola lettura per errore. Verificato anche con un test dal vivo:
+una richiesta di scrittura (creazione di un contatto) si è fermata alla proposta, un messaggio
+successivo inviato con la proposta ancora in sospeso non l'ha bypassata, e il rifiuto esplicito
+("no") l'ha annullata senza mai chiamare la cmdlet reale.
+</div>
+<div class="warn"><strong>Una sola proposta di scrittura per risposta.</strong> Bug reale
+osservato il 15/08/2026: l'AI aveva proposto "crea utente" e, nella stessa risposta, subito dopo
+"assegna licenza" - la seconda proposta sovrascriveva silenziosamente la prima, l'utente
+confermava pensando di approvare entrambe ma solo l'ultima era davvero in sospeso. Ora una
+seconda proposta nella stessa risposta viene rifiutata dallo strumento stesso: per un piano a più
+passaggi (es. crea utente POI assegna licenza), l'AI propone solo il primo passo e si ferma,
+mostrando un indicatore <strong>"Passo 1 di 2"</strong> nel testo della conferma - il passo
+successivo viene proposto solo in un messaggio separato, dopo che il primo è stato confermato ed
+eseguito.</div>
+
+<h3>13.8 Quando manca uno strumento: l'AI può proporre di crearne uno</h3>
+<p>Se chiedi qualcosa di ricorrente che nessuno strumento esistente copre (un report specifico di
+questo tenant, un'estrazione ad hoc), l'AI può proporre di scrivere un nuovo script permanente
+invece di limitarsi a spiegarti come farlo a mano — vedi sezione 17.6 per i dettagli completi
+(conferma sempre col codice per intero, validazioni automatiche, riavvio per caricarlo).</p>
+</section>
+
+<!-- ============================== 12 ============================== -->
+<section class="page">
+<h2>14. Sicurezza — principi non negoziabili</h2>
+<ol>
+  <li><strong>Zero segreti su disco.</strong> <code>tenants.json</code> contiene solo ID, thumbprint
+      (pubblico) e nomi di variabili d'ambiente — mai client secret o API key in chiaro.</li>
+  <li><strong>Propose → confirm → execute.</strong> Nessuna scrittura contro Graph o Exchange
+      avviene senza conferma umana esplicita in chat.</li>
+  <li><strong>Le cmdlet di scrittura creano senza assegnare/attivare per default</strong> — l'assegnazione
+      è sempre un passo separato ed esplicito.</li>
+  <li><strong>Le cmdlet di lettura non interpretano mai i dati</strong> — l'interpretazione passa
+      sempre dal motore AI, mai da regole cablate nel codice.</li>
+  <li><strong>Isolamento multi-tenant</strong> — credenziali, certificati e connettori MCP di un
+      tenant non sono mai visibili o raggiungibili da un altro profilo.</li>
+</ol>
+</section>
+
+<!-- ============================== 13 ============================== -->
+<section class="page">
+<h2>15. Stato attuale del progetto</h2>
+<table>
+<tr><th>Area</th><th>Stato</th><th>Note</th></tr>
+<tr><td>Graph app-only (Intune/Entra ID)</td><td><span class="badge done">funzionante</span></td><td>Device, gruppi, app, profili di configurazione</td></tr>
+<tr><td>Lokka MCP</td><td><span class="badge done">funzionante</span></td><td>Tool primario per l'AI, tenant-scoped</td></tr>
+<tr><td>Export report CSV/XLSX/PDF</td><td><span class="badge done">funzionante</span></td><td>PDF via Microsoft Edge headless</td></tr>
+<tr><td>Invio report via email</td><td><span class="badge done">funzionante</span></td><td>Graph <code>Mail.Send</code>, testato end-to-end</td></tr>
+<tr><td>Exchange Online — connessione app-only (certificato)</td><td><span class="badge done">funzionante</span></td><td>Verificato dal vivo dopo completamento RBAC (sezione 6)</td></tr>
+<tr><td>Exchange Online — 50+ cmdlet (sezione 11)</td><td><span class="badge done">funzionante</span></td><td>Mailbox, gruppi, mail flow, tracking, contatti, risorse, report — testate dal vivo sul tenant</td></tr>
+<tr><td>Autenticazione delegata (utente + MFA)</td><td><span class="badge done">funzionante</span></td><td>Device code flow verificato dal vivo; per tenant senza App Registration (sezione 10)</td></tr>
+<tr><td>Tool-calling AI — Claude</td><td><span class="badge done">funzionante</span></td><td>Loop tool-calling completo, con <code>exo_query</code>/<code>propose_exo_write</code></td></tr>
+<tr><td>Tool-calling AI — Azure OpenAI</td><td><span class="badge done">funzionante</span></td><td>Stesso loop/stessi strumenti di Claude su Chat Completions API (sezione 8.1/8.2), scelta in GUI persistita su disco</td></tr>
+<tr><td>Persistenza scelta provider AI</td><td><span class="badge done">funzionante</span></td><td><code>Config\ai-provider.json</code>, sopravvive al riavvio (sezione 10.8)</td></tr>
+<tr><td>Altri server MCP oltre Lokka</td><td><span class="badge pending">salvabili ma non collegati</span></td><td>La GUI permette di registrarli/rimuoverli; l'AI non li usa ancora, solo Lokka</td></tr>
+<tr><td>Rimozione server MCP da GUI</td><td><span class="badge done">funzionante</span></td><td>Pulsante "Rimuovi" per riga, testato dal vivo (aggiunto e rimosso)</td></tr>
+<tr><td>Creazione batch di migrazione</td><td><span class="badge done">funzionante</span></td><td>Solo su endpoint già configurati (sezione 11.3), creato sempre non avviato — testato dal vivo, endpoint ibrido reale rilevato</td></tr>
+<tr><td>Script personalizzati (Scripts\Custom)</td><td><span class="badge done">funzionante</span></td><td>Scoperta automatica, testato dal vivo con uno script reale (sezione 17)</td></tr>
+<tr><td>Controllo stato ambiente / portabilità</td><td><span class="badge done">funzionante</span></td><td><code>Get-M365OpsSetupStatus</code> + banner GUI, testato dal vivo (sezione 18)</td></tr>
+<tr><td>Log persistente delle azioni</td><td><span class="badge done">funzionante</span></td><td>Un file al giorno in <code>Logs\</code> + visualizzatore nel tab Manutenzione (sezione 19)</td></tr>
+<tr><td>Blocco server su login Exchange delegato implicito</td><td><span class="badge done">corretto</span></td><td>Bug reale riscontrato in uso e risolto stesso giorno — vedi sezione 10.6</td></tr>
+<tr><td>Copertura parametri Exchange/Graph (ExtraParams + lookup_ms_docs)</td><td><span class="badge done">funzionante</span></td><td>Ogni cmdlet di scrittura accetta parametri nativi aggiuntivi verificati dal vivo su Microsoft Learn (sezione 11.4)</td></tr>
+<tr><td>Login Exchange delegato non bloccante (device code)</td><td><span class="badge done">corretto</span></td><td>Sostituito il flusso bloccante con lo stesso schema del login Graph — codice mostrato in GUI, mai più solo in console (sezione 10.6)</td></tr>
+<tr><td>graph_api_call su tenant delegati</td><td><span class="badge done">corretto</span></td><td>Bug reale: era escluso del tutto, ora chiama Graph direttamente quando Lokka non è disponibile (sezione 9)</td></tr>
+<tr><td>Pannello stato connessioni + Exchange/Intune sotto Tenant</td><td><span class="badge done">funzionante</span></td><td>Indicatori chiari Graph/Exchange/Intune/Lokka per entrambe le modalità (sezione 10.7)</td></tr>
+<tr><td>Stato/contatore chiamate motore AI</td><td><span class="badge done">funzionante</span></td><td>Contatore per provider + test di connessione dal vivo (sezione 20)</td></tr>
+<tr><td>Connessione Intune su tenant Delegati</td><td><span class="badge done">funzionante</span></td><td><code>-Interactive</code> (non <code>-DeviceCode</code>, bug reale nel modulo terzo), verifica dal vivo del token (sezione 10.9)</td></tr>
+<tr><td>Stato/reset MFA utente</td><td><span class="badge done">funzionante</span></td><td>Reset sempre con conferma esplicita, testato dal vivo (sezione 13.5, 21)</td></tr>
+<tr><td>Report AI-orchestrati con grafici (Excel + PDF)</td><td><span class="badge done">funzionante</span></td><td><code>generate_report</code>, grafici SVG generati internamente, download diretto da GUI (sezione 13.4, 22)</td></tr>
+<tr><td>Avvio con un click (M365Ops.bat)</td><td><span class="badge done">funzionante</span></td><td>Resume-session su porta già attiva, tenant ripreso da <code>last-active-tenant.txt</code> (sezione 12.1)</td></tr>
+<tr><td>Indicatore di avanzamento onesto in GUI</td><td><span class="badge done">corretto</span></td><td>Bug reale: messaggio statico "sto elaborando" indistinguibile da un blocco reale — ora un contatore di secondi trascorsi con messaggi progressivi (sezione 20.3)</td></tr>
+<tr><td>Memoria della conversazione</td><td><span class="badge done">funzionante</span></td><td>Storico persistito per tenant, ricaricato al refresh pagina, azzerabile a comando (sezione 13.6, 23)</td></tr>
+<tr><td>Una sola proposta di scrittura per risposta + indicatore "passo X di N"</td><td><span class="badge done">corretto</span></td><td>Bug reale: due proposte nella stessa risposta si sovrascrivevano in silenzio (sezione 13.7)</td></tr>
+<tr><td>Message trace su Get-MessageTraceV2</td><td><span class="badge done">corretto</span></td><td>Le cmdlet classiche sono in dismissione dal 1/09/2025, verificato su Microsoft Learn (sezione 11)</td></tr>
+<tr><td>Ricerca registro di controllo unificato (Purview <code>Search-UnifiedAuditLog</code>)</td><td><span class="badge pending">non costruito</span></td><td>Tecnicamente fattibile (cmdlet reale, richiede licenza/ruolo Audit Log) ma non ancora implementato — vedi roadmap</td></tr>
+<tr><td>Creazione di nuovi script da parte dell'AI</td><td><span class="badge done">funzionante</span></td><td><code>propose_new_custom_script</code>, conferma con codice completo sempre obbligatoria, validazione sintattica/convenzione prima della proposta, riavvio automatico per caricarlo (sezione 17.6)</td></tr>
+<tr><td>Bug: risposta AI vuota su richieste complesse</td><td><span class="badge done">corretto</span></td><td>Budget token 2000→4000 + rilevamento e messaggio esplicito invece di un messaggio bianco silenzioso (sezione 20.4)</td></tr>
+<tr><td>Bug: crash su array vuoto serializzato in JSON</td><td><span class="badge done">corretto</span></td><td><code>ConvertTo-Json</code> pipeIato su un array vuoto restituisce <code>$null</code> vero, non "[]" - causava un errore su ogni pagina caricata da un tenant senza storico chat; risolto in tutti i punti a rischio del progetto (sezione 23.1)</td></tr>
+<tr><td>Sicurezza email (antispam, threat policy, allow/block list, quarantena+rilascio)</td><td><span class="badge done">funzionante</span></td><td>Nuove cmdlet lette/scritte via <code>exo_query</code>/<code>propose_exo_write</code>, stessa connessione Exchange gia' esistente (sezione 17.7)</td></tr>
+<tr><td>Message trace oltre i 10 giorni</td><td><span class="badge done">funzionante</span></td><td>Incatenamento automatico delle finestre da 10 giorni (sezione 17.7) - bug reale scoperto e corretto lo stesso giorno: senza filtro poteva superare il limite di contesto del modello, ora troncato a 1000 righe con avviso</td></tr>
+<tr><td>Export diretto senza passare dati grezzi nella conversazione</td><td><span class="badge done">funzionante</span></td><td><code>generate_raw_export</code>: query+scrittura file in un solo passaggio lato server, per volumi che altrimenti rischierebbero il limite di contesto (es. 2421 righe verificate dal vivo in un solo export, ~10mila token invece di 437mila) (sezione 17.7)</td></tr>
+<tr><td>Controllo prerequisiti con installazione automatica</td><td><span class="badge done">funzionante</span></td><td>PowerShell 7 controllato/installato da <code>M365Ops.bat</code> via winget prima dell'avvio; Node.js/Edge installabili con un click dal banner Impostazioni (sezione 3.1)</td></tr>
+<tr><td>Invio report via email dalla conversazione libera</td><td><span class="badge done">funzionante</span></td><td><code>propose_send_report_email</code>, conferma sempre richiesta, testo email scritto dall'IA con overview reale del contenuto (sezione 17.8)</td></tr>
+<tr><td>SharePoint/OneDrive (siti, condivisione esterna, storage, permessi, account orfani)</td><td><span class="badge done">funzionante</span></td><td>Verificato dal vivo il 17/08/2026 dopo la concessione del permesso SharePoint (sezione 4.3) - 44 siti, 13 OneDrive, 2 account orfani reali individuati correttamente (sezione 17.9)</td></tr>
+<tr><td>Bug: URL centro amministrazione SharePoint non risolvibile su TenantId a GUID</td><td><span class="badge done">corretto</span></td><td>Derivazione assumeva sempre il formato dominio - ora risolve il dominio iniziale verificato via Graph <code>/organization</code> quando serve (sezione 17.9)</td></tr>
+<tr><td>Microsoft Teams (elenco/canali/membri, criteri, accesso esterno)</td><td><span class="badge done">funzionante</span></td><td>Elenco/canali/membri verificati dal vivo (14 Team reali); criteri e accesso esterno costruiti, in attesa del permesso "Skype and Teams Tenant Admin API" (sezione 17.11)</td></tr>
+<tr><td>Bug: richiesta AI rifiutata per un messaggio con 'role' nullo in un punto imprecisato</td><td><span class="badge done">mitigato</span></td><td>Filtro difensivo sull'array messages appena prima di ogni chiamata (sia Azure sia Claude) - una voce malformata da qualsiasi causa futura non fa più fallire l'intera risposta (sezione 20.5)</td></tr>
+<tr><td>Bug: login a codice dispositivo (Exchange/Graph) mostrava "nessun login in corso" dopo un successo reale</td><td><span class="badge done">corretto</span></td><td>Race condition da <code>setInterval</code> - due poll potevano sovrapporsi, il secondo trovava lo stato appena ripulito dal primo (riuscito). Sostituito con <code>setTimeout</code> auto-rischedulato, sovrapposizione impossibile per costruzione (sezione 20.5)</td></tr>
+<tr><td>Bug: login Delegato SharePoint/Teams falliva sempre (AADSTS700016, client_id indovinato)</td><td><span class="badge done">corretto</span></td><td>Il flusso a codice dispositivo custom per SharePoint/Teams richiedeva un client_id OAuth verificato con certezza, non recuperabile in modo affidabile a memoria - sostituito con <code>-Interactive</code>/<code>-UseDeviceAuthentication</code> nativi (bloccano il server su un click esplicito, stesso compromesso già accettato per Intune) (sezione 17.10)</td></tr>
+<tr><td>Bug: pulsante "Connetti SharePoint/Teams" continuava a rifiutare il login anche dopo il fix precedente</td><td><span class="badge done">corretto</span></td><td><code>$script:M365OpsContext</code> letto direttamente in Server.ps1 (fuori dal modulo) è sempre vuoto - stessa classe di bug di scope già vista altre volte in questo progetto. <code>isDelegated</code> risultava sempre <code>false</code>, bloccando il login interattivo anche su tenant Delegati reali. Corretto leggendo tramite <code>Get-M365OpsActiveTenantInfo</code> (sezione 17.10) - trovato anche lo stesso bug, mai innescato, nel codice Exchange preesistente</td></tr>
+<tr><td>Testo: riferimento al tab sbagliato ("MCP/Connettori" invece di "Tenant") in più messaggi di errore</td><td><span class="badge done">corretto</span></td><td>La sezione "Stato connessioni" (Exchange/SharePoint/Teams/Intune) è nel tab <strong>Tenant</strong> dalla riorganizzazione di sezione 10.7 - i messaggi di errore di Exchange/SharePoint/Teams e il system prompt dell'IA citavano ancora la vecchia posizione</td></tr>
+<tr><td>App Registration dedicata per il login SharePoint interattivo (discovery automatico)</td><td><span class="badge done">funzionante</span></td><td><code>Sync-M365OpsSharePointAppRegistration</code>: scopre via Graph se l'app esiste già nel tenant e ne salva da sola il Client ID nel profilo, o dà il comando esatto per crearla - verificato dal vivo sia il percorso "trovata" (Fabrikam-Prod) sia "non trovata" (contoso-test), dominio del comando compilato correttamente in entrambi i casi (sezione 17.10)</td></tr>
+<tr><td>Bug: catalogo comandi deterministico intercettava richieste piene ("dispositiv"/"non conform" come sottostringa)</td><td><span class="badge done">corretto</span></td><td>Trigger troppo generici (<code>ListDevices</code>, <code>ListNonCompliant</code> in <code>CommandCatalog.ps1</code>) rispondevano con un elenco dispositivi anche a richieste completamente diverse che nominavano "dispositivo"/"non conformi" di sfuggita (troubleshooting Teams/VDI, training HD1, analisi sicurezza tenant), mai arrivando all'AI - trovato con un batch di 55 prompt reali estratti da mail. Trigger ristretti a un'intenzione esplicita di elenco</td></tr>
+<tr><td>Scrittura SharePoint (creazione sito, membri, ereditarietà permessi, sharing, quota)</td><td><span class="badge done">funzionante</span></td><td>5 cmdlet nuove via PnP.PowerShell, stesso meccanismo di proposta/conferma del resto del modulo - verificato dal vivo creando un sito reale sul tenant di test e ritrovandolo in una query separata (sezione 17.9.1)</td></tr>
+<tr><td>Scrittura Teams (crea/modifica/rimuovi Team, assegna policy)</td><td><span class="badge done">funzionante</span></td><td>4 cmdlet nuove - creazione Team verificata dal vivo (via Graph); assegnazione policy verificata fino al livello del vero cmdlet nativo Microsoft, bloccata dallo stesso permesso "Skype and Teams Tenant Admin API" già mancante per la lettura (sezione 17.11.1)</td></tr>
+<tr><td>Bug: catalogo intercettava anche richieste composte di export ("scarica...dispositivi...e invialo a...")</td><td><span class="badge done">corretto</span></td><td>Stesso schema del bug sopra su <code>ExportDevices</code>: un report con colonne personalizzate + invio email veniva risposto con l'export grezzo, ignorando sia le colonne richieste sia "invialo a" (nessuna parola "email"/"mail", solo un indirizzo) - aggiunto <code>DeferWords</code> per campi specifici e indirizzi email</td></tr>
+<tr><td>Bug: report generato dal catalogo non trovato da un invio email richiesto in un turno successivo</td><td><span class="badge done">corretto</span></td><td><code>$script:LastReportPath</code> impostato da Server.ps1 (catalogo) non è visibile al modulo (dove vive <code>propose_send_report_email</code>) - stessa classe di bug di scope vista più volte in questo progetto, stavolta nella direzione opposta. Aggiunta <code>Set-M365OpsLastReportPath</code> come ponte</td></tr>
+<tr><td>Bug: trigger catalogo troppo generici trovati in un secondo batch di test (MfaStatus, assegnazione app)</td><td><span class="badge done">corretto</span></td><td><code>MfaStatus</code> ('metodi di autenticazione' da solo) e il rilevamento 'assegna...gruppo' in Server.ps1 (pensato per app Intune) intercettavano richieste di report CA/MFA e di processo/ticketing completamente estranee - stesso schema del batch precedente</td></tr>
+<tr><td>Bug: due trigger latenti del catalogo trovati per ispezione proattiva (mai innescati dal vivo)</td><td><span class="badge done">corretto</span></td><td><code>CompliancePatterns</code> ('pattern' da solo) ed <code>ExportCompliancePatterns</code> ('esporta.*analisi' senza limiti) - corretti prima che potessero causare un problema reale, non dopo averlo osservato</td></tr>
+<tr><td>Packaging app custom da script (.ps1/.bat/.cmd), oltre a .exe/.msi</td><td><span class="badge done">funzionante</span></td><td><code>New-M365OpsWin32App</code> era gia' agnostico al tipo di file (nessuna modifica al packaging .intunewin in se'); aggiunto un comando di install per tipo (<code>powershell.exe -ExecutionPolicy Bypass -File</code> per .ps1, invocazione diretta per .bat/.cmd) e due nuove modalita' di detection (<code>FileExists</code>/<code>RegistryExists</code>) accanto a quella su versione file. A differenza di un exe, uno script non installa nulla in un percorso prevedibile: la detection non viene MAI dedotta, va sempre indicata esplicitamente nel messaggio - se manca, il tool la chiede invece di inventare un default. Verificato dal vivo end-to-end: script .ps1 caricato, pacchettizzato con detection a file, app Intune reale creata e riletta da Graph per confermare install command e detection rule corretti. Verificato anche con .bat</td></tr>
+<tr><td>BUG SERIO: <code>Get-M365OpsManagedDevices -NonCompliantOnly</code> restituiva i dispositivi SBAGLIATI</td><td><span class="badge done">corretto</span></td><td>Il filtro server-side OData <code>$filter=complianceState ne 'compliant'</code> su <code>/deviceManagement/managedDevices</code> restituiva l'insieme OPPOSTO di quello richiesto - su un tenant con 5 dispositivi noncompliant e 2 compliant, il filtro ha restituito i 2 compliant, non i 5 noncompliant (quirk noto dell'endpoint Graph su questo campo). Trovato durante un giro di bug-hunting proattivo del 18/08/2026 confrontando l'elenco completo con quello filtrato. Corretto recuperando SEMPRE tutti i dispositivi e filtrando lato client con <code>Where-Object</code>, mai fidandosi del <code>$filter</code> server-side su questo campo - verificato dal vivo: dopo il fix restituisce esattamente i 5 dispositivi non conformi reali</td></tr>
+<tr><td>Bug: 5 ulteriori trigger del catalogo troppo generici, trovati con un giro di stress-test mirato</td><td><span class="badge done">corretto</span></td><td>Stesso schema ricorrente (18/08/2026): <code>ExportMailFlowReport</code>/<code>ExportForwardingReport</code>/<code>ExportMailboxUsageReport</code>/<code>ExportSharedMailboxReport</code>/<code>ExportAllMailboxesReport</code> intercettavano "report su X ... e inoltralo/mandalo a persona Y" (un indirizzo email presente basta a segnalare l'intento reale, "invia il risultato", non "esporta un report sui forwarding"); <code>ListNonCompliant</code> troncava una richiesta che chiedeva ANCHE un piano di remediation; <code>ExportInboxRulesReport</code> intercettava una domanda di formazione/spiegazione; <code>Help</code> ('^aiuto') intercettava un vero problema dell'utente che iniziava per caso con quella parola. Tutti corretti con DeferWords mirati, verificati dal vivo uno per uno</td></tr>
+<tr><td>Bug: <code>Set-PnPWeb -BreakRoleInheritance</code>/<code>-ResetRoleInheritance</code> non esistono in PnP.PowerShell 3.1.0</td><td><span class="badge done">corretto</span></td><td>Rimossi rispetto a versioni precedenti della libreria. Sostituiti con la REST API diretta (<code>Invoke-PnPSPRestMethod</code> su <code>_api/web/breakroleinheritance</code>/<code>resetroleinheritance</code>), che richiede un URL ASSOLUTO (un percorso relativo produce "invalid request URI" invece del vero errore) e, per "break", un body esplicito anche vuoto ("{}" - altrimenti "Cannot handle the data at position 0" invece del vero errore di validazione). Scoperto nello stesso giro: SharePoint rifiuta SEMPRE questa operazione sulla WEB ROOT di un sito ("Cannot change permissions of root web") - vincolo reale della piattaforma (la web root non ha un genitore da cui ereditare), non un bug M365Ops - tradotto in un messaggio chiaro invece di un errore SharePoint criptico. L'operazione ha senso solo su sotto-siti o liste/raccolte, non ancora supportati da questo cmdlet</td></tr>
+<tr><td>Nota: il bug di serializzazione MicrosoftTeams (sezione 17.11.1) colpisce anche <code>Set-Team</code>, non solo l'assegnazione policy</td><td><span class="badge todo">limite noto</span></td><td>Trovato durante il bug-hunting del 18/08/2026: lo stesso errore "Dictionary...Keys must be strings" di <code>Grant-CsTeamsMeetingPolicy</code> e' comparso anche su una modifica Team (rinomina) tramite <code>Set-Team</code>, non solo sul percorso legacy Cs* legato al permesso mancante - sembra un problema piu' ampio/intermittente del modulo <code>MicrosoftTeams</code> (versione 1.7.3.0), non limitato alle sole cmdlet che richiedono il permesso "Skype and Teams Tenant Admin API". <code>New-Team</code> invece ha funzionato correttamente in un test precedente nella stessa sessione - il problema non e' sistematico su ogni scrittura Teams, va trattato come limite ambientale noto da monitorare, non (ancora) un bug risolvibile in M365Ops</td></tr>
+<tr><td>Nuovo: <code>Invoke-M365OpsProvisioningRecipientDiagnostic</code> - diagnosi provisioning mailbox</td><td><span class="badge done">funzionante</span></td><td>Diagnostica in un colpo solo i problemi dietro NDR 550 5.1.10/mailbox introvabile/mailbox che non si riconnette dopo hard delete: mailbox mancante, conflitto ExchangeGuid con una mailbox inattiva/soft-deleted, indirizzi proxy duplicati su altri oggetti, stato Entra ID (licenza assegnata ma provisioning non completato). Bug trovato PRIMA di essere mai usato dal vivo: <code>Get-EXOMailbox</code> (a differenza del classico <code>Get-Mailbox</code>) non restituisce <code>ExchangeGuid</code> di default - senza <code>-Properties ExchangeGuid</code> esplicito, il confronto ExchangeGuid (il cuore della diagnosi) avrebbe sempre confrontato due valori vuoti, senza mai rilevare un conflitto reale ma senza dare nessun errore. Verificato dal vivo tramite chat sia su una mailbox reale coerente (nessuna anomalia) sia su un indirizzo inesistente (correttamente segnalato come oggetto mancante, non provisioning bloccato)</td></tr>
+<tr><td>Nuovo: <code>Get-M365OpsMoveRequestDiagnostic</code> - diagnosi dettagliata migrazione mailbox</td><td><span class="badge done">funzionante</span></td><td>Stesso livello di dettaglio di <code>Get-MoveRequestStatistics -IncludeReport -DiagnosticInfo "showtimeslots,showtimeline,verbose"</code> - prova prima il Move Request classico, poi ripiega su <code>Get-MigrationUserStatistics</code> (stessi parametri) per gli utenti di un batch di onboarding creato con <code>New-M365OpsMigrationBatch</code>, che non usano un Move Request diretto. Supporta anche <code>-ExportClixmlPath</code> per esportare l'oggetto diagnostico ORIGINALE completo (non solo i campi riassunti), utile per un ticket Microsoft Support</td></tr>
+<tr><td>Nuovo: workaround OneDrive "accesso negato nonostante lo sharing sia corretto"</td><td><span class="badge done">funzionante</span></td><td>3 cmdlet che coprono i passi automatizzabili del workaround noto Microsoft (concedi/revoca accesso amministrativo temporaneo al OneDrive del mittente, rimuovi il destinatario dalla condivisione): <code>Grant-M365OpsOneDriveDelegateAccess</code>, <code>Remove-M365OpsOneDriveSharingRecipient</code>, <code>Revoke-M365OpsOneDriveDelegateAccess</code>. Il passo di verifica sulla pagina "membri" (<code>people.aspx?membershipGroupId=0</code>) resta MANUALE per design (richiede un browser interattivo) - il primo cmdlet restituisce l'URL diretto pronto da aprire</td></tr>
+<tr><td>BUG SERIO trovato dal vivo nel primo test end-to-end del workaround sopra</td><td><span class="badge done">corretto</span></td><td><code>Remove-M365OpsOneDriveSharingRecipient</code> non distingueva un permesso "owner" (che rappresenta SEMPRE il proprietario del OneDrive o un amministratore della raccolta siti, MAI una condivisione fatta a un collega - quelle sono sempre "read"/"write") da una vera condivisione. Se il destinatario da rimuovere coincideva con l'amministratore appena delegato, la scansione trovava e tentava di cancellare il suo permesso "owner" derivato dallo stato di site collection admin - la cancellazione non aveva pero' alcun effetto reale (e' un permesso calcolato, non un record indipendente: riappare identico), quindi nessun danno reale, ma il comando riportava falsamente "39 permessi rimossi" senza aver rimosso nulla di vero. Corretto escludendo sempre i permessi "owner" dalla scansione/rimozione - non sono mai il bersaglio corretto per questo comando. Stato del tenant di test verificato e ripristinato dopo la scoperta</td></tr>
+<tr><td>Nuovo: retention policy Purview (<code>Get-M365OpsRetentionCompliancePolicies</code>)</td><td><span class="badge todo">in attesa di permesso</span></td><td><code>Connect-M365OpsCompliance</code> (Connect-IPPSSession, stesso certificato di Exchange) verificato dal vivo: autentica correttamente. La lettura richiede pero' un ruolo RBAC Purview dedicato (sezione 4.5) non ancora assegnato sul tenant di test - <code>Connect-IPPSSession</code> espone solo i cmdlet coperti dai ruoli gia' assegnati (oggi solo Quarantena), quindi <code>Get-RetentionCompliancePolicy</code> risulta "term not recognized" invece di un errore di permesso esplicito. L'AI spiega gia' correttamente la causa e rimanda alla sezione 4.5 - verificato dal vivo tramite chat</td></tr>
+<tr><td>Nuovo: Knowledge Base per tenant (tab "Documentazione")</td><td><span class="badge done">funzionante</span></td><td>Upload .txt/.md/.docx/.xlsx/.xls/.pdf (PdfLexer per i PDF, installato automaticamente al primo uso) dal tab Documentazione - l'AI cataloga il documento UNA sola volta all'upload (titolo/argomenti/riassunto), poi il catalogo (testo leggero) resta sempre nel prompt di sistema senza chiamate AI aggiuntive; il testo completo si recupera con lo strumento <code>kb_query</code> solo quando davvero serve. Isolamento per tenant verificato dal vivo: caricato un documento su contoso-test con un "codice segreto" di prova, l'AI lo ha recuperato e citato correttamente SOLO su quel tenant; passando a Fabrikam-Prod il catalogo risultava vuoto e l'AI ha rifiutato esplicitamente di inventare una risposta invece di confondere i due tenant. <code>kb_query</code> non accetta ne' espone un parametro tenant: legge sempre e solo <code>$script:M365OpsContext.Name</code> (il tenant realmente attivo in quel momento), garanzia strutturale contro un data leak tra clienti, non solo una convenzione</td></tr>
+<tr><td>Bug reale trovato dal vivo testando la cancellazione di un documento dalla Knowledge Base</td><td><span class="badge done">corretto</span></td><td>Stessa classe di bug <code>ConvertTo-Json</code> gia' vista altrove nel progetto (array a un elemento appiattito in un oggetto nudo), ma con una conseguenza piu' subdola: rimuovendo l'ULTIMO documento, l'array diventava vuoto e "<code>$catalogVuoto | ConvertTo-Json | Set-Content</code>" non emetteva alcun oggetto in pipeline - <code>Set-Content</code> a valle non veniva mai eseguito, il file restava quello vecchio, e la funzione riportava comunque "rimosso" senza errori. Corretto usando <code>ConvertTo-Json -InputObject</code> (mai in pipeline) in <code>Add-/Remove-M365OpsKnowledgeDocument</code> - verificato dal vivo cancellando in sequenza 2 documenti fino a un catalogo vuoto</td></tr>
+</table>
+</section>
+
+<!-- ============================== 14 ============================== -->
+<section class="page">
+<h2>16. Roadmap ed estensioni future</h2>
+<ul>
+  <li><span class="badge future">futuro</span> Ricerca sul registro di controllo unificato Microsoft Purview (<code>Search-UnifiedAuditLog</code> — chi ha fatto cosa, quando, su Exchange/SharePoint/Teams). Cmdlet reale e verificata, richiede licenza/ruolo Audit Log dedicato — non ancora costruita, un vero audit log oggi si copre solo parzialmente con i report di sezione 11 (litigation hold, inoltri, regole sospette)</li>
+  <li><span class="badge future">futuro</span> Collegare all'AI i server MCP aggiuntivi oltre a Lokka, oggi solo salvati in configurazione</li>
+  <li><span class="badge future">futuro</span> Ricerca automatica icone app da winget-pkgs per <code>New-M365OpsWin32App</code></li>
+  <li><span class="badge future">futuro</span> Valutare Azure SRE Agent come alleato — riguarda però l'affidabilità dell'infrastruttura Azure, non l'amministrazione M365, quindi resta fuori scope diretto</li>
+  <li><span class="badge future">futuro</span> Server multi-threaded (oggi single-threaded per design semplice) — il login Exchange delegato non blocca più (sezione 10.6), ma resta l'unico modello possibile finché il server processa una richiesta alla volta. Finché resta cosi', un riavvio esterno "brutale" (kill del processo, non il pulsante/endpoint di riavvio) puo' ancora interrompere una richiesta bloccante in corso (sezione 12.2)</li>
+  <li><span class="badge future">futuro</span> Storico conversazione più lungo/configurabile (oggi fisso a 8 scambi per tenant — sezione 23.2) o riassunto automatico dei turni più vecchi invece di scartarli</li>
+  <li><span class="badge future">futuro</span> Task periodici autonomi (es. report settimanale via email senza tenere aperto M365Ops) tramite le "routine" di Azure AI Foundry Agent Service (trigger cron nativi lato Azure, GA da luglio 2026) - valutato il 17/08/2026: richiede un secondo sistema separato (Agent con propri strumenti verso Graph/Exchange, autenticazione Entra ID dedicata) e andrebbe usato SOLO per letture/report, mai per scritture non supervisionate (il gate di conferma umana vive nel processo locale di M365Ops, non si può delegare a un Agent schedulato). Deliberatamente NON si sposta la chat interattiva su un Agent: il ciclo Thread+Run è più complesso del semplice request/response usato oggi, e il catalogo strumenti/script già si ricostruisce ad ogni messaggio - non c'è nulla da guadagnare spostandolo su una configurazione Agent statica da tenere comunque aggiornata a mano.</li>
+</ul>
+<div class="note">Questo documento è pensato per essere aggiornato insieme al codice: quando una
+riga della tabella in sezione 15 cambia stato, aggiorna anche questa pagina e rigenera il PDF
+(vedi il commento in testa al file HTML sorgente).</div>
+</section>
+
+<!-- ============================== 17 ============================== -->
+<section class="page">
+<h2>17. Script personalizzati (Scripts\Custom)</h2>
+<p>Oltre alle cmdlet del modulo core (Public\) e ai 50+ strumenti Exchange (sezione 11), è
+possibile aggiungere script "home made" per casi d'uso specifici di un tenant/cliente — es.
+estrazione permessi OneDrive/SharePoint, un report ad hoc — e renderli usabili dall'AI in chat
+senza toccare nessun file del modulo.</p>
+
+<h3>17.1 Come diventano usabili</h3>
+<ol>
+<li>Copia <code>Scripts\Custom\_TEMPLATE.ps1</code>, rinominalo come la funzione che definisce
+    (es. <code>Get-M365OpsOneDriveSharingReport.ps1</code> per una funzione con lo stesso nome).</li>
+<li>Scrivi la funzione rispettando la convenzione sotto.</li>
+<li>Riavvia il server (tab Manutenzione) — i file si caricano all'avvio del modulo.</li>
+</ol>
+<p>Da quel momento lo script compare nel tab Manutenzione (elenco script rilevati, validi o
+no con motivo) e l'AI lo vede tra gli strumenti disponibili al messaggio successivo — nessuna
+registrazione manuale, nessuna modifica al manifest del modulo.</p>
+
+<h3>17.2 Convenzione obbligatoria</h3>
+<table>
+<tr><th>Requisito</th><th>Perché</th></tr>
+<tr><td>Un file = una funzione, nome file = nome funzione</td><td>Stessa convenzione di Public\ — scoperta automatica senza registrazione manuale.</td></tr>
+<tr><td>Blocco di help PowerShell (<code>&lt;# .SYNOPSIS ... #&gt;</code>)</td><td>È l'UNICA descrizione che l'AI riceve per decidere se/come usare lo script.</td></tr>
+<tr><td><code>.NOTES</code> con <strong><code>Mode: ReadOnly</code></strong> oppure <strong><code>Mode: Write</code></strong></td><td><strong>Obbligatorio.</strong> ReadOnly = eseguibile subito dall'AI; Write = solo proponibile, mai eseguito senza conferma umana esplicita — stesso principio non negoziabile di ogni altra scrittura. Senza questo tag lo script viene ignorato, mai esposto all'AI.</td></tr>
+<tr><td>Nessun input interattivo (<code>Read-Host</code>, popup)</td><td>Deve essere una funzione pura: parametri in ingresso, oggetti in uscita.</td></tr>
+<tr><td>Usa le funzioni di accesso dati già esistenti del modulo</td><td>Mai gestire token/credenziali proprie — usa <code>Invoke-M365OpsGraphRequest</code> per Graph, <code>Connect-M365OpsExchange</code> + cmdlet native per Exchange. Così lo script funziona automaticamente sia sui tenant <strong>AppOnly</strong> sia <strong>Delegated</strong> (sezione 10), senza mai assumere quale modalità è attiva.</td></tr>
+</table>
+
+<h3>17.3 Checklist per un buon .SYNOPSIS</h3>
+<p>L'AI vede <em>solo</em> questa riga per decidere se e come usare lo script — deve rispondere a:</p>
+<ol>
+<li><strong>Quale dato specifico restituisce o azione specifica compie</strong> — non "esegue una query su SharePoint", ma "elenca i link di condivisione pubblici attivi su OneDrive, con proprietario e data".</li>
+<li><strong>Permessi/scope non standard richiesti</strong>, se presenti — es. <code>Sites.Read.All</code> non è tra i permessi Graph di default (sezione 4.2): va detto qui, prima che l'operatore scopra un errore di permesso a metà.</li>
+<li><strong>Per gli script Mode: Write</strong>, quali effetti reali ha — l'AI usa questo testo, quasi alla lettera, per spiegare la proposta in chat prima della conferma.</li>
+<li><strong>Forma dei dati restituiti</strong>, se non ovvia.</li>
+</ol>
+
+<h3>17.4 Se uno script fallisce — diagnosi e correzione via AI, mai un crash</h3>
+<p>Un errore in uno script personalizzato non blocca il resto dell'app. Sia in lettura
+(<code>custom_script_query</code>) sia in scrittura confermata (<code>CustomWrite</code>), il
+fallimento passa dallo stesso motore di diagnosi usato per le altre scritture del modulo
+(<code>Invoke-M365OpsErrorTriage</code>, sezione 14): l'errore, il contesto e il codice
+sorgente vengono analizzati, classificati (<em>transitorio</em> / <em>serve una decisione
+tua</em> / <em>possibile bug</em>) e, se c'è una correzione precisa da proporre, questa segue
+lo stesso flusso <em>proponi → conferma → applica</em> di ogni altra scrittura — mai una
+riscrittura automatica senza conferma esplicita.</p>
+<div class="note">Le correzioni proposte devono restare compatibili con <strong>entrambe</strong>
+le modalità di autenticazione: l'AI viene istruita esplicitamente a non introdurre gestione di
+token/credenziali proprie nel fix, per lo stesso motivo del punto 17.2 sull'accesso ai dati.
+Testato dal vivo: uno script di esempio (report link di condivisione OneDrive) ha incontrato un
+404 reale su un utente senza OneDrive provisionato, ed è stato classificato correttamente come
+"serve una decisione tua" (verificare licenza/provisioning) — non un bug nello script.</div>
+
+<h3>17.5 File non caricati</h3>
+<p>Qualunque file il cui nome inizia con <code>_</code> (come <code>_TEMPLATE.ps1</code>) viene
+ignorato dallo scanner — utile per esempi o bozze non ancora pronte.</p>
+
+<h3>17.6 L'AI può proporre la creazione di uno script nuovo</h3>
+<p>Dal 17/08/2026, quando un compito è chiaramente qualcosa che tornerà utile di nuovo (un
+report ricorrente, un'estrazione specifica di questo tenant) e nessuno strumento esistente lo
+copre, l'AI può scrivere da sola il codice completo di un nuovo script e proporlo — strumento
+<code>propose_new_custom_script</code>. Non è la prima risorsa: il system prompt le impone di
+provare prima <code>graph_api_call</code>/<code>exo_query</code> (con <code>lookup_ms_docs</code>
+se serve un parametro nativo non standard), e di non usarlo mai come scorciatoia per una singola
+domanda occasionale.</p>
+<div class="warn"><strong>Non viene mai salvato senza conferma esplicita, e la conferma mostra
+il codice per intero</strong> — non un riassunto — esattamente come richiesto: creare uno
+script nuovo aggiunge una capacità permanente all'app, non è "solo" una scrittura su un dato del
+tenant, quindi la conferma lo dice esplicitamente in cima al messaggio, prima ancora del codice.
+Per gli script proposti in modalità <code>Write</code>, ogni loro esecuzione futura richiederà
+comunque una conferma separata — la conferma sulla creazione non "sblocca" scritture non
+supervisionate, si limita a far esistere lo strumento.</div>
+<p><strong>Validazioni automatiche prima ancora di mostrare la proposta</strong> (se una fallisce,
+l'AI riceve il motivo esatto e può correggere nello stesso turno, invece di proporre qualcosa che
+verrebbe comunque scartato dopo): il codice deve essere sintatticamente valido PowerShell
+(analizzato con il parser reale, non un controllo superficiale), deve definire esattamente una
+funzione il cui nome coincide con il nome file proposto, deve avere un blocco <code>.SYNOPSIS</code>,
+e il tag <code>Mode:</code> nel codice deve corrispondere esattamente al parametro dichiarato. Il
+nome deve seguire la stessa convenzione Verbo-M365OpsNome di ogni cmdlet del modulo, e non viene
+mai sovrascritto silenziosamente uno script già esistente con lo stesso nome.</p>
+<p>Il codice viene inoltre scansionato per una lista di comandi potenzialmente distruttivi
+(<code>Remove-Item</code>, <code>Invoke-Expression</code>, <code>Stop-Computer</code>, ecc.) — se
+presenti, non bloccano la proposta ma vengono segnalati con un'ATTENZIONE ben visibile in cima
+alla conferma, cosa da leggere con più attenzione prima di dire "sì" (in PowerShell puro non
+esiste un sandboxing reale, quindi questo resta un avviso mirato, non un blocco tecnico).</p>
+<p>Alla conferma: il file viene scritto in <code>Scripts\Custom\</code> e il server si riavvia da
+solo (stessa infrastruttura sicura del pulsante "Riavvia"/<code>POST /api/restart</code>, sezione
+12.2 — agisce solo dopo aver già inviato la conferma, non può mai interrompere altro) per
+caricarlo. Da quel momento è uno strumento vero, scoperto automaticamente come ogni altro script
+in questa cartella (sezione 17.1).</p>
+<div class="ok"><strong>Perché la revisione umana del codice resta comunque indispensabile.</strong>
+Testato dal vivo: la prima proposta reale generata dall'AI chiamava
+<code>Invoke-M365OpsGraphRequest -Url $uri</code> — il parametro reale si chiama
+<code>-Path</code>, non <code>-Url</code>. Un errore che il parser PowerShell non può rilevare
+(sintatticamente valido, fallisce solo in esecuzione) ma che un umano che legge il codice nota
+subito. Proposta rifiutata prima del salvataggio, e la descrizione dello strumento è stata
+rafforzata con la firma esatta e verificata di <code>Invoke-M365OpsGraphRequest</code>/
+<code>Connect-M365OpsExchange</code> per ridurre (non eliminare) questa classe di errore — motivo
+in più per cui la conferma mostra sempre il codice completo, mai un riassunto.</div>
+
+<h3>17.7 Sicurezza email — antispam, threat policy, allow/block list, quarantena, hunting</h3>
+<p>Aggiunto il 17/08/2026 su richiesta esplicita: gestione della sicurezza email (Exchange Online
+Protection / Defender for Office 365), oltre al message trace già esistente.</p>
+<table>
+<tr><th>Cosa</th><th>Come</th></tr>
+<tr><td>Criteri anti-spam, anti-phishing, Safe Links/Safe Attachments</td><td>lettura via
+<code>exo_query</code> (<code>Get-M365OpsAntiSpamPolicies</code>, <code>Get-M365OpsAntiPhishPolicies</code>,
+<code>Get-M365OpsThreatPolicies</code>) — nessun permesso Graph nuovo, usano la stessa connessione
+certificato-based di Exchange Online (sezione 5)</td></tr>
+<tr><td>Tenant Allow/Block List (mittenti, URL, hash file, IP)</td><td>lettura con
+<code>Get-M365OpsTenantAllowBlockList</code>, scrittura proposta (conferma sempre richiesta) con
+<code>New-/Remove-M365OpsTenantAllowBlockListEntry</code></td></tr>
+<tr><td>Quarantena, incluso il rilascio</td><td>lettura con <code>Get-M365OpsQuarantineMessages</code>
+(default ultimi 7 giorni), rilascio proposto con <code>Release-M365OpsQuarantineMessage</code>
+(a tutti i destinatari originali, opzionalmente con il mittente aggiunto alla Allow List),
+eliminazione definitiva proposta con <code>Remove-M365OpsQuarantineMessage</code> — entrambe le
+scritture passano dalla stessa conferma esplicita di ogni altra azione del modulo</td></tr>
+<tr><td>Message trace oltre i 10 giorni (es. "ultimi 30 giorni")</td><td><code>Get-M365OpsMessageTrace</code>
+incatena da sola più query da 10 giorni (limite del servizio) e unisce i risultati — non serve più
+spezzare la richiesta a mano. Il risultato si ferma comunque a 1000 righe con un avviso esplicito se
+superate: una query lunga SENZA filtro mittente/destinatario su un tenant con molto traffico può
+generare un volume enorme (bug reale osservato: 3000 righe, ~330mila token, ha superato da sola il
+limite di contesto del modello e fatto fallire l'intera risposta) — specificare sempre a chi si
+riferisce la richiesta riduce il volume di un ordine di grandezza.</td></tr>
+<tr><td>"Explorer"/Threat Hunting di security.microsoft.com</td><td>non è un'unica area: alert e
+incidenti già rilevati da Defender si leggono con <code>graph_api_call</code> su
+<code>/security/alerts_v2</code> e <code>/security/incidents</code> (permessi
+<code>SecurityAlert.Read.All</code>/<code>SecurityIncident.Read.All</code>, sezione 4.2); la ricerca
+libera con query KQL nei dati grezzi (l'uso più vicino a "Explorer" in senso stretto) usa il nuovo
+strumento <code>security_hunting_query</code> — richiede <code>ThreatHunting.Read.All</code> E la
+licenza Microsoft Defender for Endpoint Plan 2: senza quella licenza Graph risponde 403 anche a
+permesso concesso, e l'AI è istruita a spiegarlo come limite di licenza invece di ritentare query
+diverse sperando che funzionino.</td></tr>
+</table>
+<div class="note">Tutte le nuove cmdlet di lettura/scrittura Exchange qui sopra usano la stessa
+<code>Connect-M365OpsExchange</code> già esistente (certificato per AppOnly, sezione 5) — verificato
+dal vivo il 17/08/2026 che il modulo Exchange Online v3 espone anche i cmdlet un tempo esclusivi
+della Security &amp; Compliance PowerShell (quarantena, Tenant Allow/Block List) sotto la stessa
+connessione, senza bisogno di una sessione separata.</div>
+
+<h3>17.8 Invio report via email dalla conversazione libera</h3>
+<p><code>Send-M365OpsReportEmail</code> esisteva già (invio via Graph <code>/sendMail</code>, permesso
+<code>Mail.Send</code>) ma era raggiungibile solo dal catalogo deterministico con una frase fissa
+("invialo per email a..."). Una richiesta composita in linguaggio libero (es. "aggiorna il report e
+mandalo a X") arrivava alla conversazione con l'IA, che non aveva alcuno strumento per l'invio e lo
+segnalava correttamente invece di inventarsi una capacità inesistente — ma il gap era reale.
+Aggiunto il 17/08/2026 lo strumento <code>propose_send_report_email</code>: propone l'invio
+dell'ultimo report generato in sessione come allegato, con conferma esplicita sempre richiesta
+(stesso meccanismo di ogni altra scrittura — inviare un'email è un'azione visibile al destinatario).
+L'IA scrive anche un testo su misura nel corpo del messaggio (breve overview del contenuto reale del
+report, non un messaggio generico), con la stessa regola di <code>generate_report</code>: solo dati
+davvero recuperati in conversazione, mai inventati.</p>
+<div class="warn">Bug reale corretto lo stesso giorno: il percorso del file allegato veniva riletto
+da <code>$script:LastReportPath</code> dentro <code>Server.ps1</code>, ma quella variabile — quando
+scritta da <code>Invoke-M365OpsAgentTools</code> — vive nello scope del <em>modulo</em>, non in
+quello di <code>Server.ps1</code> (che non fa parte del modulo, lo consuma soltanto): il valore
+letto da <code>Server.ps1</code> era quindi sempre <code>$null</code>, con un crash immediato
+("Cannot bind argument to parameter 'Path'"). Stessa classe di bug di scope già vista altre volte in
+questo progetto — risolto passando il percorso esplicitamente nell'oggetto restituito invece di
+affidarsi a una variabile condivisa tra scope diversi. Anche il vecchio percorso deterministico
+("invialo per email a...") è stato allineato: prima inviava l'email immediatamente, senza alcuna
+conferma — unica scrittura dell'app con questo comportamento — ora passa dalla stessa conferma di
+tutte le altre.</div>
+</section>
+
+<!-- ============================== 17.9 ============================== -->
+<section class="page">
+<h2>17.9 SharePoint e OneDrive</h2>
+<p>Aggiunto il 17/08/2026 su richiesta esplicita ("tutto quello che è utile"): elenco siti,
+condivisione esterna, storage, permessi, utilizzo OneDrive e account orfani. Architettura diversa
+dal resto del modulo — vale la pena capirla prima di fidarsi ciecamente dei dati.</p>
+<table>
+<tr><th>Cmdlet</th><th>Cosa dà</th></tr>
+<tr><td><code>Get-M365OpsSharePointSites</code></td><td>ogni sito: storage usato/quota, <code>SharingCapability</code> (stato condivisione esterna), template, ultima modifica — un'unica chiamata copre sia il classico report "condivisione esterna" sia lo storage per sito</td></tr>
+<tr><td><code>Get-M365OpsSharePointSitePermissions</code></td><td>amministratori raccolta siti + membri Proprietari/Membri/Visitatori di UN sito (richiede l'URL, mai indovinato — va preso dall'elenco siti)</td></tr>
+<tr><td><code>Get-M365OpsOneDriveUsageReport</code></td><td>ogni OneDrive personale: proprietario, storage usato/quota, ultima attività</td></tr>
+<tr><td><code>Get-M365OpsInactiveOneDriveAccounts</code></td><td>OneDrive il cui proprietario è disabilitato o eliminato da Entra ID — dati orfani, rischio compliance/storage, già filtrato</td></tr>
+</table>
+<div class="warn"><strong>Connessione e permesso diversi dal resto del modulo.</strong> Exchange,
+Graph e le nuove cmdlet di sicurezza email usano tutte lo stesso certificato con permessi Microsoft
+Graph o nativi Exchange. SharePoint invece passa da <code>PnP.PowerShell</code>
+(<code>Connect-M365OpsSharePoint</code>), che riusa lo STESSO certificato ma richiede un consenso
+SEPARATO sotto l'API "SharePoint" — vedi sezione 4.3. Finché quel permesso non è concesso, ogni
+cmdlet qui sopra fallisce con un errore "Unauthorized" chiaro (non un bug, non va ritentato).</div>
+<div class="ok"><strong>Verificato dal vivo il 17/08/2026</strong>, dopo la concessione del permesso
+di sezione 4.3: tutte e 4 le cmdlet restituiscono dati reali e corretti — 44 siti con
+<code>SharingCapability</code> popolata e variata (Disabled/ExternalUserSharingOnly/
+ExternalUserAndGuestSharing), 13 OneDrive personali, permessi reali su un sito di test, e
+<code>Get-M365OpsInactiveOneDriveAccounts</code> ha correttamente individuato 2 OneDrive con
+proprietario eliminato da Entra ID (non un dato di prova - un caso reale trovato al primo giro).
+Il campo <code>Owner</code> è confermato un UPN pulito (es. <code>nome@dominio.it</code>), non un
+formato claims-encoded - la ricerca Entra ID di <code>Get-M365OpsInactiveOneDriveAccounts</code>
+funziona quindi come previsto senza fallback necessari.</div>
+<div class="warn"><strong>Bug reale corretto il 17/08/2026</strong> su un secondo tenant (Fabrikam-Prod,
+Delegato): l'URL del centro di amministrazione veniva derivato assumendo che il TenantId del
+profilo fosse sempre nel formato <code>xxxxx.onmicrosoft.com</code> (vero per contoso-test) - ma un
+profilo può avere il TenantId salvato come GUID puro, producendo un hostname senza senso
+(es. <code>https://a1b2c3d4-...-admin.sharepoint.com</code>, non risolvibile via DNS) e quindi un
+errore ancora prima del permesso/autenticazione. Corretto risolvendo il dominio iniziale
+verificato reale via Microsoft Graph <code>/organization</code> quando il TenantId non è già nel
+formato dominio - funziona sia in AppOnly sia in Delegato, risultato cache-ato per non ripetere la
+chiamata ad ogni uso. Verificato con un test mirato (non dal vivo su Fabrikam-Prod, che è Delegato e
+richiede un login interattivo reale): la derivazione produce l'URL corretto sia nel caso
+GUID sia nel caso dominio, senza chiamate di rete superflue in quest'ultimo.</div>
+
+<h3>17.9.1 Scrittura SharePoint</h3>
+<p>Aggiunta il 18/08/2026, su richiesta esplicita dopo un batch di test con prompt reali che
+segnalava l'assenza di scrittura (creazione sito, quote, sharing) come gap più visibile. Stesso
+meccanismo di proposta/conferma di ogni altra scrittura del modulo (mai eseguita senza conferma
+esplicita in chat) — nessun percorso separato o meno sorvegliato.</p>
+<table>
+<tr><th>Cmdlet</th><th>Cosa fa</th></tr>
+<tr><td><code>New-M365OpsSharePointSite</code></td><td>crea un Team site (con gruppo Microsoft 365 associato) o un Communication site</td></tr>
+<tr><td><code>Set-M365OpsSharePointSiteMember</code></td><td>aggiunge/rimuove un utente da Owners/Members/Visitors di un sito</td></tr>
+<tr><td><code>Set-M365OpsSharePointPermissionInheritance</code></td><td>interrompe (permessi unici) o ripristina (torna a ereditare) l'ereditarietà permessi di un sito</td></tr>
+<tr><td><code>Set-M365OpsSharePointSiteSharing</code></td><td>imposta la <code>SharingCapability</code> di UN sito (stesso valore letto da <code>Get-M365OpsSharePointSites</code>)</td></tr>
+<tr><td><code>Set-M365OpsSharePointSiteQuota</code></td><td>imposta la quota di storage di un sito, in GB</td></tr>
+</table>
+<div class="warn"><strong>Non ancora disponibile:</strong> gestione Site Collection/colonne/template
+(fuori perimetro di questo giro, era una richiesta a parte del catalogo di test) e federazione
+cross-tenant. Se richiesto, il tool lo dichiara esplicitamente invece di tentare scorciatoie via
+Graph.</div>
+<div class="ok"><strong>Verificato dal vivo il 18/08/2026</strong> sul tenant contoso-test tramite il
+flusso reale di chat (proposta → conferma → esecuzione), non chiamando le funzioni a mano: creato
+un Communication site di test (<code>New-M365OpsSharePointSite</code>), confermato e poi ritrovato
+correttamente in un elenco siti riletto in un secondo turno separato (owner e SharingCapability
+corretti).</div>
+
+<h3>17.10 Come è governata la connessione (App-only vs Delegata)</h3>
+<p>La connessione SharePoint (<code>Connect-M365OpsSharePoint</code>) ha una casella dedicata nel
+tab <strong>Tenant</strong> (sezione "Stato connessioni", non MCP/Connettori), con un pulsante
+"Connetti / Test connessione SharePoint" e uno stato in tempo reale.</p>
+<table>
+<tr><th>Modalità</th><th>Comportamento</th></tr>
+<tr><td>App-only</td><td>Connessione silenziosa col certificato già configurato per Exchange (nessun secret/certificato nuovo) - il pulsante serve solo per un test esplicito o per riconnettersi a un URL diverso, non per un login vero e proprio. <strong>Pienamente verificato con dati reali</strong> (sezione 17.9).</td></tr>
+<tr><td>Delegata</td><td>Richiede un login interattivo <strong>una tantum, fatto da un terminale normale</strong> (non dal pulsante della GUI) - vedi il riquadro sotto per il perché e il comando esatto. Dopo quel login, il pulsante della GUI funziona silenziosamente riusando la cache locale, senza bloccare mai il server.</td></tr>
+</table>
+<div class="warn"><strong>Storia reale di questa sezione: tre bug diversi in sequenza sullo stesso
+sintomo, lasciata per intero perché istruttiva su come NON bloccarsi su un problema che sembra
+sempre "lo stesso" ma non lo è.</strong>
+<ol>
+<li><strong>Client OAuth indovinato.</strong> Un primo tentativo con un flusso a codice dispositivo
+<em>custom</em> (per non bloccare il server) usava un client_id "indovinato" a memoria (il presunto
+"PnP Management Shell", <code>31359c7f-bd7e-475c-86db-fdb8c937548e</code>) - fallito con
+<code>AADSTS700016 "Application ... was not found in the directory"</code>: quel client non è mai
+stato consentito nel tenant, e il device code flow non può creare un primo consenso da solo.</li>
+<li><strong>Sostituito con <code>-Interactive</code></strong> (lascia scegliere a PnP il proprio
+client corretto) - fallito con <code>System.NotSupportedException: Specified method is not
+supported.</code>, senza dettaglio utile nell'eccezione. Ipotesi ragionevole ma SBAGLIATA:
+apartment threading (il processo server gira in MTA, i controlli COM per finestre embedded
+richiedono STA) - aggiunto <code>-STA</code> all'avvio del processo server, verificato con
+<code>Get-CimInstance Win32_Process</code> che il flag fosse davvero presente nel processo in
+esecuzione, e l'errore è rimasto <strong>identico</strong>: ipotesi scartata con prove, non per
+sospetto.</li>
+<li><strong>Confronto con Intune (funzionante):</strong> Intune usa anch'esso <code>-Interactive</code>
+per i tenant Delegati, ma con successo - il modulo <code>IntuneWin32App</code> implementa il proprio
+flusso PKCE con redirect su localhost scritto da zero (nessun controllo browser embedded), mentre
+l'implementazione interna di <code>-Interactive</code> in PnP.PowerShell è evidentemente meno
+adatta a un processo headless. Confermato con <code>Start-Job</code> che
+<code>Connect-PnPOnline -DeviceLogin</code> nativo (nessun client indovinato) NON lancia
+l'eccezione e resta correttamente in attesa - ma un processo server headless non ha una console
+interattiva a cui è agganciato, quindi il codice stampato da <code>-DeviceLogin</code> non è
+recuperabile in modo affidabile da lì.</li>
+</ol></div>
+<div class="ok"><strong>Soluzione: <code>-PersistLogin</code>.</strong> Questo parametro di
+<code>Connect-PnPOnline</code> salva il token in una cache locale su disco, riutilizzabile tra
+sessioni PowerShell diverse e dopo un riavvio del PC - va fornito una sola volta, dopo di che ogni
+nuova connessione allo stesso tenant lo riusa automaticamente, <strong>anche da un processo
+headless</strong> come il server di questa app (perché a quel punto non deve più mostrare nessuna
+UI, si limita a leggere il token già presente). Il login iniziale va fatto UNA TANTUM da un
+terminale PowerShell 7 normale (non tramite il pulsante della GUI, dove <code>-Interactive</code>
+continua a fallire per il motivo del punto 2 sopra):
+<pre class="code">Import-Module PnP.PowerShell
+Connect-PnPOnline -Url "https://&lt;prefisso-tenant&gt;-admin.sharepoint.com" -Interactive -PersistLogin</pre>
+Dopo aver completato il login nel browser che si apre, il pulsante "Connetti / Test connessione
+SharePoint" nella GUI dovrebbe funzionare silenziosamente. Se in futuro cambi i permessi
+dell'App Registration usata per il login, la cache va invalidata esplicitamente con
+<code>Disconnect-PnPOnline -ClearPersistedLogin</code> prima di un nuovo login (il token in cache
+non si aggiorna da solo).</div>
+</section>
+
+<!-- ============================== 17.11 ============================== -->
+<section class="page">
+<h2>17.11 Microsoft Teams</h2>
+<p>Aggiunto il 17/08/2026 subito dopo SharePoint, stessa richiesta ("tutto quello che è utile").
+Architettura ibrida: una parte funziona subito col certificato esistente, un'altra parte
+(le policy) richiede una TERZA API separata, ancora diversa da Graph e da SharePoint.</p>
+<table>
+<tr><th>Cmdlet</th><th>Cosa dà</th><th>Permesso</th></tr>
+<tr><td><code>Get-M365OpsTeamsList</code></td><td>ogni Team: visibilità, archiviato, criteri di collaborazione (chi può creare canali/aggiungere app/menzionare tutti)</td><td>nessuno in più - stesso certificato di Exchange</td></tr>
+<tr><td><code>Get-M365OpsTeamsChannels</code></td><td>canali di UN team (richiede GroupId, mai indovinato - da Get-M365OpsTeamsList)</td><td>nessuno in più</td></tr>
+<tr><td><code>Get-M365OpsTeamsMembers</code></td><td>membri di UN team con ruolo owner/member/guest</td><td>nessuno in più</td></tr>
+<tr><td><code>Get-M365OpsTeamsPolicies</code></td><td>criteri di riunione/chiamata/messaggistica in un'unica lista (registrazione consentita, chiamate private, modifica/eliminazione messaggi, ecc.)</td><td><strong>Skype and Teams Tenant Admin API</strong> - sezione 4.4</td></tr>
+<tr><td><code>Get-M365OpsTeamsExternalAccessConfig</code></td><td>federazione con organizzazioni esterne + cosa possono fare gli ospiti (chat/riunioni/chiamate) - report di sicurezza classico</td><td><strong>Skype and Teams Tenant Admin API</strong> - sezione 4.4</td></tr>
+</table>
+<div class="ok"><strong>Verificato dal vivo il 17/08/2026</strong>: <code>Connect-M365OpsTeams</code>
+(modulo <code>MicrosoftTeams</code>, stesso certificato di Exchange) funziona SUBITO per le prime
+tre cmdlet - 14 Team reali, canali e membri (incl. un membro guest reale) confermati con dati
+veri. Le due cmdlet di policy invece falliscono oggi con "Access Denied. Provide different
+credential or request access." - il permesso di sezione 4.4 non è ancora stato concesso, i loro
+campi restano quindi non verificati (proprietà documentate e stabili delle cmdlet native, non
+indovinate, ma da riconfermare al primo test reale come già fatto per SharePoint).</div>
+<p>Stessa governance connessione di Exchange/SharePoint: casella dedicata nel tab <strong>Tenant</strong>
+(sezione "Stato connessioni", non MCP/Connettori - vedi sezione 10.7) con pulsante "Connetti / Test
+connessione Teams" e stato in tempo reale. Su Delegato usa
+<code>Connect-MicrosoftTeams -UseDeviceAuthentication</code> (blocca il server, click esplicito con
+conferma) - <strong>non</strong> un flusso a codice dispositivo custom con client_id proprio: dopo
+che esattamente questo approccio è risultato REALMENTE sbagliato per SharePoint (client_id
+indovinato a memoria, mai verificato, fallito con AADSTS700016 - sezione 17.10), è stato rimosso
+anche qui in via preventiva, prima di scoprire lo stesso problema al primo uso reale. Lasciare che
+il modulo <code>MicrosoftTeams</code> scelga da solo il proprio client interno, invece di
+indovinarlo, è l'unica scelta di cui ci si può fidare senza un test dal vivo per ciascuna.</p>
+
+<h3>17.11.1 Scrittura Teams</h3>
+<p>Aggiunta il 18/08/2026, stesso motivo/richiesta di 17.9.1 (SharePoint). Stesso meccanismo di
+proposta/conferma di ogni altra scrittura del modulo.</p>
+<table>
+<tr><th>Cmdlet</th><th>Cosa fa</th><th>Percorso API</th></tr>
+<tr><td><code>New-M365OpsTeam</code></td><td>crea un Team (e il gruppo Microsoft 365 associato)</td><td>Graph - stesso certificato di Exchange, nessun permesso in più</td></tr>
+<tr><td><code>Set-M365OpsTeam</code></td><td>modifica nome/descrizione/visibilità/archiviazione di un Team esistente</td><td>Graph</td></tr>
+<tr><td><code>Remove-M365OpsTeam</code></td><td>rimuove un Team (irreversibile oltre il cestino Entra ID a 30 giorni) - stessa conferma esplicita di ogni scrittura distruttiva del modulo, nessun percorso separato</td><td>Graph</td></tr>
+<tr><td><code>Grant-M365OpsTeamsPolicy</code></td><td>assegna (o resetta al default, omettendo il nome) una policy meeting/messaging/app setup/app permission ESISTENTE a un utente - non crea/modifica il contenuto della policy</td><td><strong>Cs* legacy</strong> - stesso permesso "Skype and Teams Tenant Admin API" di <code>Get-M365OpsTeamsPolicies</code> (sezione 4.4)</td></tr>
+</table>
+<div class="ok"><strong>Verificato dal vivo il 18/08/2026</strong> sul tenant contoso-test tramite il
+flusso reale di chat: creato un Team di test privato (<code>New-M365OpsTeam</code>), confermato e
+ritrovato correttamente in un elenco riletto in un secondo turno separato.</div>
+<div class="warn"><strong>Bug reale trovato e corretto durante il test:</strong>
+<code>Grant-CsTeamsMeetingPolicy</code> (e gli altri <code>Grant-CsTeams*Policy</code>) trattano
+<code>-PolicyName</code> come parametro OBBLIGATORIO - ometterlo del tutto per resettare al default
+falliva con "missing mandatory parameters: PolicyName" invece di funzionare. Va passato
+esplicitamente <code>-PolicyName $null</code> (comportamento nativo dei cmdlet Microsoft, non
+un'assunzione ragionevole) - corretto in <code>Grant-M365OpsTeamsPolicy.ps1</code>.</div>
+<div class="warn"><strong>Limite noto, non ancora risolto:</strong> dopo la correzione sopra,
+<code>Grant-M365OpsTeamsPolicy</code> fallisce comunque su contoso-test con un errore di
+serializzazione interno del modulo <code>MicrosoftTeams</code> ("Dictionary...Keys must be
+strings", dentro <code>Microsoft.TeamsCmdlets.PowerShell.Connect</code>) - stesso percorso legacy
+Cs* di <code>Get-M365OpsTeamsPolicies</code>, che oggi fallisce con "Access Denied" per lo stesso
+permesso mancante (sezione 4.4). Il sintomo è diverso (un bug di serializzazione invece di un
+messaggio di permesso pulito) ma la causa più probabile è la stessa: finché il permesso "Skype and
+Teams Tenant Admin API" non è concesso, non è possibile confermare se il codice del wrapper è
+corretto - da riverificare non appena il permesso è disponibile, prima di fidarsi ciecamente di
+questa cmdlet in produzione.</div>
+</section>
+
+<!-- ============================== 17.13 ============================== -->
+<section class="page">
+<h2>17.13 Knowledge Base per tenant (tab "Documentazione")</h2>
+<p>Aggiunta il 18/08/2026: documentazione specifica di UN cliente (peculiarità di infrastruttura,
+procedure di troubleshooting, note operative) caricata dall'operatore e consultata dall'AI senza
+doverla ripetere ogni volta in chat. Formati accettati: <code>.txt</code>, <code>.md</code>,
+<code>.docx</code>, <code>.xlsx</code>/<code>.xls</code>, <code>.pdf</code> (tramite il modulo
+<code>PdfLexer</code>, installato automaticamente al primo uso).</p>
+
+<h3>Come funziona</h3>
+<p>All'upload il testo viene estratto e l'AI lo cataloga con <strong>una sola chiamata</strong>
+(titolo, argomenti, riassunto) - il catalogo (leggero) resta sempre nel prompt di sistema, nessun
+costo aggiuntivo per le domande successive. Il testo <strong>completo</strong> di un documento
+specifico viene recuperato solo quando l'AI lo ritiene rilevante, tramite lo strumento dedicato
+<code>kb_query</code> - mai tutto il contenuto di tutti i documenti ad ogni domanda.</p>
+
+<div class="ok"><strong>Isolamento tra tenant, verificato dal vivo (non solo per progetto):</strong>
+caricato un documento di prova su un tenant con un "codice segreto" fittizio, l'AI lo ha recuperato
+correttamente SOLO su quel tenant; passando a un secondo tenant il catalogo risultava vuoto e l'AI
+ha rifiutato esplicitamente di inventare una risposta invece di confondere i due clienti.
+<code>kb_query</code> non accetta né espone un parametro "tenant": legge sempre e solo il tenant
+realmente attivo in quel momento - una garanzia strutturale, non solo una convenzione rispettata
+dal codice.</div>
+
+<h3>Consigli pratici</h3>
+<ul>
+<li><strong>Un documento per argomento</strong> funziona meglio di un unico file enorme - il
+riassunto nel catalogo aiuta l'AI a capire QUANDO consultare il testo completo, e riassunti più
+mirati sono più utili di uno generico su tutto.</li>
+<li><strong>.doc legacy (binario, non .docx) non è supportato</strong> - salva da Word come
+<code>.docx</code> prima di caricarlo, un tentativo con <code>.doc</code> viene rifiutato con un
+messaggio chiaro invece di produrre testo corrotto.</li>
+<li><strong>PDF scansionati come immagine</strong> (senza testo selezionabile, es. un documento
+cartaceo fotografato) non vengono estratti - il tool lo segnala esplicitamente invece di
+catalogare un documento vuoto in silenzio.</li>
+<li><strong>Ricaricare un file con lo stesso nome sostituisce</strong> la voce precedente - comodo
+per aggiornare una procedura senza dover prima rimuovere la versione vecchia.</li>
+<li><strong>Meglio per contenuti procedurali/operativi</strong> (procedure, contatti, note
+tecniche specifiche del cliente) che per dati che cambiano spesso - quelli è meglio chiederli in
+tempo reale al tenant (es. "quanti utenti ha"), la Knowledge Base è pensata per "cose che un
+admin dovrebbe sapere a memoria su questo cliente", non per stato live.</li>
+<li>Cambiando tenant nella GUI, l'elenco documenti visibile nel tab cambia da solo - non serve
+alcuna azione manuale, ogni cliente ha la propria Knowledge Base, mai mescolate.</li>
+</ul>
+
+<div class="note">Non esiste (ancora) una Knowledge Base GENERALE condivisa tra tutti i tenant per
+procedure interne non legate a un cliente specifico (es. un modello di classificazione ticket
+aziendale) - discusso il 18/08/2026, ha senso come estensione futura ma va tenuta chiaramente
+separata da questa (tab distinto) per non rischiare che contenuti specifici di un cliente finiscano
+in un pool visibile su ogni tenant.</div>
+</section>
+
+<!-- ============================== 18 ============================== -->
+<section class="page">
+<h2>18. Portabilità — spostare l'ambiente su un altro PC</h2>
+<p>Copiare l'intera cartella <code>M365Ops\</code> su un altro PC <strong>non basta da sola</strong>
+per avere un ambiente identico e funzionante — per progetto, nessun segreto è mai scritto nei
+file (sezione 14), quindi tutto ciò che è "segreto" resta legato al PC/utente Windows originale
+e va ricostituito a mano sul PC nuovo. Ecco la lista onesta, divisa tra ciò che si sposta da solo
+e ciò che no.</p>
+
+<div class="ok"><strong>Non serve tenere questa lista a mente.</strong> All'apertura delle
+Impostazioni, la GUI esegue un controllo reale dell'ambiente (<code>Get-M365OpsSetupStatus</code>)
+e mostra un banner con esattamente cosa manca su <em>questo</em> PC per il tenant attivo — secret,
+chiave AI, certificato, Node.js, Edge — con l'indicazione precisa di dove sistemarlo (quale tab e
+quale campo) o, se non è qualcosa che si può inserire da un campo (es. Node.js, la chiave privata
+del certificato), la spiegazione di cosa fare manualmente. Se non manca nulla, il banner non
+compare.</div>
+
+<h3>18.1 Cosa si sposta automaticamente con la cartella</h3>
+<ul>
+<li>Tutto il codice (modulo, GUI, script personalizzati in Scripts\Custom)</li>
+<li><code>Config\tenants.json</code> — struttura dei profili tenant, ID, thumbprint del
+    certificato (pubblico, non un segreto), <strong>senza</strong> alcun secret in chiaro</li>
+<li><code>Config\M365Ops-Exchange.cer</code> — solo la chiave pubblica del certificato</li>
+</ul>
+
+<h3>18.2 Cosa NON si sposta — va rifatto sul PC nuovo</h3>
+<table>
+<tr><th>Cosa</th><th>Perché non si sposta</th><th>Cosa fare sul PC nuovo</th></tr>
+<tr>
+  <td>Client secret, API key (<code>ANTHROPIC_API_KEY</code> ecc.)</td>
+  <td>Vivono solo come variabili d'ambiente dell'utente Windows del PC originale — per design, mai su file (sezione 14)</td>
+  <td>Reimpostale con <code>setx NOME "valore"</code> (poi apri un nuovo terminale) oppure dai tab Motore AI / Tenant della GUI dopo il primo avvio</td>
+</tr>
+<tr>
+  <td>Certificato Exchange — <strong>chiave privata</strong></td>
+  <td>Vive nel certificate store di Windows (<code>Cert:\CurrentUser\My</code>) del PC originale, mai in un file di questo progetto — solo la chiave pubblica (<code>.cer</code>) è inclusa</td>
+  <td>Vedi 18.3 — serve un export/import esplicito del <code>.pfx</code> con password</td>
+</tr>
+<tr>
+  <td>Sessione delegata (login utente + MFA)</td>
+  <td>Il token vive solo in memoria per la durata del processo (sezione 10.4) — mai persistito</td>
+  <td>Rifai il login da GUI ("Accedi con il mio utente") — è comunque richiesto ad ogni riavvio, anche sullo stesso PC</td>
+</tr>
+</table>
+
+<h3>18.3 Trasferire il certificato Exchange (se usi tenant AppOnly con Exchange)</h3>
+<p>Sul PC <strong>originale</strong>, esporta il certificato CON la chiave privata (richiede una password di protezione del file):</p>
+<pre class="code">$pwd = Read-Host -AsSecureString "Password per proteggere il file .pfx"
+Export-PfxCertificate -Cert "Cert:\CurrentUser\My\0000000000000000000000000000000000000000" `
+    -FilePath "M365Ops-Exchange.pfx" -Password $pwd</pre>
+<p>Copia <code>M365Ops-Exchange.pfx</code> sul PC nuovo (canale sicuro — è materiale sensibile,
+equivalente a una password), poi importalo:</p>
+<pre class="code">$pwd = Read-Host -AsSecureString "Password del file .pfx"
+Import-PfxCertificate -FilePath "M365Ops-Exchange.pfx" -CertStoreLocation Cert:\CurrentUser\My -Password $pwd</pre>
+<div class="warn">Elimina il file <code>.pfx</code> dopo l'import — non lasciarlo in giro, contiene la chiave privata.</div>
+
+<h3>18.4 Dipendenze di sistema sul PC nuovo</h3>
+<table>
+<tr><th>Componente</th><th>Si installa da sola?</th></tr>
+<tr><td>Moduli PowerShell (<code>ExchangeOnlineManagement</code>, <code>ImportExcel</code>)</td><td><span class="badge done">sì</span> — installati automaticamente al primo uso se mancanti</td></tr>
+<tr><td>Node.js (<code>npx</code>, richiesto da Lokka)</td><td><span class="badge pending">no</span> — prerequisito di sistema, va installato manualmente prima del primo avvio (<a href="https://nodejs.org">nodejs.org</a>, oppure <code>winget install OpenJS.NodeJS</code>); senza, Lokka fallisce con un errore chiaro ma l'AI usa comunque le cmdlet dirette come fallback</td></tr>
+<tr><td>Microsoft Edge (per l'export PDF)</td><td><span class="badge done">di solito già presente</span> — incluso di default su Windows 11; se assente, CSV/XLSX restano disponibili, solo il PDF fallisce con un errore chiaro</td></tr>
+<tr><td>PowerShell 7+</td><td><span class="badge pending">no</span> — prerequisito di sistema (<code>winget install Microsoft.PowerShell</code>)</td></tr>
+</table>
+
+<h3>18.5 Checklist rapida per il PC nuovo</h3>
+<ol>
+<li>Installa PowerShell 7+ e Node.js (18.4)</li>
+<li>Copia l'intera cartella <code>M365Ops\</code></li>
+<li>Se usi Exchange in modalità AppOnly: importa il certificato (18.3)</li>
+<li>Avvia <code>.\Start-M365OpsWebApp.ps1</code> — i moduli PowerShell mancanti si installano da soli</li>
+<li>Dalla GUI (tab Tenant/Motore AI/Email), reimposta i secret — <code>tenants.json</code> arriva già con la struttura corretta, mancano solo i valori</li>
+<li>Se un tenant è in modalità Delegated, fai il login la prima volta che ti serve (tab Tenant)</li>
+</ol>
+</section>
+
+<!-- ============================== 19 ============================== -->
+<section class="page">
+<h2>19. Log delle azioni — storico e debug</h2>
+<p>Ogni messaggio ricevuto in chat, ogni strumento AI chiamato (con esito), e ogni azione
+confermata eseguita vengono registrati in <code>Logs\m365ops-YYYYMMDD.log</code> (un file al
+giorno, testo semplice, append-only) — indipendentemente dai messaggi <code>Write-Host</code>
+già visibili nel terminale se stai guardando la finestra del server.</p>
+
+<h3>19.1 Consultarli</h3>
+<p>Tab Manutenzione → sezione "Log delle azioni (oggi)" mostra le ultime 200 righe, con un
+pulsante "Aggiorna". Oppure apri direttamente il file di testo in <code>Logs\</code>.</p>
+<pre class="code"><span class="c"># formato di ogni riga: data/ora TAB [livello] TAB tenant[modalità] TAB messaggio</span>
+2026-08-15 10:20:46  [Info]   Fabrikam-Prod[Delegated]  Messaggio ricevuto: elenca le mailbox condivise
+2026-08-15 10:20:46  [Info]   Fabrikam-Prod[Delegated]  Avvio Invoke-M365OpsAgentTools (fallback AI)...
+2026-08-15 10:20:48  [Info]   Fabrikam-Prod[Delegated]  Tool AI chiamato: exo_query Get-M365OpsSharedMailboxes
+2026-08-15 10:20:48  [Error]  Fabrikam-Prod[Delegated]  Tool AI fallito: ... Sessione Exchange non attiva ...
+2026-08-15 10:20:48  [Info]   Fabrikam-Prod[Delegated]  Tool AI completato: exo_query Get-M365OpsSharedMailboxes</pre>
+
+<h3>19.2 Cosa viene registrato</h3>
+<ul>
+<li>Avvio del server e tenant iniziale caricato</li>
+<li>Ogni messaggio ricevuto in chat (testo completo)</li>
+<li>Inizio/fine di ogni chiamata al motore AI con tool-calling, con timestamp separati — se il
+    server si blocca, l'ultima riga "chiamato" senza il corrispondente "completato" indica
+    esattamente quale strumento è rimasto appeso (è così che è stato diagnosticato l'incidente
+    di sezione 10.6)</li>
+<li>Ogni tool AI chiamato/completato/fallito, con l'errore esatto in caso di fallimento</li>
+<li>Ogni azione confermata eseguita (creazione gruppo, scrittura Exchange, script personalizzato...)</li>
+</ul>
+<div class="note">Uso da Claude Code (o da chiunque debugga il progetto): quando qualcosa si
+comporta in modo strano, il primo posto da controllare è l'ultima riga di
+<code>Logs\m365ops-*.log</code> di oggi — spesso basta quella a capire dove si sia fermato.</div>
+</section>
+
+<!-- ============================== 20 ============================== -->
+<section class="page">
+<h2>20. Stato e utilizzo del motore AI</h2>
+<p>Il tab <strong>Motore AI</strong> mostra, oltre alle impostazioni, un pannello "Stato e
+utilizzo" con: provider attivo, quale delle due chiavi (Claude/Azure OpenAI) risulta configurata,
+e un <strong>contatore delle chiamate</strong> fatte a ciascun provider in questa sessione del
+server (azzerato ad ogni riavvio — non persistito, è un contatore di sessione; il provider
+<em>selezionato</em>, invece, è persistito — sezione 8).</p>
+
+<h3>20.1 Chi usa davvero quale provider</h3>
+<p>Dal 15/08/2026 il provider selezionato nel tab Motore AI vale per <strong>tutto</strong>: sia
+la chat libera con strumenti (<code>Invoke-M365OpsAgentTools</code> — la stragrande maggioranza
+delle domande) sia le chiamate singole senza strumenti (analisi pattern, diagnosi/correzione
+errori). Non esiste più una parte dell'app che ignora silenziosamente la scelta fatta in GUI —
+vedi sezione 8.1/8.2 per come funziona il tool-calling su entrambi i provider e il bug di
+scoping reale trovato e corretto durante questo lavoro.</p>
+
+<h3>20.2 Verificare la connessione dal vivo</h3>
+<p>Il pulsante "Testa connessione (provider attivo)" fa una vera chiamata reale (pochi token,
+non gratuita) al provider selezionato e conferma se risponde correttamente — non si limita a
+controllare che la chiave sia presente. Usalo su richiesta esplicita, non in automatico: costa
+una chiamata reale ogni volta.</p>
+
+<h3>20.3 Indicatore di avanzamento onesto</h3>
+<p>Il server è a thread singolo (sezione 10.6): mentre elabora una domanda non può rispondere a
+nessun'altra richiesta, nemmeno a un polling di stato. Un messaggio statico "sto elaborando..."
+sarebbe quindi indistinguibile da un blocco reale - bug reale segnalato dal vivo: "dice che sta
+facendo roba quando dentro non sta facendo un cazzo". La GUI ora mostra invece un contatore dei
+secondi realmente trascorsi (misurato lato browser, non simulato), con messaggi che cambiano
+dopo le prime decine di secondi per suggerire cosa potrebbe star succedendo (molte chiamate
+Graph in sequenza, un report con molti dati, o - oltre i 60-90s - un login interattivo
+Exchange/Intune avviato e mai completato in un'altra finestra, l'unico caso di blocco genuino di
+lunga durata). Non è un vero progresso passo-passo (il server non può emettere eventi mentre è
+occupato), ma è un segnale onesto invece che uno finto.</p>
+
+<h3>20.4 Budget di token e risposte vuote sui modelli reasoning</h3>
+<p>Il limite di token per ogni singolo giro del ciclo di tool-calling (<code>max_tokens</code> per
+Claude, <code>max_completion_tokens</code> per Azure OpenAI) è 4000, non più 2000. Bug reale
+scoperto il 17/08/2026 testando la creazione di script da parte dell'AI (sezione 17.6): su un
+modello reasoning come <code>gpt-5-mini</code>, i token di ragionamento
+interno condividono lo stesso budget dei token restituiti come risposta — con un compito che
+richiede scrivere codice vero (non solo un breve JSON), il modello poteva esaurire l'intero
+budget nel ragionamento e restituire un contenuto <strong>vuoto</strong>, senza alcun errore
+lanciato. L'utente vedeva semplicemente un messaggio bianco in chat.</p>
+<div class="ok">Corretto in due modi complementari: il budget è stato alzato a 4000 (riduce la
+probabilità che succeda), e — indipendentemente dalla causa — un contenuto vuoto non arriva più
+silenzioso all'utente: viene rilevato, registrato nel log con <code>finish_reason</code> e il
+conteggio dei token di ragionamento usati (utile per capire se serve alzare ancora il budget in
+futuro), e sostituito con un messaggio che spiega cosa è successo invece di una risposta bianca.</div>
+
+<h3>20.5 Rete di sicurezza contro un messaggio con 'role' nullo</h3>
+<p>Bug osservato due volte in questo progetto con la stessa identica firma: Azure OpenAI rifiuta
+l'INTERA richiesta con 400 <code>"Invalid type for messages[N].role... got null instead"</code> se
+anche un solo messaggio nell'array ha 'role' mancante o nullo. La prima occorrenza (storico
+conversazione persistito corrotto) era stata mitigata filtrando le voci non valide in
+<code>Get-M365OpsChatHistory</code>. Riapparsa il 17/08/2026 su un tenant con storico pulito
+(verificato leggendo direttamente il file) - l'origine esatta di QUESTA seconda occorrenza non è
+stata individuata con certezza (probabile causa: una voce costruita durante il ciclo di
+tool-calling stesso, non nello storico persistito).</p>
+<div class="ok">Invece di continuare a inseguire ogni possibile origine, la mitigazione è stata
+spostata al punto più a valle possibile: l'array <code>messages</code> viene filtrato appena
+prima di ogni chiamata reale (sia il ramo Azure sia il ramo Claude), scartando qualunque voce
+senza un 'role' valido. Una voce malformata da QUALSIASI causa, presente o futura, degrada quindi
+a "quel turno manca dal contesto" invece di far fallire l'intera risposta.</div>
+</section>
+
+<!-- ============================== 21 ============================== -->
+<section class="page">
+<h2>21. Stato e reset MFA — dettagli tecnici</h2>
+<p>Vedi sezione 13.5 per l'uso quotidiano in chat. Questa sezione documenta i dettagli verificati
+sulla documentazione Microsoft reale (non a memoria), utili se qualcosa non torna.</p>
+
+<h3>21.1 Perché non c'è un singolo flag "MFA abilitata"</h3>
+<p>La pagina "Authentication states" di Microsoft Graph (vedere/impostare lo stato MFA per-utente
+con un valore unico) è esplicitamente <strong>non ancora supportata in v1.0</strong> - lo stato
+reale è governato da Conditional Access o dalle vecchie impostazioni per-utente dell'admin
+center, non da un campo Graph interrogabile. Il modo corretto, verificato su
+<a href="https://learn.microsoft.com/en-us/graph/api/authentication-list-methods">learn.microsoft.com/graph/api/authentication-list-methods</a>
+e
+<a href="https://learn.microsoft.com/en-us/graph/api/resources/authenticationmethods-overview">.../authenticationmethods-overview</a>,
+è elencare <code>GET /users/{id}/authentication/methods</code> e guardare quali tipi risultano
+registrati oltre alla password: se c'è solo la password, l'utente non ha configurato nessun
+metodo di verifica aggiuntivo. <code>Get-M365OpsUserMfaStatus</code> esclude dal conteggio "MFA
+configurata" sia la password (fattore primario, non un secondo fattore) sia il metodo email
+(serve solo per il reset password self-service, non per l'MFA).</p>
+
+<h3>21.2 Cosa significa davvero "resettare l'MFA"</h3>
+<p>Non esiste un'azione atomica equivalente in Graph: la documentazione ufficiale stessa indica
+di eliminare ogni metodo uno per uno, tramite l'endpoint REST specifico del suo tipo (es.
+<code>DELETE /users/{id}/authentication/microsoftAuthenticatorMethods/{methodId}</code>,
+<code>.../phoneMethods/{methodId}</code>, <code>.../fido2Methods/{methodId}</code>, e così via per
+app OATH, Windows Hello for Business, Temporary Access Pass). <code>Reset-M365OpsUserMfa</code>
+fa esattamente questo, uno per uno, senza mai toccare password o email, e restituisce sia i
+metodi rimossi con successo sia quelli falliti (invece di fermarsi al primo errore).</p>
+
+<h3>21.3 Permessi e ruolo — due requisiti separati</h3>
+<div class="warn">Serve <strong>sia</strong> lo scope Graph <code>UserAuthenticationMethod.Read.All</code>
+(lettura) o <code>.ReadWrite.All</code> (reset) <strong>sia</strong> un ruolo Entra assegnato a
+chi ha fatto login: Global Reader per la sola lettura; Authentication Administrator o Privileged
+Authentication Administrator per il reset. Senza il ruolo, Graph risponde 403 "Request
+Authorization failed" anche con lo scope corretto nel token - un errore facile da scambiare per
+uno scope mancante, ma è invece un requisito di ruolo separato. Incontrato dal vivo il
+15/08/2026 e risolto assegnando il ruolo giusto all'utente che fa login.</div>
+</section>
+
+<!-- ============================== 22 ============================== -->
+<section class="page">
+<h2>22. Report AI-orchestrati con grafici — dettagli tecnici</h2>
+<p>Vedi sezione 13.4 per l'uso quotidiano in chat. Architettura: l'AI raccoglie SEMPRE i dati
+grezzi completi (mai un riassunto pre-aggregato) tramite gli strumenti di lettura già esistenti
+(<code>graph_api_call</code>, <code>exo_query</code>), poi passa l'intero dataset più un elenco
+opzionale di campi da graficare (<code>chartFields</code>) allo strumento
+<code>generate_report</code>. Da lì in poi non c'è più ragionamento AI coinvolto:</p>
+<ul>
+  <li><strong>Excel</strong>: tutte le righe raccolte, via <code>Export-M365OpsReport -Format xlsx</code>.</li>
+  <li><strong>Aggregazione grafici</strong>: <code>Group-Object</code> sul campo richiesto, conteggio
+      per valore distinto - fatto dal codice, MAI chiesto all'AI. Un conteggio sbagliato su
+      centinaia di righe sarebbe un errore silenzioso difficile da notare guardando solo il
+      grafico finale.</li>
+  <li><strong>Grafici</strong>: SVG generati internamente (<code>New-M365OpsSvgBarChart</code>/
+      <code>New-M365OpsSvgPieChart</code>), nessuna libreria JavaScript esterna, nessuna
+      dipendenza da internet in fase di stampa - stessa filosofia di Edge headless locale già
+      usata per ogni altro export PDF.</li>
+  <li><strong>PDF</strong>: HTML con i grafici SVG incorporati + tabella dati completa, stampato
+      via Microsoft Edge headless, stesso meccanismo di <code>Export-M365OpsReport</code>.</li>
+</ul>
+<div class="ok">Entrambi i file compaiono in chat come pulsanti di download reali
+(<code>GET /api/reports/download?file=...</code>, protetto da path traversal: qualunque nome file
+con <code>/</code> o <code>\</code> viene rifiutato) - il testo di risposta dell'AI non indica mai
+un percorso assoluto su disco, corretto dopo un bug reale in cui l'AI annunciava "genero il
+report" senza aver davvero chiamato lo strumento (vedi il blocco "REGOLA CRITICA" nel system
+prompt di <code>Invoke-M365OpsAgentTools</code>, più un controllo di sicurezza lato server che
+segnala il sospetto se il testo promette un report senza allegati).</div>
+</section>
+
+<!-- ============================== 23 ============================== -->
+<section class="page">
+<h2>23. Memoria della conversazione — dettagli tecnici</h2>
+<p>Vedi sezione 13.6 per l'uso quotidiano. Prima di questa funzione (aggiunta il 15/08/2026), ogni
+domanda all'AI ripartiva da zero: <code>Invoke-M365OpsAgentTools</code> costruiva la conversazione
+con il solo messaggio corrente, mai i turni precedenti - una domanda di follow-up del tipo "e
+quello di prima?" non aveva alcun contesto a cui agganciarsi.</p>
+<h3>23.1 Cosa viene salvato e dove</h3>
+<p><code>Config\ChatHistory-&lt;nometenant&gt;.json</code>, uno storico per tenant (mai condiviso
+tra profili diversi, stesso principio di isolamento multi-tenant della sezione 14). Ogni scambio
+(domanda utente + risposta finale, qualunque sia stato il percorso - catalogo locale o AI) viene
+accodato in un unico punto in <code>Server.ps1</code>, così lo storico resta coerente con ciò che
+l'utente ha davvero visto in chat, non solo con le risposte generate dall'AI.</p>
+<div class="warn"><strong>Bug reale corretto il 16/08/2026.</strong> L'endpoint che legge lo
+storico (<code>GET /api/chat/history</code>) pipeIava l'array in <code>ConvertTo-Json</code> -
+per un array VUOTO (tenant senza nessuno scambio ancora, es. subito dopo un riavvio), questo
+restituisce <code>$null</code> vero, non la stringa "[]": <code>GetBytes($null)</code> lanciava
+"Value cannot be null" ad ogni caricamento pagina. Corretto passando a
+<code>ConvertTo-Json -InputObject $array</code> (mai pipeIato), che serializza correttamente 0, 1
+o più elementi senza bisogno di controlli separati - stesso fix applicato a tutti gli altri punti
+a rischio del progetto (<code>/api/tenants</code>, <code>/api/setup-status</code>,
+<code>/api/logs</code>, il salvataggio dello storico stesso) dopo averli controllati uno per uno.</div>
+<h3>23.2 Limiti deliberati</h3>
+<ul>
+  <li><strong>Ultimi 8 scambi</strong> (16 voci) per tenant: oltre, i più vecchi vengono scartati.
+      Senza un tetto, una conversazione lunga rischierebbe di gonfiare ogni chiamata successiva in
+      costo/tempo, fino a rischiare di sforare il limite di contesto del modello.</li>
+  <li><strong>Ogni messaggio troncato a 3000 caratteri</strong> prima del salvataggio: un elenco
+      dispositivi o un dump JSON molto lungo non deve consumare da solo tutto il budget di
+      contesto delle domande successive.</li>
+  <li><strong>Password redatte prima del salvataggio</strong> - qualunque campo
+      <code>"password":"..."</code> nel testo (es. il corpo di una proposta di creazione utente)
+      viene sostituito con <code>[REDACTED]</code> prima di scrivere su disco, stesso principio
+      "zero segreti su disco" già applicato a <code>tenants.json</code> (sezione 14), esteso qui
+      ai segreti che possono comparire dentro una conversazione stessa.</li>
+</ul>
+<h3>23.3 Azzerare lo storico</h3>
+<p>Pulsante "Nuova conversazione" in GUI, oppure scrivere "nuova conversazione" / "dimentica
+tutto" / "cancella cronologia" / "resetta la chat" in chat (riconosciuto dal catalogo comandi
+locale, nessun costo AI) - elimina il file per il tenant attivo e annulla anche un'eventuale
+proposta di scrittura ancora in sospeso, per evitare di ripartire "puliti" in chat ma con
+un'azione dimenticata ancora pronta a essere eseguita da un vecchio "sì".</p>
+</section>
+
+<!-- ============================== APPENDICE A ============================== -->
+<section class="page">
+<h2>Appendice A — Struttura dei file</h2>
+<div class="tree">M365Ops\
+├── M365Ops.psd1 / M365Ops.psm1     manifest e loader del modulo (export dinamico, sezione 17)
+├── Public\                          cmdlet esportate (una per file) - core + Exchange + ErrorTriage
+│   ├── Get-M365OpsUserMfaStatus.ps1 / Reset-M365OpsUserMfa.ps1      stato/reset MFA (sezione 21)
+│   ├── Export-M365OpsDataReport.ps1                                 report AI-orchestrati con grafici (sezione 22)
+│   ├── Connect-M365OpsIntune.ps1                                    connessione Intune, entrambe le modalità (sezione 10.9)
+│   ├── Invoke-M365OpsActionRecovery.ps1                             retry AI-assistito su scritture fallite (sezione 13.7)
+│   └── Get-M365OpsChatHistory.ps1 / Add-M365OpsChatHistoryTurn.ps1 / Clear-M365OpsChatHistory.ps1   memoria conversazione (sezione 23)
+├── Private\                         funzioni interne (token, chiamate Graph/MCP, device code flow)
+│   ├── Test-M365OpsIntuneAuthValid.ps1                              verifica dal vivo del token Intune (sezione 10.9)
+│   ├── New-M365OpsSvgChart.ps1                                      grafici SVG per i report (sezione 22)
+│   └── ConvertTo-M365OpsHashtable.ps1                               normalizza i parametri AI (PSCustomObject → Hashtable) prima di ogni scrittura
+├── Scripts\Custom\                  script personalizzati (sezione 17) - README.md e _TEMPLATE.ps1
+├── Config\
+│   ├── tenants.json                 profili tenant (mai segreti in chiaro)
+│   ├── M365Ops-Exchange.cer         chiave pubblica del certificato Exchange
+│   ├── ai-provider.json             provider AI selezionato in GUI, persistito (sezione 8)
+│   ├── last-active-tenant.txt       ultimo tenant attivo, letto da Launch-M365Ops.ps1 (sezione 12.1)
+│   └── ChatHistory-&lt;tenant&gt;.json    storico conversazione per tenant, password redatte (sezione 23)
+├── Gui\
+│   ├── Server.ps1                   server HTTP + logica chat/conferme
+│   ├── index.html                   interfaccia web di chat
+│   └── CommandCatalog.ps1           comandi deterministici a costo zero
+├── Reports\                         output export CSV/XLSX/PDF (anche i grafici SVG generati, sezione 22)
+├── Uploads\                         file caricati da GUI (installer, icone, CSV migrazione)
+├── Logs\                            storico azioni, un file al giorno (sezione 19)
+├── Tools\                           IntuneWinAppUtil.exe
+├── docs\
+│   ├── Guida-Configurazione.html    sorgente di questa guida
+│   └── Guida-Configurazione.pdf     versione stampabile
+├── Start-M365OpsWebApp.ps1          avvio server web da terminale (sezione 12.2)
+├── Launch-M365Ops.ps1 / M365Ops.bat avvio con un click, resume-session (sezione 12.1)
+└── README.md                        guida rapida sviluppatore</div>
+</section>
+
+<!-- ============================== APPENDICE B ============================== -->
+<section class="page">
+<h2>Appendice B — Comandi rapidi di riferimento</h2>
+<h3>Setup completo da zero</h3>
+<pre class="code">Import-Module .\M365Ops.psd1
+Set-M365OpsTenant -Name "contoso-test" -TenantId "contoso.onmicrosoft.com" `
+    -ClientId "00000000-0000-0000-0000-000000000001" -SecretEnvVar "M365_CLIENT_SECRET" `
+    -ExchangeCertThumbprint "0000000000000000000000000000000000000000" -EmailSender "diego@contoso.com"
+Connect-M365Ops -TenantProfile "contoso-test"
+.\Start-M365OpsWebApp.ps1</pre>
+
+<h3>Diagnostica</h3>
+<pre class="code">Get-M365OpsActiveTenantInfo          <span class="c"># stato tenant, Lokka, Exchange</span>
+Get-M365OpsMcpServers                <span class="c"># connettori MCP del tenant attivo</span>
+Connect-M365OpsLokka                 <span class="c"># riconnette Lokka manualmente</span>
+Connect-M365OpsExchange              <span class="c"># testa la connessione Exchange app-only</span></pre>
+
+<h3>Report</h3>
+<pre class="code">Export-M365OpsReport -Data $devices -Format pdf -Path "Reports\devices.pdf" -Title "Device Report"
+Send-M365OpsReportEmail -Path "Reports\devices.pdf" -To "destinatario@contoso.com"
+
+<span class="c"># report generico con grafico, stesso meccanismo usato dall'AI (sezione 22)</span>
+Export-M365OpsDataReport -Data $licenze -Title "Licenze Microsoft 365" `
+    -ChartFields @(@{ Field = "skuPartNumber"; Label = "Distribuzione licenze"; Type = "Pie" })</pre>
+
+<h3>MFA (sezione 21 — il reset è irreversibile, chiedi sempre conferma se lo automatizzi)</h3>
+<pre class="code">Get-M365OpsUserMfaStatus -Upn "mario.rossi@contoso.com"
+Reset-M365OpsUserMfa -Upn "mario.rossi@contoso.com"      <span class="c"># rimuove i metodi MFA, MAI la password</span></pre>
+
+<h3>Tracking messaggi (Get-MessageTraceV2, non la cmdlet classica in dismissione)</h3>
+<pre class="code">Get-M365OpsMessageTrace -SenderAddress "mario.rossi@contoso.com" -StartDate (Get-Date).AddDays(-3)
+Get-M365OpsMessageTraceDetail -MessageTraceId &lt;guid&gt; -RecipientAddress "anna.bianchi@contoso.com"</pre>
+
+<h3>Setup tenant senza App Registration (delegato)</h3>
+<pre class="code">Set-M365OpsTenant -Name "cliente-y" -TenantId "clientey.onmicrosoft.com" `
+    -AuthMode Delegated -DelegatedUpn "mario.rossi@clientey.onmicrosoft.com"
+Connect-M365Ops -TenantProfile "cliente-y"
+Start-M365OpsDelegatedLogin           <span class="c"># mostra URL + codice, poi apri il link e accedi</span>
+Complete-M365OpsDelegatedLogin        <span class="c"># un tentativo di verifica (la GUI lo ripete da sola)</span></pre>
+
+<h3>Esempi Exchange Online (le 50+ cmdlet della sezione 11)</h3>
+<pre class="code">Get-M365OpsMailboxUsageReport | Export-Csv "Reports\usage.csv" -NoTypeInformation
+Get-M365OpsSharedMailboxReport
+Get-M365OpsForwardingReport                    <span class="c"># sicurezza: inoltri automatici</span>
+Get-M365OpsSharedMailboxSignInStatus           <span class="c"># sicurezza: mailbox condivise con login abilitato</span>
+Grant-M365OpsMailboxPermission -Identity "fatture@contoso.com" -User "mario.rossi@contoso.com" -PermissionType FullAccess
+
+<span class="c"># migrazione su un endpoint gia' configurato (mai credenziali nuove da qui)</span>
+Get-M365OpsMigrationEndpoints
+New-M365OpsMigrationBatch -Name "Batch1" -SourceEndpoint "Hybrid Migration Endpoint - EWS (Default Web Site)" `
+    -Users "mario.rossi@contoso.com","anna.bianchi@contoso.com"    <span class="c"># creato NON avviato</span>
+Start-M365OpsMigrationBatch -Identity "Batch1"                <span class="c"># passo separato</span></pre>
+
+<footer class="pagefoot">M365Ops — Guida alla Configurazione — documento vivo, aggiornalo ad ogni modifica rilevante</footer>
+</section>
+
+</body>
+</html>

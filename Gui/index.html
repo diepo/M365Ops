@@ -1,0 +1,1553 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>M365 Ops Assistant</title>
+<style>
+  :root {
+    --bg: #F3F5F7; --surface: #FFFFFF; --surface-alt: #EBEEF2; --border: #D9DFE5;
+    --text: #16222E; --text-muted: #5B6B7A; --text-faint: #8494A3;
+    --accent: #14618F; --accent-strong: #0E4A6E; --accent-soft: #E3F0F7;
+    --ok: #257A47; --ok-soft: #E1F3E8; --warn: #9C6B0E; --warn-soft: #FBEED9;
+    --critical: #B23A32; --critical-soft: #FBE4E2;
+    --radius-sm: 4px; --radius-md: 8px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+    font-size: 14.5px; display: flex; flex-direction: column;
+  }
+  .mono { font-family: 'Cascadia Code', Consolas, ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  header {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 12px 18px; display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  #tenant-label { font-size: 12.5px; color: var(--text-muted); }
+  #ai-badge {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 3px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+    display: none;
+  }
+  #ai-badge.active { display: inline-block; }
+
+  main { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+
+  .msg { max-width: 680px; padding: 10px 14px; border-radius: var(--radius-md); line-height: 1.5; font-size: 13.5px; }
+  .msg.user { align-self: flex-end; background: var(--accent-soft); color: var(--accent-strong); }
+  .msg.system { align-self: flex-start; background: var(--surface-alt); }
+  .msg.ai { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); }
+  .msg.error { align-self: flex-start; background: var(--critical-soft); color: var(--critical); }
+  .msg .role-tag {
+    display: block; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 4px;
+  }
+
+  footer { flex-shrink: 0; border-top: 1px solid var(--border); background: var(--surface); padding: 12px 18px; }
+
+  #upload-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 12.5px; color: var(--text-muted); }
+  #file-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #icon-label { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); }
+  #browse-btn {
+    padding: 6px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+    background: var(--surface-alt); color: var(--text); font-size: 12.5px; cursor: pointer;
+  }
+  #browse-btn:hover { background: var(--border); }
+
+  #input-row { display: flex; gap: 10px; }
+  #input-box {
+    flex: 1; resize: none; height: 54px; padding: 10px 12px; font-family: inherit; font-size: 14px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text);
+  }
+  #input-box:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #send-btn {
+    width: 90px; border-radius: var(--radius-sm); border: none; background: var(--accent);
+    color: white; font-weight: 600; font-size: 13.5px; cursor: pointer;
+  }
+  #send-btn:hover:not(:disabled) { background: var(--accent-strong); }
+  #send-btn:disabled { opacity: 0.6; cursor: default; }
+
+  .typing { color: var(--text-faint); font-style: italic; }
+
+  #settings-btn {
+    background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 6px 12px; font-size: 12.5px; color: var(--text-muted); cursor: pointer;
+  }
+  #settings-btn:hover { background: var(--surface-alt); color: var(--text); }
+
+  #settings-panel {
+    display: none; background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 16px 18px; flex-shrink: 0;
+  }
+  #settings-panel.open { display: block; }
+  #settings-panel h2 { font-size: 13.5px; font-weight: 600; margin: 0 0 10px; }
+  #settings-panel .hint { font-size: 12px; color: var(--text-faint); margin: 4px 0 14px; }
+
+  #profile-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .profile-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    background: var(--surface-alt); border-radius: var(--radius-sm); font-size: 12.5px;
+  }
+  .profile-row .p-name { font-weight: 600; min-width: 120px; }
+  .profile-row .p-tenant { color: var(--text-muted); flex: 1; }
+  .profile-row button {
+    font-size: 11.5px; padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+    background: var(--surface); cursor: pointer;
+  }
+  .profile-row button.active-btn { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+
+  #settings-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  #settings-form label { font-size: 11.5px; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 3px; }
+  #settings-form input {
+    width: 100%; padding: 7px 9px; font-size: 13px; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-family: inherit;
+  }
+  #settings-form .full { grid-column: 1 / -1; }
+  #settings-form .actions { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+  #save-profile-btn {
+    padding: 8px 16px; border-radius: var(--radius-sm); border: none; background: var(--accent);
+    color: white; font-weight: 600; font-size: 13px; cursor: pointer;
+  }
+  #save-profile-btn:hover { background: var(--accent-strong); }
+  #settings-status { font-size: 12px; color: var(--text-muted); }
+
+  .settings-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .tab-btn {
+    padding: 9px 14px; border: none; background: transparent; color: var(--text-muted);
+    font-size: 13px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent;
+    font-family: inherit; margin-bottom: -1px;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-btn:hover:not(.active) { color: var(--text); }
+
+  .status-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12.5px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.on { background: var(--ok); }
+  .status-dot.off { background: var(--critical); }
+  .status-dot.warn { background: var(--warn); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>M365 Ops Assistant</h1>
+    <span id="tenant-label">connessione...</span>
+  </div>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <span id="ai-badge">Chiamata AI in corso</span>
+    <button id="settings-btn">⚙ Impostazioni tenant</button>
+  </div>
+</header>
+
+<div id="settings-panel">
+  <div id="setup-status-banner" style="display:none; margin-bottom:14px; padding:10px 14px; background:var(--warn-soft); border:1px solid var(--warn); border-radius:var(--radius-sm); font-size:12.5px;"></div>
+  <div class="settings-tabs">
+    <button class="tab-btn active" data-tab="tenant">Tenant</button>
+    <button class="tab-btn" data-tab="kb">Documentazione</button>
+    <button class="tab-btn" data-tab="ai">Motore AI</button>
+    <button class="tab-btn" data-tab="mcp">MCP / Connettori</button>
+    <button class="tab-btn" data-tab="email">Email</button>
+    <button class="tab-btn" data-tab="maint">Manutenzione</button>
+  </div>
+
+  <div class="tab-panel" id="tab-tenant">
+    <h2>Profili tenant salvati</h2>
+    <div id="profile-list"></div>
+
+    <h2>Stato connessioni — tenant attivo</h2>
+    <div id="connection-status-panel" class="hint">Caricamento...</div>
+
+    <div id="delegated-login-box" style="display:none; margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+      <p class="hint" id="delegated-login-status">Nessuna sessione attiva.</p>
+      <div class="actions">
+        <button id="delegated-login-btn">Accedi a Microsoft Graph con il mio utente</button>
+      </div>
+      <div id="delegated-login-code" style="display:none; margin-top:10px; font-size:13px;"></div>
+    </div>
+
+    <div id="exchange-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+      <h3 style="margin-top:0;">Exchange Online</h3>
+      <div id="mcp-exchange-status" class="hint">caricamento stato...</div>
+      <p class="hint">Sui tenant App-only la connessione è silenziosa (certificato). Sui tenant Delegati mostra un codice da inserire su un'altra pagina — non blocca più l'app durante l'attesa.</p>
+      <div class="actions">
+        <button id="exchange-test-btn">Connetti / Test connessione Exchange</button>
+        <span id="exchange-status-msg"></span>
+      </div>
+      <div id="exchange-login-code" style="display:none; margin-top:10px; font-size:13px;"></div>
+    </div>
+
+    <div id="sharepoint-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+      <h3 style="margin-top:0;">SharePoint / OneDrive</h3>
+      <div id="mcp-sharepoint-status" class="hint">caricamento stato...</div>
+      <p class="hint">App-only è silenzioso (stesso certificato di Exchange, ma richiede il permesso separato "SharePoint" → Sites.FullControl.All, vedi guida sezione 4.3). Sui tenant Delegati si apre un browser per il login: il server resta bloccato per tutti finché non lo completi — fallo qui PRIMA di chiedere un report in chat, mai durante una richiesta composta.</p>
+      <div class="actions">
+        <button id="sharepoint-test-btn">Connetti / Test connessione SharePoint</button>
+        <span id="sharepoint-status-msg"></span>
+      </div>
+    </div>
+
+    <div id="teams-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+      <h3 style="margin-top:0;">Microsoft Teams</h3>
+      <div id="mcp-teams-status" class="hint">caricamento stato...</div>
+      <p class="hint">App-only: elenco Team/canali/membri funziona subito con lo stesso certificato di Exchange - criteri di riunione/chiamata/messaggistica e configurazione accesso esterno richiedono in più il permesso "Skype and Teams Tenant Admin API" (vedi guida sezione 4.4). Sui tenant Delegati si apre una finestra per il login: il server resta bloccato per tutti finché non lo completi — fallo qui PRIMA di chiedere dati in chat, mai durante una richiesta composta.</p>
+      <div class="actions">
+        <button id="teams-test-btn">Connetti / Test connessione Teams</button>
+        <span id="teams-status-msg"></span>
+      </div>
+    </div>
+
+    <div id="intune-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+      <h3 style="margin-top:0;">Intune</h3>
+      <div id="mcp-intune-status" class="hint">caricamento stato...</div>
+      <p class="hint" id="intune-warning">Sui tenant App-only la connessione è silenziosa (client secret). Sui tenant Delegati il modulo di pacchettizzazione (IntuneWin32App) non supporta un flusso non bloccante come Exchange: cliccando qui sotto si apre il browser (scegli l'account esplicitamente) e <b>il server resta bloccato per tutti</b> finché non completi il login. Fallo qui, PRIMA di chiedere in chat di pacchettizzare un'app — mai durante una richiesta composta, dove bloccherebbe l'app senza preavviso. (Il flusso a codice dispositivo non è usato qui: bug reale del modulo IntuneWin32App su PowerShell 7 che lo rende sempre fallito.)</p>
+      <div class="actions">
+        <button id="intune-test-btn">Connetti Intune (browser)</button>
+        <span id="intune-status-msg"></span>
+      </div>
+    </div>
+
+    <h2 style="margin-top:20px;">Aggiungi / aggiorna profilo</h2>
+    <p class="hint">Il client secret NON viene mai scritto in un file — solo nella variabile d'ambiente del tuo utente Windows (stesso posto in cui lo mettevi con <code>setx</code>). Lascialo vuoto per non toccarlo.</p>
+    <div id="settings-form">
+      <div>
+        <label>Nome profilo</label>
+        <input type="text" id="f-name" placeholder="es. contoso-test">
+      </div>
+      <div>
+        <label>Tenant ID</label>
+        <input type="text" id="f-tenant" placeholder="es. contoso.onmicrosoft.com">
+      </div>
+      <div class="full">
+        <label>Modalita' di autenticazione</label>
+        <select id="f-authmode" style="width:100%; padding:7px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+          <option value="AppOnly">App-only (App Registration + client secret) — nessuna interazione dopo il setup</option>
+          <option value="Delegated">Delegata (login col tuo utente + MFA) — nessuna App Registration necessaria</option>
+        </select>
+      </div>
+      <div id="authmode-apponly-fields" style="display:contents;">
+        <div>
+          <label>Client ID (App Registration)</label>
+          <input type="text" id="f-clientid" placeholder="GUID">
+        </div>
+        <div>
+          <label>Nome variabile d'ambiente per il secret</label>
+          <input type="text" id="f-secretvar" placeholder="es. M365_CLIENT_SECRET_CLIENTEX">
+        </div>
+        <div>
+          <label>Valore client secret (facoltativo — lascia vuoto per non toccarlo)</label>
+          <input type="password" id="f-secretvalue" placeholder="valore del secret dal portale Entra ID">
+        </div>
+      </div>
+      <div id="authmode-delegated-fields" style="display:none;">
+        <label>Il tuo UPN su questo tenant</label>
+        <input type="text" id="f-delegatedupn" placeholder="es. mario.rossi@clientex.onmicrosoft.com">
+        <p class="hint">Userai i ruoli admin (Exchange Admin, User Admin, ecc.) gia' assegnati a questo utente su quel tenant. Richiede un login interattivo con MFA da questo tab dopo il salvataggio.</p>
+      </div>
+      <div>
+        <label>Thumbprint certificato Exchange (facoltativo, solo App-only)</label>
+        <input type="text" id="f-exchangecert" placeholder="es. 0000000000000000000000000000000000000000">
+      </div>
+      <div class="actions full">
+        <button id="save-profile-btn">Salva profilo</button>
+        <span id="settings-status"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-kb" style="display:none;">
+    <h2>Documentazione del tenant attivo</h2>
+    <p class="hint">Carica documentazione specifica di QUESTO tenant (peculiarita' di infrastruttura, procedure di troubleshooting, note operative) - .txt, .md, .docx, .xlsx/.xls, .pdf. L'AI la cataloga automaticamente e la consulta quando rilevante. Ogni tenant ha la propria Knowledge Base separata: cambiando tenant, questi documenti non sono piu' visibili ne' influenzano le risposte, e tornano visibili solo quando riattivi questo stesso tenant.</p>
+    <div id="kb-upload-row" style="margin:10px 0;">
+      <span id="kb-file-label">Nessun file selezionato</span>
+      <button id="kb-browse-btn">Carica documento...</button>
+      <input type="file" id="kb-file-input" accept=".txt,.md,.docx,.xlsx,.xls,.pdf" style="display:none">
+      <span id="kb-upload-status" class="hint"></span>
+    </div>
+    <div id="kb-doc-list"></div>
+  </div>
+
+  <div class="tab-panel" id="tab-ai" style="display:none;">
+    <h2>Motore AI</h2>
+    <p class="hint">La chiave NON viene mai scritta in un file, solo nella variabile d'ambiente del tuo utente.</p>
+    <div id="ai-settings-form">
+      <div>
+        <label>Provider</label>
+        <select id="ai-provider" style="width:100%; padding:7px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+          <option value="Claude">Claude (Anthropic)</option>
+          <option value="AzureOpenAI">Azure OpenAI</option>
+        </select>
+      </div>
+      <div id="ai-key-field">
+        <label id="ai-key-label">API key</label>
+        <input type="password" id="ai-apikey" placeholder="chiave API">
+      </div>
+      <div id="ai-azure-extra" style="display:none;">
+        <label>Endpoint Azure OpenAI</label>
+        <input type="text" id="ai-endpoint" placeholder="https://tuarisorsa.openai.azure.com">
+      </div>
+      <div id="ai-azure-extra2" style="display:none;">
+        <label>Nome deployment</label>
+        <input type="text" id="ai-deployment" placeholder="es. gpt-4o">
+      </div>
+      <div class="actions">
+        <button id="save-ai-btn">Salva impostazioni AI</button>
+        <span id="ai-settings-status"></span>
+      </div>
+    </div>
+
+    <h2 style="margin-top:20px;">Stato e utilizzo</h2>
+    <p class="hint">Sia la chat libera con strumenti sia le analisi/diagnosi singole usano il provider scelto sopra.</p>
+    <div id="ai-usage-panel" class="hint">Caricamento...</div>
+    <div class="actions">
+      <button id="ai-test-btn">Testa connessione (provider attivo)</button>
+      <span id="ai-test-status"></span>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-mcp" style="display:none;">
+    <h2>Lokka (MCP)</h2>
+    <p class="hint">Configurazione specifica del tenant attivo — ogni profilo tenant ha i propri connettori MCP, non condivisi.</p>
+    <div id="mcp-lokka-status" class="hint">caricamento stato...</div>
+    <p class="hint">Comando e argomenti usati per avviare Lokka come sottoprocesso — modificabili (es. per puntare a una versione diversa del pacchetto).</p>
+    <div id="lokka-config-form">
+      <div>
+        <label>Comando</label>
+        <input type="text" id="f-lokka-command" placeholder="npx">
+      </div>
+      <div>
+        <label>Argomenti</label>
+        <input type="text" id="f-lokka-args" placeholder="-y @merill/lokka">
+      </div>
+      <div class="actions full">
+        <button id="save-lokka-config-btn">Salva configurazione</button>
+        <button id="lokka-reconnect-btn">↻ Riconnetti con la nuova configurazione</button>
+        <span id="lokka-status-msg"></span>
+      </div>
+    </div>
+
+    <h2 style="margin-top:20px;">Altri server MCP</h2>
+    <p class="hint">Salvati qui per riferimento — al momento solo Lokka è collegato al motore di ragionamento in chat, gli altri sono gestibili ma non ancora richiamabili dall'AI.</p>
+    <div id="other-mcp-list" class="hint">nessun altro server configurato</div>
+    <div id="new-mcp-form">
+      <div>
+        <label>Nome</label>
+        <input type="text" id="f-newmcp-name" placeholder="es. mio-server">
+      </div>
+      <div>
+        <label>Comando</label>
+        <input type="text" id="f-newmcp-command" placeholder="npx / python / ...">
+      </div>
+      <div class="full">
+        <label>Argomenti</label>
+        <input type="text" id="f-newmcp-args" placeholder="es. -y @qualcuno/pacchetto">
+      </div>
+      <div class="actions full">
+        <button id="add-mcp-btn">Aggiungi server MCP</button>
+        <span id="new-mcp-status"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-email" style="display:none;">
+    <h2>Invio report via email</h2>
+    <p class="hint">Usa il permesso applicativo Mail.Send gia' concesso alla App Registration. L'indirizzo mittente deve essere una mailbox reale del tenant.</p>
+    <div id="email-settings-form">
+      <div class="full">
+        <label>Indirizzo mittente</label>
+        <input type="text" id="f-email-sender" placeholder="es. reports@contoso.com">
+      </div>
+      <div class="actions full">
+        <button id="save-email-btn">Salva</button>
+        <span id="email-settings-status"></span>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:14px;">Dopo aver generato un report (CSV/Excel/PDF) in chat, scrivi "invialo per email a indirizzo@dominio.it" per spedirlo come allegato.</p>
+  </div>
+
+  <div class="tab-panel" id="tab-maint" style="display:none;">
+    <h2>Manutenzione</h2>
+    <p class="hint">Riavvia il processo del server locale — utile dopo aver aggiunto un permesso Graph (il token in cache viene scartato) o se qualcosa si comporta in modo strano. Si perde lo stato della sessione corrente (file caricato, ultimo gruppo/app creati, connessione Lokka/Exchange).</p>
+    <div class="actions">
+      <button id="restart-server-btn" style="background:var(--warn-soft); color:var(--warn); border:1px solid var(--warn);">↻ Riavvia server</button>
+      <span id="restart-status"></span>
+    </div>
+
+    <h2>Script personalizzati</h2>
+    <p class="hint">Script "home made" in <code>Scripts\Custom</code> (report/estrazioni specifiche per questo tenant). Vedi il README nella cartella per la convenzione. Dopo averne aggiunto o modificato uno, riavvia il server per caricarlo.</p>
+    <div id="custom-scripts-list" class="hint">Caricamento...</div>
+
+    <h2 style="margin-top:20px;">Log delle azioni (oggi)</h2>
+    <p class="hint">Storico persistente (un file al giorno in <code>Logs\</code>) di messaggi ricevuti, tool AI chiamati/completati e azioni confermate eseguite — utile per capire cosa stava facendo l'app in caso di blocco o comportamento inatteso.</p>
+    <div class="actions">
+      <button id="reload-logs-btn">↻ Aggiorna log</button>
+    </div>
+    <pre id="logs-view" style="max-height:300px; overflow-y:auto; background:var(--surface-alt); padding:10px 12px; border-radius:var(--radius-sm); font-size:11px; white-space:pre-wrap; margin-top:8px;">Caricamento...</pre>
+  </div>
+</div>
+
+<main id="chat"></main>
+
+<footer>
+  <div id="upload-row">
+    <span id="file-label">Nessun file caricato</span>
+    <button id="browse-btn">Carica file (.exe / .msi / .ps1 / .bat / .cmd)...</button>
+    <input type="file" id="file-input" accept=".exe,.msi,.ps1,.bat,.cmd" style="display:none">
+    <span id="icon-label">Nessuna icona</span>
+    <button id="browse-icon-btn">Carica icona (opzionale)...</button>
+    <input type="file" id="icon-input" accept=".png,.jpg,.jpeg,.ico" style="display:none">
+    <span id="migration-csv-label">Nessun CSV migrazione</span>
+    <button id="browse-migration-csv-btn">Carica CSV migrazione...</button>
+    <input type="file" id="migration-csv-input" accept=".csv" style="display:none">
+  </div>
+  <div id="input-row">
+    <textarea id="input-box" placeholder="Scrivi come faresti con un collega — es. 'mostrami i dispositivi non conformi'"></textarea>
+    <button id="send-btn">Invia</button>
+    <button id="new-conversation-btn" title="Azzera lo storico che l'AI usa come contesto per questo tenant" style="background:var(--surface-alt); color:var(--text-muted); border:1px solid var(--border);">Nuova conversazione</button>
+  </div>
+</footer>
+
+<script>
+  const chat = document.getElementById('chat');
+  const inputBox = document.getElementById('input-box');
+  const sendBtn = document.getElementById('send-btn');
+  const newConversationBtn = document.getElementById('new-conversation-btn');
+  const browseBtn = document.getElementById('browse-btn');
+  const fileInput = document.getElementById('file-input');
+  const fileLabel = document.getElementById('file-label');
+  const tenantLabel = document.getElementById('tenant-label');
+  const aiBadge = document.getElementById('ai-badge');
+  const settingsBtn = document.getElementById('settings-btn');
+  const settingsPanel = document.getElementById('settings-panel');
+  const profileList = document.getElementById('profile-list');
+  const saveProfileBtn = document.getElementById('save-profile-btn');
+  const settingsStatus = document.getElementById('settings-status');
+  const browseIconBtn = document.getElementById('browse-icon-btn');
+  const iconInput = document.getElementById('icon-input');
+  const iconLabel = document.getElementById('icon-label');
+  const aiProviderSelect = document.getElementById('ai-provider');
+  const aiKeyLabel = document.getElementById('ai-key-label');
+  const aiApiKeyInput = document.getElementById('ai-apikey');
+  const aiAzureExtra = document.getElementById('ai-azure-extra');
+  const aiAzureExtra2 = document.getElementById('ai-azure-extra2');
+  const aiEndpointInput = document.getElementById('ai-endpoint');
+  const aiDeploymentInput = document.getElementById('ai-deployment');
+  const saveAiBtn = document.getElementById('save-ai-btn');
+  const aiSettingsStatus = document.getElementById('ai-settings-status');
+  const restartServerBtn = document.getElementById('restart-server-btn');
+  const restartStatus = document.getElementById('restart-status');
+  const authModeSelect = document.getElementById('f-authmode');
+  const authModeAppOnlyFields = document.getElementById('authmode-apponly-fields');
+  const authModeDelegatedFields = document.getElementById('authmode-delegated-fields');
+  const delegatedLoginBox = document.getElementById('delegated-login-box');
+  const delegatedLoginStatus = document.getElementById('delegated-login-status');
+  const delegatedLoginBtn = document.getElementById('delegated-login-btn');
+  const delegatedLoginCode = document.getElementById('delegated-login-code');
+  let delegatedPollTimer = null;
+
+  function addMessage(role, text, pending, attachments) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + role;
+    const tag = document.createElement('span');
+    tag.className = 'role-tag';
+    tag.textContent = { user: 'Tu', system: 'Assistente', ai: 'AI', error: 'Errore' }[role] || role;
+    const body = document.createElement('div');
+    body.className = 'mono';
+    body.textContent = text;
+    div.appendChild(tag);
+    div.appendChild(body);
+
+    if (attachments && attachments.length > 0) {
+      const files = document.createElement('div');
+      files.style.marginTop = '8px';
+      files.style.display = 'flex';
+      files.style.gap = '8px';
+      files.style.flexWrap = 'wrap';
+      attachments.forEach(att => {
+        const ext = (att.FileName.split('.').pop() || '').toLowerCase();
+        const iconLabel = ext === 'pdf' ? 'PDF' : (ext === 'xlsx' ? 'Excel' : ext.toUpperCase());
+        const link = document.createElement('a');
+        link.href = '/api/reports/download?file=' + encodeURIComponent(att.FileName);
+        link.textContent = '⬇ Scarica ' + iconLabel;
+        link.style.cssText = 'display:inline-block; padding:6px 12px; border-radius:4px; border:1px solid var(--accent); background:var(--accent-soft); color:var(--accent-strong); text-decoration:none; font-size:12.5px; font-weight:600;';
+        files.appendChild(link);
+      });
+      div.appendChild(files);
+    }
+
+    if (pending) {
+      const actions = document.createElement('div');
+      actions.style.marginTop = '8px';
+      actions.style.display = 'flex';
+      actions.style.gap = '8px';
+      const yesBtn = document.createElement('button');
+      yesBtn.textContent = 'Sì';
+      yesBtn.style.background = 'var(--ok-soft)'; yesBtn.style.color = 'var(--ok)'; yesBtn.style.border = '1px solid var(--ok)';
+      const noBtn = document.createElement('button');
+      noBtn.textContent = 'No';
+      const respond = (word, btnsToDisable) => {
+        btnsToDisable.forEach(b => b.disabled = true);
+        sendMessage(word);
+      };
+      yesBtn.addEventListener('click', () => respond('si', [yesBtn, noBtn]));
+      noBtn.addEventListener('click', () => respond('no', [yesBtn, noBtn]));
+      actions.appendChild(yesBtn);
+      actions.appendChild(noBtn);
+      div.appendChild(actions);
+    }
+
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  const WELCOME_TEXT = 'Pronto. Scrivimi cosa ti serve — Intune (dispositivi, pattern di conformita\', pacchettizzare/assegnare un\'app), Entra ID (utenti, gruppi), Exchange Online (mailbox, permessi, gruppi di distribuzione, mail flow, report), o una domanda libera: uso Microsoft Graph/Exchange in tempo reale, non risposte da manuale. Ogni scrittura ti viene sempre proposta prima, mai eseguita senza conferma. Scrivi "aiuto" per l\'elenco completo dei comandi diretti, o "⚙ Impostazioni tenant" per tenant/script personalizzati/connettori.';
+
+  // Ricostruisce il pannello chat per il tenant attivo: storico persistito (se c'e') +
+  // un'eventuale proposta ancora in sospeso. Usata sia all'avvio pagina sia dopo un cambio
+  // tenant - senza, un refresh mostrava una chat vuota anche se il server "ricordava" ancora
+  // tutto (bug reale corretto il 15/08/2026), e una proposta in sospeso spariva dalla vista
+  // pur restando attiva lato server, col rischio che il messaggio successivo dell'utente
+  // venisse interpretato come risposta a una proposta che non vedeva piu'.
+  async function loadChatPanel() {
+    chat.innerHTML = '';
+    let pending = false, pendingText = '';
+    try {
+      const res = await fetch('/api/status');
+      const data = await res.json();
+      currentTenantName = data.tenant;
+      tenantLabel.textContent = 'tenant attivo: ' + data.tenant;
+      pending = !!data.pending;
+      pendingText = data.pendingText || '';
+    } catch (e) {
+      tenantLabel.textContent = 'errore di connessione al server locale';
+      return;
+    }
+
+    try {
+      const histRes = await fetch('/api/chat/history');
+      const history = await histRes.json();
+      history.forEach(turn => addMessage(turn.role === 'user' ? 'user' : 'ai', turn.text, false, turn.attachments));
+    } catch (e) {
+      // Storico e' solo un miglioramento di comodita' - non deve mai impedire l'avvio della chat.
+    }
+
+    if (pending) {
+      addMessage('ai', pendingText + "\n\n(rispondi 'sì' per eseguirla davvero, 'no' per annullare)", true);
+    } else if (chat.children.length === 0) {
+      addMessage('system', WELCOME_TEXT);
+    }
+  }
+
+  async function init() {
+    await loadChatPanel();
+  }
+
+  async function sendMessage(presetText) {
+    const text = presetText !== undefined ? presetText : inputBox.value.trim();
+    if (!text) return;
+    addMessage('user', text);
+    if (presetText === undefined) inputBox.value = '';
+    sendBtn.disabled = true;
+    inputBox.disabled = true;
+    const thinking = document.createElement('div');
+    thinking.className = 'msg system typing';
+    thinking.textContent = 'sto elaborando...';
+    chat.appendChild(thinking);
+    chat.scrollTop = chat.scrollHeight;
+
+    // Il server e' single-threaded (una richiesta alla volta - da qui dipendono i vari
+    // fail-fast su Exchange/Intune) quindi non puo' rispondere a un polling di stato reale
+    // mentre elabora QUESTA richiesta. Quello che possiamo dare onestamente lato client e'
+    // un segnale che il tempo passa (non e' congelato) invece di un testo statico immobile,
+    // con indicazioni via via piu' utili quando l'attesa si allunga oltre la norma.
+    const startTime = Date.now();
+    const tickInterval = setInterval(() => {
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      if (elapsed < 8) {
+        thinking.textContent = 'sto elaborando...';
+      } else if (elapsed < 30) {
+        thinking.textContent = `sto elaborando... (${elapsed}s)`;
+      } else if (elapsed < 90) {
+        thinking.textContent = `sto ancora elaborando (${elapsed}s) — richieste con più passaggi (report, ricerche su più dati) possono richiedere un minuto o più`;
+      } else {
+        thinking.textContent = `${elapsed}s trascorsi — se hai appena avviato un login (Exchange/Intune) senza completarlo, il server resta bloccato in attesa: controlla se è comparsa una finestra di accesso da qualche parte. Altrimenti sto ancora lavorando.`;
+      }
+    }, 1000);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+      });
+      const data = await res.json();
+      thinking.remove();
+      addMessage(data.role || 'system', data.text || '(nessuna risposta - controlla il log nel tab Manutenzione)', data.pending, data.attachments);
+    } catch (e) {
+      thinking.remove();
+      addMessage('error', 'Errore di comunicazione col server: ' + e.message);
+    } finally {
+      clearInterval(tickInterval);
+      sendBtn.disabled = false;
+      inputBox.disabled = false;
+      inputBox.focus();
+    }
+  }
+
+  sendBtn.addEventListener('click', () => sendMessage());
+  inputBox.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+  newConversationBtn.addEventListener('click', async () => {
+    newConversationBtn.disabled = true;
+    try {
+      await fetch('/api/chat/reset', { method: 'POST' });
+      chat.innerHTML = '';
+      addMessage('system', 'Storico della conversazione azzerato. Ripartiamo da qui.');
+    } catch (e) {
+      addMessage('error', 'Errore di comunicazione col server: ' + e.message);
+    } finally {
+      newConversationBtn.disabled = false;
+    }
+  });
+
+  browseBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    fileLabel.textContent = 'caricamento ' + file.name + '...';
+    const buf = await file.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, contentBase64: base64, kind: 'app' })
+      });
+      const data = await res.json();
+      fileLabel.textContent = file.name;
+      addMessage('system', data.text || ('File caricato: ' + file.name));
+    } catch (e) {
+      fileLabel.textContent = 'Nessun file caricato';
+      addMessage('error', 'Upload fallito: ' + e.message);
+    }
+  });
+
+  browseIconBtn.addEventListener('click', () => iconInput.click());
+  iconInput.addEventListener('change', async () => {
+    const file = iconInput.files[0];
+    if (!file) return;
+    iconLabel.textContent = 'caricamento...';
+    const buf = await file.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, contentBase64: base64, kind: 'icon' })
+      });
+      const data = await res.json();
+      iconLabel.textContent = file.name;
+      addMessage('system', data.text || ('Icona caricata: ' + file.name));
+    } catch (e) {
+      iconLabel.textContent = 'Nessuna icona';
+      addMessage('error', 'Upload icona fallito: ' + e.message);
+    }
+  });
+
+  const kbBrowseBtn = document.getElementById('kb-browse-btn');
+  const kbFileInput = document.getElementById('kb-file-input');
+  const kbFileLabel = document.getElementById('kb-file-label');
+  const kbUploadStatus = document.getElementById('kb-upload-status');
+  const kbDocList = document.getElementById('kb-doc-list');
+
+  kbBrowseBtn.addEventListener('click', () => kbFileInput.click());
+  kbFileInput.addEventListener('change', async () => {
+    const file = kbFileInput.files[0];
+    if (!file) return;
+    kbFileLabel.textContent = file.name;
+    kbUploadStatus.textContent = 'caricamento e catalogazione in corso (una chiamata AI, puo richiedere qualche secondo)...';
+    const buf = await file.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+
+    try {
+      const res = await fetch('/api/kb/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, contentBase64: base64 })
+      });
+      const data = await res.json();
+      kbUploadStatus.textContent = data.text || (data.ok ? 'Fatto.' : 'Errore.');
+      kbFileInput.value = '';
+      kbFileLabel.textContent = 'Nessun file selezionato';
+      loadKnowledgeBase();
+    } catch (e) {
+      kbUploadStatus.textContent = 'Upload fallito: ' + e.message;
+    }
+  });
+
+  async function loadKnowledgeBase() {
+    kbDocList.innerHTML = '<p class="hint">Caricamento...</p>';
+    try {
+      const res = await fetch('/api/kb/list');
+      const data = await res.json();
+      if (data.error) { kbDocList.innerHTML = '<p class="hint">' + data.error + '</p>'; return; }
+      if (!data || data.length === 0) { kbDocList.innerHTML = '<p class="hint">Nessun documento caricato per questo tenant.</p>'; return; }
+      kbDocList.innerHTML = '';
+      data.forEach(doc => {
+        const card = document.createElement('div');
+        card.style.cssText = 'border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 14px; margin-bottom:8px;';
+        const topics = (doc.Topics && doc.Topics.length > 0) ? doc.Topics.join(', ') : '';
+        card.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <div>
+              <b>${doc.Title || doc.FileName}</b> <span class="hint">(${doc.FileName})</span>
+              ${topics ? `<div class="hint">${topics}</div>` : ''}
+              <div style="margin-top:4px; font-size:13px;">${doc.Summary || ''}</div>
+            </div>
+            <button class="kb-delete-btn" data-filename="${doc.FileName}" style="flex-shrink:0;">Rimuovi</button>
+          </div>
+        `;
+        kbDocList.appendChild(card);
+      });
+      kbDocList.querySelectorAll('.kb-delete-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm(`Rimuovere "${btn.dataset.filename}" dalla Knowledge Base di questo tenant?`)) return;
+          btn.disabled = true;
+          try {
+            await fetch('/api/kb/delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fileName: btn.dataset.filename })
+            });
+            loadKnowledgeBase();
+          } catch (e) {
+            alert('Rimozione fallita: ' + e.message);
+            btn.disabled = false;
+          }
+        });
+      });
+    } catch (e) {
+      kbDocList.innerHTML = '<p class="hint">Errore nel caricare la Knowledge Base.</p>';
+    }
+  }
+
+  const browseMigrationCsvBtn = document.getElementById('browse-migration-csv-btn');
+  const migrationCsvInput = document.getElementById('migration-csv-input');
+  const migrationCsvLabel = document.getElementById('migration-csv-label');
+  browseMigrationCsvBtn.addEventListener('click', () => migrationCsvInput.click());
+  migrationCsvInput.addEventListener('change', async () => {
+    const file = migrationCsvInput.files[0];
+    if (!file) return;
+    migrationCsvLabel.textContent = 'caricamento...';
+    const buf = await file.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, contentBase64: base64, kind: 'migration-csv' })
+      });
+      const data = await res.json();
+      migrationCsvLabel.textContent = file.name;
+      addMessage('system', data.text || ('CSV caricato: ' + file.name));
+    } catch (e) {
+      migrationCsvLabel.textContent = 'Nessun CSV migrazione';
+      addMessage('error', 'Upload CSV fallito: ' + e.message);
+    }
+  });
+
+  async function loadProfiles() {
+    try {
+      const res = await fetch('/api/tenants');
+      const data = await res.json();
+      profileList.innerHTML = '';
+      const profiles = Array.isArray(data) ? data : [data];
+      if (profiles.length === 0 || !data || (data.length === undefined && !data.name)) {
+        profileList.innerHTML = '<div class="hint">Nessun profilo salvato ancora.</div>';
+        return;
+      }
+      for (const p of profiles) {
+        if (!p || !p.name) continue;
+        const row = document.createElement('div');
+        row.className = 'profile-row';
+        const isActive = p.name === currentTenantName;
+        const modeTag = p.authMode === 'Delegated' ? 'delegata' : 'app-only';
+        row.innerHTML = `
+          <span class="p-name">${p.name}</span>
+          <span class="p-tenant">${p.tenantId} <span class="hint">(${modeTag})</span></span>
+          <button data-name="${p.name}" class="${isActive ? 'active-btn' : ''}">${isActive ? 'Attivo' : 'Attiva'}</button>
+        `;
+        row.querySelector('button').addEventListener('click', () => activateProfile(p.name));
+        profileList.appendChild(row);
+      }
+    } catch (e) {
+      profileList.innerHTML = '<div class="hint">Errore nel caricare i profili.</div>';
+    }
+  }
+
+  function updateAuthModeFieldVisibility() {
+    const isDelegated = authModeSelect.value === 'Delegated';
+    authModeAppOnlyFields.style.display = isDelegated ? 'none' : 'contents';
+    authModeDelegatedFields.style.display = isDelegated ? 'block' : 'none';
+  }
+  authModeSelect.addEventListener('change', updateAuthModeFieldVisibility);
+
+  function statusDot(ok) {
+    return `<span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:${ok ? 'var(--ok)' : 'var(--warn)'}; margin-right:6px;"></span>`;
+  }
+
+  async function loadConnectionStatus() {
+    const panel = document.getElementById('connection-status-panel');
+    let data;
+    try {
+      const res = await fetch('/api/mcp-status');
+      data = await res.json();
+    } catch (e) {
+      panel.innerHTML = 'Errore nel caricare lo stato — server non raggiungibile?';
+      delegatedLoginBox.style.display = 'none';
+      return;
+    }
+
+    const isDelegated = data.authMode === 'Delegated';
+    const rows = [];
+    rows.push(`${statusDot(true)}<b>Modalità:</b> ${isDelegated ? 'Delegata (utente + MFA)' : 'App-only (client credentials)'}`);
+
+    if (isDelegated) {
+      rows.push(`${statusDot(data.delegatedSessionActive)}<b>Microsoft Graph:</b> ${data.delegatedSessionActive ? `sessione attiva (${data.delegatedUpn || 'utente delegato'})` : 'nessuna sessione — accedi qui sotto'}`);
+    } else {
+      rows.push(`${statusDot(true)}<b>Microsoft Graph:</b> pronto (token app-only, nessuna interazione necessaria)`);
+      rows.push(`${statusDot(data.lokkaConnected)}<b>Lokka (MCP):</b> ${data.lokkaConnected ? `connesso (${data.lokkaToolCount} tool)` : 'non connesso — si connette da solo al bisogno'}`);
+    }
+    rows.push(`${statusDot(data.exchangeConnected)}<b>Exchange Online:</b> ${data.exchangeConnected ? 'connesso' : (data.exchangeConfigured || isDelegated ? 'non connesso — vedi sotto' : 'non configurato')}`);
+    rows.push(`${statusDot(data.sharePointConnected)}<b>SharePoint/OneDrive:</b> ${data.sharePointConnected ? 'connesso' : 'non connesso — vedi sotto'}`);
+    rows.push(`${statusDot(data.teamsConnected)}<b>Microsoft Teams:</b> ${data.teamsConnected ? 'connesso' : 'non connesso — vedi sotto'}`);
+    rows.push(`${statusDot(data.intuneConnected)}<b>Intune:</b> ${data.intuneConnected ? `connesso${data.intuneConnectedUpn ? ` (${data.intuneConnectedUpn})` : ''}` : 'non connesso — vedi sotto'}`);
+    panel.innerHTML = rows.join('<br>');
+
+    delegatedLoginBox.style.display = isDelegated ? 'block' : 'none';
+    if (isDelegated) {
+      delegatedLoginStatus.textContent = data.delegatedSessionActive
+        ? `Sessione attiva per ${data.delegatedUpn || 'utente delegato'}.`
+        : `Nessuna sessione attiva per ${data.delegatedUpn || '(UPN non impostato)'} — clicca "Accedi con il mio utente".`;
+    }
+
+    // Bug reale corretto il 17/08/2026: il testo accanto a ciascun pulsante "Connetti/Test"
+    // (es. sharepoint-status-msg) veniva scritto SOLO dal flusso di quel click (successo/errore
+    // di QUEL tentativo) e mai piu' toccato dopo - se un tentativo falliva e la connessione
+    // riusciva comunque piu' tardi per un'altra via (es. un secondo tentativo, o completata in
+    // modo asincrono), lo stato in alto si aggiornava correttamente ma il messaggio accanto al
+    // pulsante restava bloccato sul vecchio errore, mostrando "connesso" sopra e "Errore: ..."
+    // sotto contemporaneamente. Ora ogni refresh di stato, se la connessione risulta attiva,
+    // ripulisce anche il messaggio accanto al pulsante invece di lasciarlo fermo all'ultimo
+    // tentativo - un errore vecchio non deve mai sopravvivere a un successo piu' recente.
+    //
+    // Bug gemello trovato dal vivo il 17/08/2026 (SharePoint, stesso schema latente anche su
+    // Exchange/Teams): il caso SIMMETRICO non era coperto - un messaggio di SUCCESSO ("Connesso.
+    // Trovati N siti.") restava scritto per sempre anche dopo che la connessione reale era
+    // caduta (es. riavvio del server, che azzera $script:M365OpsXConnected in un processo nuovo)
+    // finche' l'utente non ricliccava il pulsante. Risultato: pallino rosso "Non connesso" in
+    // alto ma testo "Connesso. Trovati 5 siti." ancora visibile accanto al pulsante,
+    // contraddittorio. Ora, simmetricamente, se il refresh mostra NON connesso, un vecchio
+    // messaggio di successo accanto al pulsante viene ripulito.
+    const exStatus = document.getElementById('mcp-exchange-status');
+    if (exStatus) {
+      exStatus.innerHTML = data.exchangeConnected
+        ? `${statusDot(true)}Connesso.`
+        : `${statusDot(false)}Non connesso.${data.exchangeThumbprint ? ' Certificato: ' + data.exchangeThumbprint : ''}`;
+      const exMsg = document.getElementById('exchange-status-msg');
+      if (exMsg) {
+        if (data.exchangeConnected && exMsg.textContent.startsWith('Errore')) { exMsg.textContent = ''; }
+        if (!data.exchangeConnected && exMsg.textContent.startsWith('Connesso')) { exMsg.textContent = ''; }
+      }
+    }
+
+    const spStatus = document.getElementById('mcp-sharepoint-status');
+    if (spStatus) {
+      spStatus.innerHTML = data.sharePointConnected
+        ? `${statusDot(true)}Connesso${data.sharePointConnectedUrl ? ' (' + data.sharePointConnectedUrl + ')' : ''}.`
+        : `${statusDot(false)}Non connesso.`;
+      const spMsg = document.getElementById('sharepoint-status-msg');
+      if (spMsg) {
+        if (data.sharePointConnected && spMsg.textContent.startsWith('Errore')) { spMsg.textContent = ''; }
+        if (!data.sharePointConnected && spMsg.textContent.startsWith('Connesso')) { spMsg.textContent = ''; }
+      }
+    }
+
+    const teamsStatus = document.getElementById('mcp-teams-status');
+    if (teamsStatus) {
+      teamsStatus.innerHTML = data.teamsConnected
+        ? `${statusDot(true)}Connesso.`
+        : `${statusDot(false)}Non connesso.`;
+      const teamsMsg = document.getElementById('teams-status-msg');
+      if (teamsMsg) {
+        if (data.teamsConnected && teamsMsg.textContent.startsWith('Errore')) { teamsMsg.textContent = ''; }
+        if (!data.teamsConnected && teamsMsg.textContent.startsWith('Connesso')) { teamsMsg.textContent = ''; }
+      }
+    }
+
+    const intuneStatus = document.getElementById('mcp-intune-status');
+    if (intuneStatus) {
+      intuneStatus.innerHTML = data.intuneConnected
+        ? `${statusDot(true)}Connesso${data.intuneConnectedUpn ? ` come <b>${data.intuneConnectedUpn}</b>` : ''}${data.intuneConnectedTenant ? ` (tenant: ${data.intuneConnectedTenant})` : ''} — verificato dal vivo con una chiamata Graph reale, non solo presunto.`
+        : `${statusDot(false)}Non connesso.${isDelegated ? ' Necessario prima di pacchettizzare un\'app.' : ''}`;
+    }
+    const intuneWarning = document.getElementById('intune-warning');
+    if (intuneWarning) { intuneWarning.style.display = isDelegated ? 'block' : 'none'; }
+  }
+  // Alias per compatibilità con chiamate esistenti nel resto dello script.
+  const refreshDelegatedLoginBox = loadConnectionStatus;
+
+  // Comodità per i login a codice dispositivo (Graph delegato ed Exchange delegato,
+  // stesso meccanismo per entrambi): copia il codice negli appunti e apre subito una
+  // finestra sull'URL di verifica, così di solito basta incollare - il link resta comunque
+  // visibile come fallback nel caso il browser blocchi il popup o copiare fallisca.
+  async function presentDeviceCode(flow, codeBoxEl) {
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(flow.UserCode);
+      copied = true;
+    } catch (e) { /* clipboard non disponibile o permesso negato - il codice resta comunque leggibile a schermo */ }
+
+    let popupBlocked = true;
+    try {
+      const popup = window.open(flow.VerificationUri, 'm365opsDeviceLogin', 'width=520,height=720');
+      popupBlocked = !popup || popup.closed || typeof popup.closed === 'undefined';
+    } catch (e) { /* popup bloccato dal browser - resta il link cliccabile sotto */ }
+
+    codeBoxEl.style.display = 'block';
+    codeBoxEl.innerHTML = `Codice: <b>${flow.UserCode}</b>${copied ? ' (copiato negli appunti - incollalo nella pagina)' : ''}<br>` +
+      (popupBlocked
+        ? `Il browser ha bloccato la finestra di login: apri manualmente <a href="${flow.VerificationUri}" target="_blank">${flow.VerificationUri}</a> e incolla il codice.`
+        : `Si è aperta una finestra di login - incolla il codice lì.`);
+  }
+
+  delegatedLoginBtn.addEventListener('click', async () => {
+    delegatedLoginBtn.disabled = true;
+    delegatedLoginCode.style.display = 'none';
+    if (delegatedPollTimer) { clearTimeout(delegatedPollTimer); delegatedPollTimer = null; }
+    try {
+      const res = await fetch('/api/delegated-login/start', { method: 'POST' });
+      const flow = await res.json();
+      if (flow.status === 'Error' || !flow.UserCode) {
+        delegatedLoginStatus.textContent = 'Errore: ' + (flow.message || flow.Message || 'sconosciuto');
+        delegatedLoginBtn.disabled = false;
+        return;
+      }
+      await presentDeviceCode(flow, delegatedLoginCode);
+      delegatedLoginStatus.textContent = 'In attesa che tu completi il login...';
+
+      const intervalMs = Math.max((flow.Interval || 5), 3) * 1000;
+      // setTimeout auto-rischedulato, non setInterval (bug reale corretto il 17/08/2026): con
+      // setInterval un giro puo' partire prima che quello precedente abbia ricevuto risposta
+      // (es. lo scambio token e' piu' lento del solito), producendo DUE poll in volo insieme -
+      // se il primo completa con successo e ripulisce lo stato lato server, il secondo (gia'
+      // partito) trova lo stato appena rimosso e mostra "nessun login in corso" SOPRA il
+      // messaggio di successo appena scritto dal primo, confondendo l'utente (login riuscito
+      // davvero, ma sembra fallito). Pianificare il prossimo giro SOLO dopo che questo e'
+      // finito rende impossibile la sovrapposizione.
+      const pollDelegatedOnce = async () => {
+        try {
+          const pollRes = await fetch('/api/delegated-login/poll', { method: 'POST' });
+          const result = await pollRes.json();
+          if (result.Status === 'Completed') {
+            delegatedPollTimer = null;
+            delegatedLoginCode.style.display = 'none';
+            delegatedLoginBtn.disabled = false;
+            refreshDelegatedLoginBox();
+            loadSetupStatus();
+            return;
+          } else if (result.Status === 'Error') {
+            delegatedPollTimer = null;
+            delegatedLoginStatus.textContent = 'Errore: ' + result.Message;
+            delegatedLoginCode.style.display = 'none';
+            delegatedLoginBtn.disabled = false;
+            return;
+          }
+        } catch (e) { /* riprova al prossimo giro */ }
+        delegatedPollTimer = setTimeout(pollDelegatedOnce, intervalMs);
+      };
+      delegatedPollTimer = setTimeout(pollDelegatedOnce, intervalMs);
+    } catch (e) {
+      delegatedLoginStatus.textContent = 'Errore di comunicazione: ' + e.message;
+      delegatedLoginBtn.disabled = false;
+    }
+  });
+
+  async function activateProfile(name) {
+    settingsStatus.textContent = 'attivazione in corso...';
+    try {
+      const res = await fetch('/api/tenants/activate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        currentTenantName = name;
+        tenantLabel.textContent = 'tenant attivo: ' + name;
+        settingsStatus.textContent = 'Tenant attivato: ' + name;
+        // Ricarica il pannello chat per il NUOVO tenant (storico ed eventuale proposta in
+        // sospeso sono per-tenant) invece di lasciare visibili i messaggi del tenant precedente.
+        await loadChatPanel();
+        addMessage('system', 'Tenant attivo cambiato: ' + name);
+        loadProfiles();
+        refreshDelegatedLoginBox();
+        // Mai lasciare visibile la Knowledge Base del tenant precedente, nemmeno per un
+        // istante, se il tab e' aperto in questo momento - stesso principio di isolamento
+        // gia' applicato allo storico chat qui sopra.
+        if (document.getElementById('tab-kb').style.display !== 'none') { loadKnowledgeBase(); }
+      } else {
+        settingsStatus.textContent = 'Errore: ' + (data.text || 'sconosciuto');
+      }
+    } catch (e) {
+      settingsStatus.textContent = 'Errore di comunicazione: ' + e.message;
+    }
+  }
+
+  saveProfileBtn.addEventListener('click', async () => {
+    const name = document.getElementById('f-name').value.trim();
+    const tenantId = document.getElementById('f-tenant').value.trim();
+    const authMode = authModeSelect.value;
+    const clientId = document.getElementById('f-clientid').value.trim();
+    const secretEnvVar = document.getElementById('f-secretvar').value.trim();
+    const secretValue = document.getElementById('f-secretvalue').value;
+    const delegatedUpn = document.getElementById('f-delegatedupn').value.trim();
+    const exchangeCertThumbprint = document.getElementById('f-exchangecert').value.trim();
+
+    if (!name || !tenantId) {
+      settingsStatus.textContent = 'Compila almeno nome e tenant ID.';
+      return;
+    }
+    if (authMode === 'AppOnly' && (!clientId || !secretEnvVar)) {
+      settingsStatus.textContent = 'Modalita\' App-only: servono client ID e nome variabile secret.';
+      return;
+    }
+    if (authMode === 'Delegated' && !delegatedUpn) {
+      settingsStatus.textContent = 'Modalita\' Delegata: serve il tuo UPN su quel tenant.';
+      return;
+    }
+
+    settingsStatus.textContent = 'salvataggio...';
+    try {
+      const res = await fetch('/api/tenants', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, tenantId, authMode, clientId, secretEnvVar, secretValue, delegatedUpn, exchangeCertThumbprint })
+      });
+      const data = await res.json();
+      settingsStatus.textContent = data.text || 'Salvato.';
+      document.getElementById('f-secretvalue').value = '';
+      loadProfiles();
+      refreshDelegatedLoginBox();
+    } catch (e) {
+      settingsStatus.textContent = 'Errore: ' + e.message;
+    }
+  });
+
+  function updateAiFieldVisibility() {
+    const isAzure = aiProviderSelect.value === 'AzureOpenAI';
+    aiKeyLabel.textContent = isAzure ? 'Azure OpenAI API key' : 'Claude API key (console.anthropic.com)';
+    aiAzureExtra.style.display = isAzure ? 'block' : 'none';
+    aiAzureExtra2.style.display = isAzure ? 'block' : 'none';
+  }
+  aiProviderSelect.addEventListener('change', updateAiFieldVisibility);
+
+  async function loadAiSettings() {
+    try {
+      const res = await fetch('/api/ai-settings');
+      const data = await res.json();
+      aiProviderSelect.value = data.provider || 'Claude';
+      updateAiFieldVisibility();
+      const hasKey = data.provider === 'AzureOpenAI' ? data.hasAzureKey : data.hasClaudeKey;
+      aiApiKeyInput.placeholder = hasKey ? 'gia\' impostata (lascia vuoto per non toccarla)' : 'chiave API';
+    } catch (e) {
+      aiSettingsStatus.textContent = 'Errore nel caricare le impostazioni AI.';
+    }
+  }
+
+  saveAiBtn.addEventListener('click', async () => {
+    const provider = aiProviderSelect.value;
+    const apiKey = aiApiKeyInput.value;
+    const endpoint = aiEndpointInput.value.trim();
+    const deployment = aiDeploymentInput.value.trim();
+
+    aiSettingsStatus.textContent = 'salvataggio...';
+    try {
+      const res = await fetch('/api/ai-settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, apiKey, endpoint, deployment })
+      });
+      const data = await res.json();
+      aiSettingsStatus.textContent = data.text || 'Salvato.';
+      aiApiKeyInput.value = '';
+      loadAiSettings();
+    } catch (e) {
+      aiSettingsStatus.textContent = 'Errore: ' + e.message;
+    }
+  });
+
+  async function loadAiUsage() {
+    const panel = document.getElementById('ai-usage-panel');
+    try {
+      const res = await fetch('/api/ai-status');
+      const data = await res.json();
+      const rows = [
+        `${statusDot(true)}<b>Provider attivo (chat e analisi/diagnosi):</b> ${data.ActiveProvider}`,
+        `${statusDot(data.ClaudeKeyConfigured)}<b>Claude:</b> ${data.ClaudeKeyConfigured ? 'chiave configurata' : 'chiave mancante'} — ${data.ClaudeCallCount} chiamate in questa sessione`,
+        `${statusDot(data.AzureKeyConfigured)}<b>Azure OpenAI:</b> ${data.AzureKeyConfigured ? 'chiave configurata' : 'chiave/endpoint/deployment mancanti'} — ${data.AzureCallCount} chiamate in questa sessione`
+      ];
+      panel.innerHTML = rows.join('<br>');
+    } catch (e) {
+      panel.textContent = 'Errore nel caricare lo stato AI.';
+    }
+  }
+
+  document.getElementById('ai-test-btn').addEventListener('click', async () => {
+    const status = document.getElementById('ai-test-status');
+    status.textContent = 'test in corso...';
+    try {
+      const res = await fetch('/api/ai-status/test', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: aiProviderSelect.value })
+      });
+      const data = await res.json();
+      status.textContent = (data.Ok ? '✓ ' : '✗ ') + data.Message;
+      loadAiUsage();
+    } catch (e) {
+      status.textContent = 'Errore: ' + e.message;
+    }
+  });
+
+  restartServerBtn.addEventListener('click', async () => {
+    if (!confirm('Riavviare il server? Perdi lo stato della sessione corrente (file caricato, ultimo gruppo/app, connessione Lokka).')) return;
+    restartStatus.textContent = 'riavvio in corso...';
+    addMessage('system', 'Riavvio del server richiesto...');
+    try {
+      await fetch('/api/restart', { method: 'POST' });
+    } catch (e) {
+      // la connessione cade proprio mentre il processo si riavvia: normale, non un errore
+    }
+    setTimeout(() => { location.reload(); }, 3000);
+  });
+
+  async function loadMcpServers() {
+    try {
+      const res = await fetch('/api/mcp-servers');
+      const servers = await res.json();
+      const lokka = servers.find(s => s.name === 'lokka');
+      if (lokka) {
+        document.getElementById('f-lokka-command').value = lokka.command || '';
+        document.getElementById('f-lokka-args').value = lokka.args || '';
+      }
+      const others = servers.filter(s => s.name !== 'lokka');
+      const listEl = document.getElementById('other-mcp-list');
+      if (others.length === 0) {
+        listEl.textContent = 'nessun altro server configurato';
+      } else {
+        listEl.innerHTML = others.map(s => `<div class="status-row"><strong>${s.name}</strong> — ${s.command} ${s.args} <button data-mcpname="${s.name}" class="remove-mcp-btn" style="margin-left:8px; font-size:11px; padding:2px 8px;">Rimuovi</button></div>`).join('');
+        listEl.querySelectorAll('.remove-mcp-btn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            if (!confirm(`Rimuovere il server MCP "${btn.dataset.mcpname}"?`)) return;
+            try {
+              await fetch('/api/mcp-servers/remove', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: btn.dataset.mcpname })
+              });
+              loadMcpServers();
+            } catch (e) { alert('Errore: ' + e.message); }
+          });
+        });
+      }
+    } catch (e) {
+      document.getElementById('other-mcp-list').textContent = 'Errore nel caricare i server MCP.';
+    }
+  }
+
+  document.getElementById('save-lokka-config-btn').addEventListener('click', async () => {
+    const status = document.getElementById('lokka-status-msg');
+    const command = document.getElementById('f-lokka-command').value.trim();
+    const args = document.getElementById('f-lokka-args').value.trim();
+    status.textContent = 'salvataggio...';
+    try {
+      const res = await fetch('/api/mcp-servers', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'lokka', command, args })
+      });
+      const data = await res.json();
+      status.textContent = (data.text || 'Salvato.') + ' Riconnetti per applicare.';
+    } catch (e) {
+      status.textContent = 'Errore: ' + e.message;
+    }
+  });
+
+  document.getElementById('add-mcp-btn').addEventListener('click', async () => {
+    const status = document.getElementById('new-mcp-status');
+    const name = document.getElementById('f-newmcp-name').value.trim();
+    const command = document.getElementById('f-newmcp-command').value.trim();
+    const args = document.getElementById('f-newmcp-args').value.trim();
+    if (!name || !command) { status.textContent = 'Compila almeno nome e comando.'; return; }
+    status.textContent = 'salvataggio...';
+    try {
+      const res = await fetch('/api/mcp-servers', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, command, args })
+      });
+      const data = await res.json();
+      status.textContent = data.text || 'Salvato.';
+      document.getElementById('f-newmcp-name').value = '';
+      document.getElementById('f-newmcp-command').value = '';
+      document.getElementById('f-newmcp-args').value = '';
+      loadMcpServers();
+    } catch (e) {
+      status.textContent = 'Errore: ' + e.message;
+    }
+  });
+
+  // --- Tab del pannello impostazioni ---
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+      btn.classList.add('active');
+      document.getElementById('tab-' + btn.dataset.tab).style.display = 'block';
+      if (btn.dataset.tab === 'tenant') loadConnectionStatus();
+      if (btn.dataset.tab === 'kb') loadKnowledgeBase();
+      if (btn.dataset.tab === 'ai') loadAiUsage();
+      if (btn.dataset.tab === 'mcp') { loadMcpStatus(); loadMcpServers(); }
+      if (btn.dataset.tab === 'email') loadEmailSettings();
+      if (btn.dataset.tab === 'maint') { loadCustomScripts(); loadLogs(); }
+    });
+  });
+
+  async function loadMcpStatus() {
+    // Lo stato Exchange e' gestito da loadConnectionStatus (tab Tenant) - qui solo Lokka.
+    const lokkaEl = document.getElementById('mcp-lokka-status');
+    try {
+      const res = await fetch('/api/mcp-status');
+      const data = await res.json();
+      lokkaEl.innerHTML = `
+        <div class="status-row"><span class="status-dot ${data.lokkaConnected ? 'on' : 'off'}"></span>
+        ${data.lokkaConnected ? `Connesso — ${data.lokkaToolCount} tool disponibili` : 'Non connesso (si avvia automaticamente alla prima domanda che lo richiede)'}</div>
+      `;
+    } catch (e) {
+      lokkaEl.textContent = 'Errore nel caricare lo stato.';
+    }
+  }
+
+  document.getElementById('lokka-reconnect-btn').addEventListener('click', async () => {
+    const status = document.getElementById('lokka-status-msg');
+    status.textContent = 'riconnessione in corso...';
+    try {
+      const res = await fetch('/api/lokka-reconnect', { method: 'POST' });
+      const data = await res.json();
+      status.textContent = data.text || 'Fatto.';
+      loadMcpStatus();
+    } catch (e) {
+      status.textContent = 'Errore: ' + e.message;
+    }
+  });
+
+  async function loadEmailSettings() {
+    try {
+      const res = await fetch('/api/email-settings');
+      const data = await res.json();
+      document.getElementById('f-email-sender').value = data.emailSender || '';
+    } catch (e) {}
+  }
+
+  document.getElementById('save-email-btn').addEventListener('click', async () => {
+    const status = document.getElementById('email-settings-status');
+    const emailSender = document.getElementById('f-email-sender').value.trim();
+    status.textContent = 'salvataggio...';
+    try {
+      const res = await fetch('/api/email-settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailSender })
+      });
+      const data = await res.json();
+      status.textContent = data.text || 'Salvato.';
+    } catch (e) {
+      status.textContent = 'Errore: ' + e.message;
+    }
+  });
+
+  let exchangePollTimer = null;
+  document.getElementById('exchange-test-btn').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const status = document.getElementById('exchange-status-msg');
+    const codeBox = document.getElementById('exchange-login-code');
+    btn.disabled = true;
+    codeBox.style.display = 'none';
+    if (exchangePollTimer) { clearTimeout(exchangePollTimer); exchangePollTimer = null; }
+
+    try {
+      const statusRes = await fetch('/api/mcp-status');
+      const statusData = await statusRes.json();
+
+      if (statusData.authMode !== 'Delegated') {
+        // App-only: connessione silenziosa via certificato, rapida - nessun codice da mostrare.
+        status.textContent = 'connessione in corso...';
+        const res = await fetch('/api/exchange-test', { method: 'POST' });
+        const data = await res.json();
+        status.textContent = data.text || 'Fatto.';
+        btn.disabled = false;
+        loadConnectionStatus();
+        loadSetupStatus();
+        return;
+      }
+
+      // Delegato: flusso a codice dispositivo, non bloccante - stesso principio del login Graph.
+      status.textContent = 'generazione codice...';
+      const startRes = await fetch('/api/exchange-delegated-login/start', { method: 'POST' });
+      const flow = await startRes.json();
+      if (flow.status === 'Error' || !flow.UserCode) {
+        status.textContent = 'Errore: ' + (flow.status ? flow.message : (flow.Message || 'sconosciuto'));
+        btn.disabled = false;
+        return;
+      }
+      await presentDeviceCode(flow, codeBox);
+      status.textContent = 'In attesa che tu completi il login...';
+
+      const intervalMs = Math.max((flow.Interval || 5), 3) * 1000;
+      // setTimeout auto-rischedulato, non setInterval - vedi commento sullo stesso pattern nel
+      // login Graph generico piu' sopra (bug reale corretto il 17/08/2026: evita due poll in
+      // volo insieme, uno dei quali puo' trovare lo stato appena ripulito da un successo).
+      const pollExchangeOnce = async () => {
+        try {
+          const pollRes = await fetch('/api/exchange-delegated-login/poll', { method: 'POST' });
+          const result = await pollRes.json();
+          if (result.Status === 'Completed') {
+            exchangePollTimer = null;
+            codeBox.style.display = 'none';
+            status.textContent = 'Connesso.';
+            btn.disabled = false;
+            loadConnectionStatus();
+            loadSetupStatus();
+            return;
+          } else if (result.Status === 'Error') {
+            exchangePollTimer = null;
+            status.textContent = 'Errore: ' + result.Message;
+            codeBox.style.display = 'none';
+            btn.disabled = false;
+            return;
+          }
+        } catch (e) { /* riprova al prossimo giro */ }
+        exchangePollTimer = setTimeout(pollExchangeOnce, intervalMs);
+      };
+      exchangePollTimer = setTimeout(pollExchangeOnce, intervalMs);
+    } catch (e) {
+      status.textContent = 'Errore di comunicazione: ' + e.message;
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('sharepoint-test-btn').addEventListener('click', async (ev) => {
+    // Bug reale corretto il 17/08/2026: il precedente flusso a codice dispositivo (non
+    // bloccante) usava un client_id indovinato a memoria, mai verificato - falliva sempre con
+    // AADSTS700016 (app mai vista/consentita in quel tenant). Sostituito con lo stesso schema
+    // gia' usato per Intune qui sotto: -Interactive (browser vero, puo' creare il consenso al
+    // primo uso), un click esplicito che blocca il server finche' non si completa il login.
+    const btn = ev.currentTarget;
+    const status = document.getElementById('sharepoint-status-msg');
+    btn.disabled = true;
+    try {
+      const statusRes = await fetch('/api/mcp-status');
+      const statusData = await statusRes.json();
+
+      if (statusData.authMode === 'Delegated') {
+        const proceed = confirm('Si aprirà una finestra del browser per accedere: il server resterà bloccato per tutti finché non completi il login lì. Procedere?');
+        if (!proceed) { btn.disabled = false; return; }
+        status.textContent = 'apertura browser in corso... il server è bloccato finché non completi il login nella finestra appena aperta';
+      } else {
+        status.textContent = 'connessione in corso...';
+      }
+
+      const res = await fetch('/api/sharepoint-test', { method: 'POST' });
+      const data = await res.json();
+      status.textContent = data.text || 'Fatto.';
+      btn.disabled = false;
+      loadConnectionStatus();
+      loadSetupStatus();
+    } catch (e) {
+      status.textContent = 'Errore di comunicazione: ' + e.message;
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('teams-test-btn').addEventListener('click', async (ev) => {
+    // Stesso schema di SharePoint qui sopra (17/08/2026): -Interactive/-UseDeviceAuthentication
+    // esplicito su un click dedicato, invece di un flusso a codice dispositivo custom con un
+    // client_id indovinato (mai verificato, e risultato REALMENTE sbagliato sul flusso
+    // SharePoint gemello a questo - AADSTS700016).
+    const btn = ev.currentTarget;
+    const status = document.getElementById('teams-status-msg');
+    btn.disabled = true;
+    try {
+      const statusRes = await fetch('/api/mcp-status');
+      const statusData = await statusRes.json();
+
+      if (statusData.authMode === 'Delegated') {
+        const proceed = confirm('Si aprirà una finestra per il login (codice dispositivo): il server resterà bloccato per tutti finché non lo completi. Procedere?');
+        if (!proceed) { btn.disabled = false; return; }
+        status.textContent = 'apertura login in corso... il server è bloccato finché non completi il login';
+      } else {
+        status.textContent = 'connessione in corso...';
+      }
+
+      const res = await fetch('/api/teams-test', { method: 'POST' });
+      const data = await res.json();
+      status.textContent = data.text || 'Fatto.';
+      btn.disabled = false;
+      loadConnectionStatus();
+      loadSetupStatus();
+    } catch (e) {
+      status.textContent = 'Errore di comunicazione: ' + e.message;
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('intune-test-btn').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const status = document.getElementById('intune-status-msg');
+    btn.disabled = true;
+    try {
+      const statusRes = await fetch('/api/mcp-status');
+      const statusData = await statusRes.json();
+
+      if (statusData.authMode === 'Delegated') {
+        // A differenza di Exchange non esiste un flusso non bloccante per Intune (limite
+        // del modulo IntuneWin32App, non nostro) - il click va confermato sapendo che il
+        // server restera' bloccato per tutti finche' non completi il login nel browser.
+        const proceed = confirm('Si aprirà una finestra del browser per scegliere l\'account: il server resterà bloccato per tutti finché non completi il login lì (limite del modulo Intune, non risolvibile come per Exchange). Procedere?');
+        if (!proceed) { btn.disabled = false; return; }
+        status.textContent = 'apertura browser in corso... il server è bloccato finché non completi il login nella finestra appena aperta';
+      } else {
+        status.textContent = 'connessione in corso...';
+      }
+
+      const res = await fetch('/api/intune-test', { method: 'POST' });
+      const data = await res.json();
+      status.textContent = data.text || 'Fatto.';
+      btn.disabled = false;
+      loadConnectionStatus();
+    } catch (e) {
+      status.textContent = 'Errore di comunicazione: ' + e.message;
+      btn.disabled = false;
+    }
+  });
+
+  async function loadCustomScripts() {
+    const box = document.getElementById('custom-scripts-list');
+    box.textContent = 'Caricamento...';
+    try {
+      const res = await fetch('/api/custom-scripts');
+      const scripts = await res.json();
+      if (!Array.isArray(scripts) || scripts.length === 0) {
+        box.innerHTML = 'Nessuno script personalizzato trovato in <code>Scripts\\Custom</code>.';
+        return;
+      }
+      box.innerHTML = scripts.map(s => {
+        if (s.Valid) {
+          const modeTag = s.Mode === 'Write' ? '<span style="color:var(--warn);">scrittura — richiede conferma</span>' : '<span style="color:var(--ok);">sola lettura</span>';
+          return `<div style="margin-bottom:8px;"><b>${s.Name}</b> (${modeTag})<br>${s.Synopsis}</div>`;
+        }
+        return `<div style="margin-bottom:8px; color:var(--warn);"><b>${s.Name}</b> — non caricato: ${s.Reason}</div>`;
+      }).join('');
+    } catch (e) {
+      box.textContent = 'Errore nel caricare gli script personalizzati.';
+    }
+  }
+
+  async function loadSetupStatus() {
+    const banner = document.getElementById('setup-status-banner');
+    try {
+      const res = await fetch('/api/setup-status');
+      const items = await res.json();
+      const missing = (Array.isArray(items) ? items : [items]).filter(i => i.Status === 'Missing');
+      if (missing.length === 0) {
+        banner.style.display = 'none';
+        return;
+      }
+      // Solo Node.js e Microsoft Edge sono installabili in automatico (via winget) - il resto
+      // (secret, certificato, sessione delegata) e' segreto/personale del tenant e non ha senso
+      // "installarlo", va sempre sistemato a mano dai campi giusti (vedi Fix di ciascuna riga).
+      const autoInstallable = missing.some(i => i.Name.includes('Node.js') || i.Name.includes('Edge'));
+      banner.style.display = 'block';
+      banner.innerHTML = '<b>Ambiente non completo su questo PC — ' + missing.length + ' cosa/e da sistemare:</b><ul style="margin:8px 0 0 18px;">' +
+        missing.map(i => `<li style="margin-bottom:6px;"><b>${i.Name}</b>: ${i.Detail}<br><span class="hint">${i.Fix}</span></li>`).join('') +
+        '</ul>' +
+        (autoInstallable ? '<button id="install-prereqs-btn" style="margin-top:10px;">Installa automaticamente (Node.js/Edge mancanti)</button><div id="install-prereqs-result" style="margin-top:8px; font-size:12px;"></div>' : '');
+      const btn = document.getElementById('install-prereqs-btn');
+      if (btn) { btn.addEventListener('click', installPrerequisites); }
+    } catch (e) {
+      banner.style.display = 'none';
+    }
+  }
+
+  async function installPrerequisites() {
+    const btn = document.getElementById('install-prereqs-btn');
+    const result = document.getElementById('install-prereqs-result');
+    btn.disabled = true;
+    btn.textContent = 'Installazione in corso (puo\' richiedere qualche minuto)...';
+    result.textContent = '';
+    try {
+      const res = await fetch('/api/install-prerequisites', { method: 'POST' });
+      const items = await res.json();
+      const list = Array.isArray(items) ? items : [items];
+      result.innerHTML = list.map(i => `<div><b>${i.Name}</b>: ${i.Status}${i.Detail ? ' — ' + i.Detail : ''}</div>`).join('') +
+        '<div class="hint" style="margin-top:6px;">Ricarica la pagina per aggiornare il banner in alto.</div>';
+      btn.textContent = 'Fatto - vedi risultato sotto';
+    } catch (e) {
+      result.textContent = 'Errore durante l\'installazione: ' + e.message;
+      btn.disabled = false;
+      btn.textContent = 'Installa automaticamente (Node.js/Edge mancanti)';
+    }
+  }
+
+  async function loadLogs() {
+    const view = document.getElementById('logs-view');
+    view.textContent = 'Caricamento...';
+    try {
+      const res = await fetch('/api/logs');
+      const lines = await res.json();
+      view.textContent = (Array.isArray(lines) && lines.length > 0) ? lines.join('\n') : '(nessuna riga di log per oggi)';
+      view.scrollTop = view.scrollHeight;
+    } catch (e) {
+      view.textContent = 'Errore nel caricare i log: ' + e.message;
+    }
+  }
+  document.getElementById('reload-logs-btn').addEventListener('click', loadLogs);
+
+  settingsBtn.addEventListener('click', () => {
+    settingsPanel.classList.toggle('open');
+    const isOpen = settingsPanel.classList.contains('open');
+    chat.style.display = isOpen ? 'none' : '';
+    document.querySelector('footer').style.display = isOpen ? 'none' : '';
+    settingsBtn.textContent = isOpen ? '← Torna alla chat' : '⚙ Impostazioni tenant';
+    if (isOpen) { loadProfiles(); loadAiSettings(); loadAiUsage(); updateAuthModeFieldVisibility(); loadConnectionStatus(); loadSetupStatus(); }
+  });
+
+  let currentTenantName = '';
+
+  init();
+</script>
+</body>
+</html>

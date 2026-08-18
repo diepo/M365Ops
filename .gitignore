@@ -1,0 +1,15 @@
+# Dati operativi del tenant (credenziali, storico chat, knowledge base, profili) -
+# non devono MAI essere pubblicati: ogni installazione locale ha i propri.
+Config/
+
+# Log applicativi (possono contenere UPN, nomi tenant, contenuti di messaggi reali)
+Logs/
+
+# File caricati dall'utente (documenti KB, installer di terze parti, CSV di migrazione)
+Uploads/
+
+# Report generati (contengono dati reali del tenant: utenti, mailbox, dispositivi, ecc.)
+Reports/
+
+# Script/dati di scratch usati durante lo sviluppo e i test - non fanno parte del prodotto
+Testing/
