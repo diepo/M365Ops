@@ -104,7 +104,7 @@
   <div class="subtitle">Guida alla configurazione iniziale — Intune, Entra ID, Exchange Online e motore AI con integrazione MCP (Lokka), pensata per essere estesa nel tempo.</div>
   <div class="meta">
     Tenant di riferimento in questa guida: contoso.onmicrosoft.com (profilo "contoso-test")<br>
-    Versione documento: 1.28 — 18 Agosto 2026
+    Versione documento: 1.30 — 18 Agosto 2026
   </div>
 </div>
 
@@ -1220,6 +1220,10 @@ invece di limitarsi a spiegarti come farlo a mano — vedi sezione 17.6 per i de
 <tr><td>Nuovo: <code>Remove-M365OpsSharedMailbox</code> - colma il gap trovato durante lo stress test</td><td><span class="badge done">funzionante</span></td><td><code>New-M365OpsSharedMailbox</code>/<code>New-M365OpsRoomMailbox</code>/<code>New-M365OpsEquipmentMailbox</code> esistevano, ma nessuna <code>Remove-M365Ops*Mailbox</code> corrispondente - la pulizia di una mailbox di risorsa richiedeva il cmdlet nativo fuori da M365Ops. <code>Remove-M365OpsSharedMailbox</code> usa <code>Remove-Mailbox</code> nativo (funziona anche su sale/attrezzature nonostante il nome) - verificato dal vivo end-to-end: mailbox creata, eliminata via proposta AI confermata, esistenza verificata assente dopo</td></tr>
 <tr><td>Nuovo: rilevamento automatico del conflitto di assembly .NET, con riavvio proponibile</td><td><span class="badge done">funzionante</span></td><td>L'errore <code>0x80131040</code> (conflitto tra i moduli PowerShell caricati nella sessione, vedi voce sopra) viene ora intercettato in un unico punto centrale (dove ogni scrittura fallita passa comunque) PRIMA della diagnosi AI generica, che non conosce questa causa specifica e proporrebbe un'indagine inutile. Risposta immediata e deterministica che spiega la causa reale e propone il riavvio con un semplice 'si' (stessa infrastruttura di conferma di ogni altra scrittura, nuovo tipo di azione <code>RestartServer</code>). Verificato: il pattern di rilevamento corrisponde esattamente al messaggio reale catturato durante il test precedente; il meccanismo di riavvio riusa quello gia' collaudato del pulsante Manutenzione - non riprodotto una seconda volta dal vivo perche' il conflitto di per se' non e' riproducibile a comando (dipende dall'ordine di risoluzione assembly di .NET), verificato quindi sul pattern esatto invece che sull'innesco casuale</td></tr>
 <tr><td>Nuovo: porta del server personalizzabile, con rilevamento automatico di conflitti</td><td><span class="badge done">funzionante</span></td><td>Richiesto dall'utente dopo aver notato la porta 8743 fissa. Preferenza persistita in <code>Config\server-port.txt</code> (tab Manutenzione, effetto solo al prossimo avvio completo - "Riavvia server" resta volutamente sulla porta gia' in uso, per non lasciare la scheda del browser gia' aperta puntata su un indirizzo morto). Se la porta di partenza (preferenza o default 8743) e' gia' occupata da un altro programma, <code>Server.ps1</code> prova in sequenza le 20 successive con il vero <code>$listener.Start()</code> come test (non un proxy separato, per evitare falsi positivi/negativi con http.sys) e scrive quella reale in <code>Config\active-port.txt</code>, che <code>Launch-M365Ops.ps1</code> legge per sapere sempre su quale porta aprire il browser o riconoscere un'istanza gia' attiva. Verificato dal vivo con un conflitto reale (porta occupata dal server stesso, in una copia isolata): rilevato, passato automaticamente alla porta successiva, risposto correttamente li'</td></tr>
+<tr><td>Nuovo: copertura estesa Exchange Online - 36 cmdlet su 4 aree (gruppi, Tenant Allow/Block spoof, mail flow/connettori, quarantena policy)</td><td><span class="badge done">funzionante</span></td><td>Richiesto dall'utente dopo un censimento dei cmdlet EXO ufficiali (1.438, scaricati dal repository sorgente della documentazione Microsoft su GitHub) vs copertura reale - vedi sezione 17.15 per l'elenco completo e cosa resta comunque fuori scope</td></tr>
+<tr><td>BUG SERIO trovato dal vivo durante il test della nuova area spoof: stessa classe "errore non terminante ignorato in silenzio" gia' vista per Teams, applicata preventivamente a tutti i 27 nuovi cmdlet di scrittura</td><td><span class="badge done">corretto</span></td><td><code>New-M365OpsTenantAllowBlockListSpoofItem</code> riportava "Fatto" anche quando <code>New-TenantAllowBlockListSpoofItems</code> falliva con un vero errore lato server Microsoft ("A server side error has occurred..."), perche' mancava <code>-ErrorAction Stop</code> - lo stesso identico schema di <code>Get-M365OpsTeamsExternalAccessConfig</code> trovato poche ore prima nello stesso giorno. Corretto su TUTTI i 27 cmdlet di scrittura di questa estensione (non solo quello dove si e' manifestato), non solo su quello dove il bug e' stato osservato per la prima volta - verificato dal vivo: l'errore reale (persistente su questo tenant per questa specifica funzione, non un bug M365Ops) ora viene mostrato correttamente invece del falso "Fatto"</td></tr>
+<tr><td>BUG reale trovato dal vivo dalla diagnosi automatica dell'app stessa: <code>Remove-QuarantinePolicy</code> non supporta <code>-Confirm</code></td><td><span class="badge done">corretto</span></td><td>A differenza di quasi ogni altro <code>Remove-*</code> di Exchange (verificato: tutti gli altri Remove- di questa estensione supportano -Confirm), <code>Remove-QuarantinePolicy</code> non lo espone nella sua sintassi ufficiale - passarlo produceva un errore di binding parametro. Trovato dalla stessa infrastruttura di autodiagnosi dell'app (Invoke-M365OpsErrorTriage) durante un test dal vivo di pulizia, non da revisione manuale del codice - ha anche proposto la correzione esatta (rifiutata l'applicazione automatica per prudenza, applicata a mano). Verificato dal vivo end-to-end dopo il fix: policy creata, verificata presente, eliminata, verificata assente</td></tr>
+<tr><td>BUG SERIO trovato dal vivo (non collegato alle estensioni sopra): un client disconnesso a meta' risposta poteva far crashare l'INTERO processo server, non solo quella richiesta</td><td><span class="badge done">corretto</span></td><td>Il server e' realmente crashato durante il test odierno (processo terminato, porta non piu' in ascolto) dopo che un client (timeout/tab chiusa) si e' disconnesso mentre il server stava ancora scrivendo la risposta ("The specified network name is no longer available"). Il blocco <code>catch</code> che gestisce QUALSIASI errore di richiesta provava a sua volta a scrivere una risposta d'errore sulla stessa connessione ormai morta, senza una propria protezione - quella SECONDA eccezione ("This operation cannot be performed after the response has been submitted") risaliva non gestita fino a terminare l'intero processo, non solo la richiesta in corso. Corretto avvolgendo sia la scrittura della risposta d'errore sia la chiusura dello stream nel <code>finally</code> in try/catch propri - un client che sparisce a meta' ora fa fallire silenziosamente solo quella singola richiesta, mai l'app per tutti gli altri. Verificato dal vivo: server riavviato e rimasto in piedi sotto ulteriori richieste con timeout forzato, anche se la stessa identica race condition di rete non e' riproducibile a comando in modo deterministico</td></tr>
 </table>
 </section>
 
@@ -1685,6 +1689,61 @@ disponibile il percorso garantito al 100%: cancellare la cartella e riclonare il
 mai esposta come strumento all'AI - modifica l'app stessa e richiede un riavvio, non qualcosa che una
 richiesta in chat deve poter innescare, stessa logica gia' applicata alla cancellazione di un
 documento dalla Knowledge Base.</div>
+</section>
+
+<!-- ============================== 17.15 ============================== -->
+<section class="page">
+<h2>17.15 Copertura Exchange Online: cosa c'e' e cosa manca deliberatamente</h2>
+<p>Il 18/08/2026 e' stato fatto un censimento reale (non a memoria) dei cmdlet Exchange Online
+ufficiali - scaricati dal repository sorgente della documentazione Microsoft su GitHub
+(<code>MicrosoftDocs/office-docs-powershell</code>), <strong>1.438 cmdlet totali</strong>. M365Ops
+non punta alla parita' 1:1 con l'intero prodotto Exchange (che include amministrazione on-premise/
+ibrida, RBAC, eDiscovery, Unified Messaging - aree deliberatamente fuori scope) - punta a coprire
+bene le aree di amministrazione M365 cloud-only quotidiane.</p>
+
+<h3>Aree estese il 18/08/2026 (36 nuovi cmdlet)</h3>
+<ul>
+<li><strong>Gruppi di distribuzione</strong>: <code>Set-/Enable-/Disable-M365OpsDistributionGroup</code>,
+<code>Set-/Remove-M365OpsDynamicDistributionGroup</code>, <code>Get-M365OpsDynamicDistributionGroupMember</code>,
+<code>Update-M365OpsDistributionGroupMember</code> (sostituisce l'INTERA membership, non incrementale)</li>
+<li><strong>Tenant Allow/Block List - spoof</strong>: <code>Get-/New-/Remove-M365OpsTenantAllowBlockListSpoofItem(s)</code>,
+<code>Set-M365OpsTenantAllowBlockListItem</code> - sotto-lista separata dalle voci normali per mittente/URL/hash/IP</li>
+<li><strong>Mail flow / connettori</strong>: <code>Get-/Set-M365OpsTransportConfig</code> (impostazioni globali),
+<code>Get-/New-/Set-/Remove-M365OpsReceiveConnector</code> e <code>...SendConnector</code>,
+<code>Get-/New-/Set-/Remove-M365OpsRemoteDomain</code>, <code>New-/Set-/Remove-M365OpsAcceptedDomain</code>,
+<code>Get-M365OpsMailDetailTransportRuleReport</code></li>
+<li><strong>Quarantena (policy)</strong>: <code>Get-/New-/Set-/Remove-M365OpsQuarantinePolicy</code>,
+<code>Get-M365OpsQuarantineMessageHeader</code>, <code>Enable-/Disable-M365OpsMailboxQuarantine</code>
+(blocca l'INVIO di una mailbox sospetta compromessa, diverso dalla quarantena messaggi)</li>
+</ul>
+
+<div class="ok"><strong>Testato dal vivo con scritture reali</strong> (creato, verificato, ripulito su
+vnsys-test): <code>Set-M365OpsDistributionGroup</code> (nascondi/mostra in rubrica),
+<code>New-/Remove-M365OpsQuarantinePolicy</code> (ciclo completo). Le letture
+<code>Get-M365OpsTransportConfig</code>/<code>RemoteDomain</code>/<code>QuarantinePolicy</code> sono
+verificate dal vivo con dati reali del tenant.</div>
+
+<div class="warn"><strong>Limite ambientale reale scoperto durante il test</strong>: <code>Get-/New-/
+Set-/Remove-ReceiveConnector</code> e <code>...SendConnector</code> falliscono con "term not
+recognized" sul tenant di test - stesso schema gia' documentato per Teams Policies/Purview
+(<code>Connect-ExchangeOnline</code> espone solo i cmdlet coperti dal ruolo RBAC assegnato al
+service principal, non un errore di permesso esplicito). Non e' un bug: il wrapper e' corretto,
+serve solo un ruolo RBAC Exchange non ancora assegnato su questo tenant per verificarne la
+scrittura dal vivo.</div>
+
+<div class="note">Gli altri cmdlet di questa estensione (Accepted Domain, Remote Domain in
+scrittura, Enable/Disable/Remove gruppi dinamici) hanno la sintassi verificata contro la
+documentazione ufficiale Microsoft (non a memoria) ma NON ancora testati dal vivo con una
+scrittura reale - <code>New-/Set-/Remove-M365OpsAcceptedDomain</code> in particolare e'
+un'azione ad alto impatto (puo' interrompere la posta su un intero dominio) e non e' stata
+provata deliberatamente su un dominio reale del tenant di test.</div>
+
+<h3>Cosa resta fuori scope (per scelta, non dimenticanza)</h3>
+<p>Il censimento ha anche quantificato aree grandi lasciate deliberatamente fuori per ora:
+anti-spam/anti-phish/malware in scrittura (~98 cmdlet - oggi solo lettura), Retention/Compliance
+Purview incluso DLP ed eDiscovery (~65 cmdlet - oggi solo lettura, comunque limitata dal ruolo RBAC
+non assegnato), migrazione Public Folder (~40 cmdlet, sotto-mondo separato mai iniziato). Candidate
+per un'estensione futura, su richiesta esplicita.</p>
 </section>
 
 <!-- ============================== 18 ============================== -->

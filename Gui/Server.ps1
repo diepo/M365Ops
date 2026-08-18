@@ -1555,17 +1555,38 @@ try {
             $errText = "Errore interno: $($_.Exception.Message)"
             Write-Host $errText -ForegroundColor Red
             try { Write-M365OpsLog $errText -Level Error } catch {}
-            $response.StatusCode = 500
-            # BUG corretto: prima serializzava $errText come stringa nuda (JSON valido, ma non
-            # un oggetto) - il client si aspetta sempre { role, text }, altrimenti data.text e'
-            # undefined e mostra "(nessuna risposta)" anche se il server ha risposto davvero.
-            $errBytes = [System.Text.Encoding]::UTF8.GetBytes((@{ role = 'error'; text = $errText } | ConvertTo-Json -Compress))
-            $response.ContentType = "application/json; charset=utf-8"
-            $response.ContentLength64 = $errBytes.Length
-            $response.OutputStream.Write($errBytes, 0, $errBytes.Length)
+            # BUG SERIO trovato dal vivo il 18/08/2026: questo intero blocco di scrittura della
+            # risposta d'errore non aveva la sua PROPRIA protezione. Se l'eccezione originale
+            # (catturata qui sopra) era gia' dovuta al client disconnesso a meta' scrittura
+            # ("The specified network name is no longer available" - es. un client con timeout
+            # breve mentre l'AI ci mette piu' tempo a rispondere), anche QUESTO tentativo di
+            # scrivere una risposta d'errore falliva ("This operation cannot be performed after
+            # the response has been submitted") - e quella SECONDA eccezione, senza try/catch
+            # proprio, risaliva fino a fuori dal loop principale e terminava l'INTERO processo
+            # del server (non solo la singola richiesta). Un client che si disconnette in
+            # anticipo (tab chiusa, timeout) non deve mai poter far cadere l'app per tutti.
+            try {
+                $response.StatusCode = 500
+                # BUG corretto: prima serializzava $errText come stringa nuda (JSON valido, ma non
+                # un oggetto) - il client si aspetta sempre { role, text }, altrimenti data.text e'
+                # undefined e mostra "(nessuna risposta)" anche se il server ha risposto davvero.
+                $errBytes = [System.Text.Encoding]::UTF8.GetBytes((@{ role = 'error'; text = $errText } | ConvertTo-Json -Compress))
+                $response.ContentType = "application/json; charset=utf-8"
+                $response.ContentLength64 = $errBytes.Length
+                $response.OutputStream.Write($errBytes, 0, $errBytes.Length)
+            }
+            catch {
+                # Il client e' gia' andato - non c'e' piu' nessuno a cui scrivere una risposta
+                # d'errore, ma l'errore ORIGINALE e' gia' stato loggato sopra: non e' silenzio,
+                # e' semplicemente accettare che questa singola richiesta non riceve risposta.
+                Write-Host "Impossibile scrivere la risposta d'errore (client gia' disconnesso): $($_.Exception.Message)" -ForegroundColor Yellow
+            }
         }
         finally {
-            $response.OutputStream.Close()
+            # try/catch aggiunto lo stesso giorno del bug sopra, stessa cautela: .Close() su una
+            # connessione gia' interrotta dal client non dovrebbe lanciare, ma non c'e' motivo di
+            # rischiare un altro crash dell'intero processo per un dettaglio di pulizia.
+            try { $response.OutputStream.Close() } catch {}
         }
 
         if ($script:RestartRequested) {
