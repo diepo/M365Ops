@@ -1,7 +1,10 @@
 # M365Ops
 
-Modulo PowerShell per automazione M365 Modern Workplace (Intune/Entra ID), multi-tenant,
-con motore di ragionamento AI pluggable (Claude o Azure OpenAI).
+Assistente AI per l'amministrazione di Microsoft 365 (Entra ID/Intune, Exchange Online,
+SharePoint/OneDrive, Teams, Purview) — si usa interamente da una webapp locale in
+linguaggio naturale, multi-tenant, con motore AI pluggable (Claude o Azure OpenAI). Sotto
+il cofano è un modulo PowerShell, ma non serve scrivere comandi per usarlo: si scarica e
+si avvia con un doppio clic (vedi sotto).
 
 ## Principio di fondo
 
@@ -12,36 +15,31 @@ Vedi `Get-M365OpsCompliancePatterns.ps1` come esempio di riferimento.
 
 ## Setup rapido
 
-```powershell
-Import-Module .\M365Ops.psd1
+Tutto passa dalla webapp — non serve scrivere nessun comando ne' installare nulla a mano:
 
-# 1. Registra un tenant (il secret NON viene mai scritto su disco da questo comando)
-Set-M365OpsTenant -Name "contoso-test" -TenantId "contoso.onmicrosoft.com" `
-    -ClientId "00000000-0000-0000-0000-000000000001" -SecretEnvVar "M365_CLIENT_SECRET"
-
-# 2. Imposta il secret UNA VOLTA sul tuo PC (fuori da PowerShell/da questo modulo)
-#    setx M365_CLIENT_SECRET "il-valore-dal-portale"
-#    setx ANTHROPIC_API_KEY "la-tua-api-key-claude"
-
-# 3. Attiva il tenant
-Connect-M365Ops -TenantProfile "contoso-test"
-
-# 4. Usa le cmdlet
-Get-M365OpsCompliancePatterns
-```
+1. Scarica/clona il repository.
+2. Doppio clic su `M365Ops.bat`. Installa da solo PowerShell 7 se manca (tramite winget),
+   poi avvia il server locale e apre il browser.
+3. Alla prima apertura, se mancano Node.js o Microsoft Edge la webapp mostra un banner con
+   un pulsante "Installa automaticamente" (anche questi via winget, un clic e basta). Tutti
+   gli altri moduli PowerShell richiesti (Exchange Online, SharePoint/PnP, Teams, Excel,
+   PdfLexer, IntuneWin32App) si installano da soli al primo utilizzo della funzione
+   corrispondente — non serve alcun `Install-Module` manuale.
+4. Nella pagina che si apre, **⚙ Impostazioni tenant** → compila "Aggiungi/aggiorna
+   profilo" (nome, Tenant ID, modalita' di autenticazione, Client ID e secret se App-only).
+   Il secret viene salvato SOLO nella variabile d'ambiente del tuo utente Windows, mai su
+   disco.
+5. Tab **Motore AI** → scegli il provider (Claude o Azure OpenAI) e incolla la API key —
+   anche questa finisce solo in una variabile d'ambiente, mai su disco.
+6. Torna alla chat e usa l'assistente in linguaggio naturale.
 
 ## Aggiungere un secondo tenant
 
-```powershell
-Set-M365OpsTenant -Name "cliente-x" -TenantId "clientex.onmicrosoft.com" `
-    -ClientId "<app-registration-id-cliente-x>" -SecretEnvVar "M365_CLIENT_SECRET_CLIENTEX"
-# setx M365_CLIENT_SECRET_CLIENTEX "..."
-Connect-M365Ops -TenantProfile "cliente-x"
-```
-
-Ogni tenant ha la propria App Registration (permessi Application, client credentials —
-vedi sotto) e la propria variabile d'ambiente per il secret. Nessun dato di un tenant
-finisce mai nel file di configurazione dell'altro.
+Stesso modulo "Aggiungi/aggiorna profilo" nel tab Tenant, con un nome profilo diverso —
+appare subito nell'elenco dei profili salvati, con un pulsante per attivarlo. Ogni tenant
+ha la propria App Registration (permessi Application, client credentials — vedi sotto) e
+la propria variabile d'ambiente per il secret. Nessun dato di un tenant finisce mai nel
+profilo di un altro.
 
 ## Permessi Graph richiesti sull'App Registration (Application, non Delegated)
 
@@ -55,9 +53,9 @@ Con **Grant admin consent** per il tenant.
 
 ## Dipendenze esterne
 
-- Modulo `IntuneWin32App` (PowerShell Gallery) — richiesto solo da `New-M365OpsWin32App`.
-  Va installato sia per PowerShell 7 che per Windows PowerShell 5.1 se userai entrambi:
-  `Install-Module IntuneWin32App -Scope CurrentUser`
+- Modulo `IntuneWin32App` (PowerShell Gallery) — richiesto solo da `New-M365OpsWin32App`,
+  si installa da solo al primo uso (`Install-Module -Scope CurrentUser`), nessun passo
+  manuale necessario.
   (Nota: `Connect-MSIntuneGraph` di questo modulo ha un bug di compatibilita' con PowerShell 7
   nel flusso device-code — non rilevante qui perche' usiamo client credentials, ma se
   emergono errori strani con `New-M365OpsWin32App`, prova a lanciarlo da `powershell.exe`

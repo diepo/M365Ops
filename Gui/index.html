@@ -144,6 +144,11 @@
   </div>
 </header>
 
+<div id="update-banner" style="display:none; margin:10px 16px 0; padding:8px 14px; background:var(--warn-soft); border:1px solid var(--warn); border-radius:var(--radius-sm); font-size:12.5px; align-items:center; gap:10px; justify-content:space-between;">
+  <span id="update-banner-text"></span>
+  <button id="update-banner-btn" style="flex-shrink:0;">Vedi in Manutenzione</button>
+</div>
+
 <div id="settings-panel">
   <div id="setup-status-banner" style="display:none; margin-bottom:14px; padding:10px 14px; background:var(--warn-soft); border:1px solid var(--warn); border-radius:var(--radius-sm); font-size:12.5px;"></div>
   <div class="settings-tabs">
@@ -377,6 +382,19 @@
       <span id="restart-status"></span>
     </div>
 
+    <h2 style="margin-top:20px;">Aggiornamenti</h2>
+    <p class="hint">Versione installata: <b id="update-current-version">—</b>. Canale "Stabile" propone solo le Release pubblicate come definitive su GitHub; "Test" propone anche le versioni beta (pre-release) — utile solo se vuoi provare novita' in anteprima, non consigliato su un tenant di produzione.</p>
+    <div class="actions">
+      <select id="update-channel-select" style="padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+        <option value="Stable">Stabile</option>
+        <option value="Testing">Test (beta)</option>
+      </select>
+      <button id="update-channel-save-btn">Salva canale</button>
+      <button id="update-check-btn">Controlla aggiornamenti</button>
+      <span id="update-check-status"></span>
+    </div>
+    <div id="update-result" class="hint" style="margin-top:8px;"></div>
+
     <h2>Script personalizzati</h2>
     <p class="hint">Script "home made" in <code>Scripts\Custom</code> (report/estrazioni specifiche per questo tenant). Vedi il README nella cartella per la convenzione. Dopo averne aggiunto o modificato uno, riavvia il server per caricarlo.</p>
     <div id="custom-scripts-list" class="hint">Caricamento...</div>
@@ -544,7 +562,30 @@
 
   async function init() {
     await loadChatPanel();
+    checkUpdateBanner();
   }
+
+  async function checkUpdateBanner() {
+    // Un controllo solo, al caricamento della pagina - non un polling continuo. Chiama
+    // l'API pubblica di GitHub (nessuna autenticazione, nessun dato del tenant coinvolto):
+    // se fallisce (es. offline) fallisce in silenzio, non deve mai interrompere l'uso normale.
+    const banner = document.getElementById('update-banner');
+    try {
+      const res = await fetch('/api/update/status');
+      const data = await res.json();
+      if (data.error || !data.UpdateAvailable) { banner.style.display = 'none'; return; }
+      document.getElementById('update-banner-text').textContent =
+        `Nuova versione disponibile: ${data.LatestVersion} (canale ${data.Channel}, attuale ${data.CurrentVersion})`;
+      banner.style.display = 'flex';
+    } catch (e) {
+      banner.style.display = 'none';
+    }
+  }
+
+  document.getElementById('update-banner-btn').addEventListener('click', () => {
+    if (!settingsPanel.classList.contains('open')) { settingsBtn.click(); }
+    document.querySelector('.tab-btn[data-tab="maint"]').click();
+  });
 
   async function sendMessage(presetText) {
     const text = presetText !== undefined ? presetText : inputBox.value.trim();
@@ -1233,7 +1274,7 @@
       if (btn.dataset.tab === 'ai') loadAiUsage();
       if (btn.dataset.tab === 'mcp') { loadMcpStatus(); loadMcpServers(); }
       if (btn.dataset.tab === 'email') loadEmailSettings();
-      if (btn.dataset.tab === 'maint') { loadCustomScripts(); loadLogs(); }
+      if (btn.dataset.tab === 'maint') { loadCustomScripts(); loadLogs(); loadUpdateStatus(); }
     });
   });
 
@@ -1453,6 +1494,75 @@
       btn.disabled = false;
     }
   });
+
+  async function loadUpdateStatus() {
+    const versionEl = document.getElementById('update-current-version');
+    const channelSelect = document.getElementById('update-channel-select');
+    const resultEl = document.getElementById('update-result');
+    try {
+      const res = await fetch('/api/update/status');
+      const data = await res.json();
+      if (data.error) {
+        versionEl.textContent = data.CurrentVersion || '—';
+        resultEl.textContent = 'Impossibile controllare gli aggiornamenti: ' + data.error;
+        return;
+      }
+      versionEl.textContent = data.CurrentVersion;
+      channelSelect.value = data.Channel;
+      if (data.UpdateAvailable) {
+        resultEl.innerHTML = `<b>Nuova versione disponibile: ${data.LatestVersion}</b> (canale ${data.Channel}${data.IsPrerelease ? ', pre-release' : ''}, pubblicata ${data.PublishedAt ? new Date(data.PublishedAt).toLocaleDateString('it-IT') : ''})` +
+          (data.Notes ? `<div style="margin-top:6px; white-space:pre-wrap;">${data.Notes.replace(/</g, '&lt;')}</div>` : '') +
+          `<div class="actions" style="margin-top:8px;"><button id="update-apply-btn">Aggiorna ora</button></div>`;
+        document.getElementById('update-apply-btn').addEventListener('click', applyUpdate);
+      } else {
+        resultEl.textContent = data.LatestVersion ? `Sei alla versione piu' recente disponibile sul canale ${data.Channel}.` : `Nessuna Release ancora pubblicata sul canale ${data.Channel}.`;
+      }
+    } catch (e) {
+      resultEl.textContent = 'Errore di comunicazione: ' + e.message;
+    }
+  }
+
+  document.getElementById('update-check-btn').addEventListener('click', () => {
+    document.getElementById('update-check-status').textContent = 'verifica in corso...';
+    loadUpdateStatus().finally(() => { document.getElementById('update-check-status').textContent = ''; });
+  });
+
+  document.getElementById('update-channel-save-btn').addEventListener('click', async () => {
+    const channel = document.getElementById('update-channel-select').value;
+    const statusEl = document.getElementById('update-check-status');
+    statusEl.textContent = 'salvataggio...';
+    try {
+      await fetch('/api/update/channel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel })
+      });
+      statusEl.textContent = 'canale salvato.';
+      loadUpdateStatus();
+    } catch (e) {
+      statusEl.textContent = 'Errore: ' + e.message;
+    }
+  });
+
+  async function applyUpdate() {
+    if (!confirm('Scaricare e applicare l\'aggiornamento? Il server si riavvia automaticamente al termine — perdi lo stato della sessione corrente, i dati del tenant (Config/Log/Report/Documentazione) non vengono mai toccati.')) return;
+    const btn = document.getElementById('update-apply-btn');
+    const resultEl = document.getElementById('update-result');
+    btn.disabled = true;
+    btn.textContent = 'Download e applicazione in corso...';
+    try {
+      const res = await fetch('/api/update/apply', { method: 'POST' });
+      const data = await res.json();
+      resultEl.textContent = data.text || (data.ok ? 'Fatto.' : 'Errore sconosciuto.');
+      if (data.ok && data.result && data.result.Applied) {
+        addMessage('system', 'Aggiornamento applicato: ' + data.text);
+        setTimeout(() => { location.reload(); }, 4000);
+      }
+    } catch (e) {
+      // la connessione cade proprio mentre il server si riavvia dopo l'aggiornamento: normale
+      resultEl.textContent = 'Aggiornamento avviato — riavvio in corso...';
+      setTimeout(() => { location.reload(); }, 4000);
+    }
+  }
 
   async function loadCustomScripts() {
     const box = document.getElementById('custom-scripts-list');

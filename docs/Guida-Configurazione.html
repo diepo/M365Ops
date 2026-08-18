@@ -104,7 +104,7 @@
   <div class="subtitle">Guida alla configurazione iniziale — Intune, Entra ID, Exchange Online e motore AI con integrazione MCP (Lokka), pensata per essere estesa nel tempo.</div>
   <div class="meta">
     Tenant di riferimento in questa guida: contoso.onmicrosoft.com (profilo "contoso-test")<br>
-    Versione documento: 1.22 — 18 Agosto 2026
+    Versione documento: 1.23 — 18 Agosto 2026
   </div>
 </div>
 
@@ -1201,6 +1201,7 @@ invece di limitarsi a spiegarti come farlo a mano — vedi sezione 17.6 per i de
 <tr><td>Nuovo: retention policy Purview (<code>Get-M365OpsRetentionCompliancePolicies</code>)</td><td><span class="badge todo">in attesa di permesso</span></td><td><code>Connect-M365OpsCompliance</code> (Connect-IPPSSession, stesso certificato di Exchange) verificato dal vivo: autentica correttamente. La lettura richiede pero' un ruolo RBAC Purview dedicato (sezione 4.5) non ancora assegnato sul tenant di test - <code>Connect-IPPSSession</code> espone solo i cmdlet coperti dai ruoli gia' assegnati (oggi solo Quarantena), quindi <code>Get-RetentionCompliancePolicy</code> risulta "term not recognized" invece di un errore di permesso esplicito. L'AI spiega gia' correttamente la causa e rimanda alla sezione 4.5 - verificato dal vivo tramite chat</td></tr>
 <tr><td>Nuovo: Knowledge Base per tenant (tab "Documentazione")</td><td><span class="badge done">funzionante</span></td><td>Upload .txt/.md/.docx/.xlsx/.xls/.pdf (PdfLexer per i PDF, installato automaticamente al primo uso) dal tab Documentazione - l'AI cataloga il documento UNA sola volta all'upload (titolo/argomenti/riassunto), poi il catalogo (testo leggero) resta sempre nel prompt di sistema senza chiamate AI aggiuntive; il testo completo si recupera con lo strumento <code>kb_query</code> solo quando davvero serve. Isolamento per tenant verificato dal vivo: caricato un documento su contoso-test con un "codice segreto" di prova, l'AI lo ha recuperato e citato correttamente SOLO su quel tenant; passando a Fabrikam-Prod il catalogo risultava vuoto e l'AI ha rifiutato esplicitamente di inventare una risposta invece di confondere i due tenant. <code>kb_query</code> non accetta ne' espone un parametro tenant: legge sempre e solo <code>$script:M365OpsContext.Name</code> (il tenant realmente attivo in quel momento), garanzia strutturale contro un data leak tra clienti, non solo una convenzione</td></tr>
 <tr><td>Bug reale trovato dal vivo testando la cancellazione di un documento dalla Knowledge Base</td><td><span class="badge done">corretto</span></td><td>Stessa classe di bug <code>ConvertTo-Json</code> gia' vista altrove nel progetto (array a un elemento appiattito in un oggetto nudo), ma con una conseguenza piu' subdola: rimuovendo l'ULTIMO documento, l'array diventava vuoto e "<code>$catalogVuoto | ConvertTo-Json | Set-Content</code>" non emetteva alcun oggetto in pipeline - <code>Set-Content</code> a valle non veniva mai eseguito, il file restava quello vecchio, e la funzione riportava comunque "rimosso" senza errori. Corretto usando <code>ConvertTo-Json -InputObject</code> (mai in pipeline) in <code>Add-/Remove-M365OpsKnowledgeDocument</code> - verificato dal vivo cancellando in sequenza 2 documenti fino a un catalogo vuoto</td></tr>
+<tr><td>Nuovo: pubblicazione su GitHub e aggiornamento in-app (canale Stable/Testing)</td><td><span class="badge done">funzionante</span></td><td>Repository pubblicato (sorgente sanificato, nessun dato del tenant reale), tab Manutenzione mostra la versione installata e un pulsante "Controlla aggiornamenti"/"Aggiorna ora" - vedi sezione 17.14. Verificato dal vivo: lettura versione da <code>M365Ops.psd1</code>, cambio canale persistito, chiamata reale a <code>api.github.com</code> (nessuna Release ancora pubblicata al momento del test, gestito correttamente come stato normale e non come errore)</td></tr>
 </table>
 </section>
 
@@ -1616,6 +1617,56 @@ procedure interne non legate a un cliente specifico (es. un modello di classific
 aziendale) - discusso il 18/08/2026, ha senso come estensione futura ma va tenuta chiaramente
 separata da questa (tab distinto) per non rischiare che contenuti specifici di un cliente finiscano
 in un pool visibile su ogni tenant.</div>
+</section>
+
+<!-- ============================== 17.14 ============================== -->
+<section class="page">
+<h2>17.14 Aggiornamenti (tab "Manutenzione")</h2>
+<p>Aggiunta il 18/08/2026, dopo la pubblicazione del repository su GitHub: la webapp puo'
+controllare, scaricare e applicare da sola la versione piu' recente del codice, senza bisogno di
+<code>git</code> installato ne' di comandi manuali - tutto da un pulsante nel tab Manutenzione.</p>
+
+<h3>Come si decide quando un aggiornamento diventa disponibile</h3>
+<p>Nessun commit pubblicato su GitHub diventa mai un aggiornamento da solo. Un aggiornamento esiste
+solo quando viene pubblicata esplicitamente una <strong>Release</strong> GitHub (un tag di versione,
+es. <code>v0.2.0</code>, con note di rilascio) - un atto deliberato, mai automatico. Finche' non si
+pubblica una Release, ogni installazione resta ferma alla propria versione, indipendentemente da
+quanti commit nel frattempo finiscono su <code>main</code>.</p>
+
+<h3>Canale Stable vs Testing</h3>
+<p>La distinzione usa un meccanismo <strong>nativo di GitHub</strong>, non qualcosa di inventato per
+questo progetto: al momento di pubblicare una Release, GitHub offre la casella "Set as a pre-release".</p>
+<ul>
+<li><strong>Stable</strong> (default): propone solo Release NON marcate pre-release. La webapp chiama
+<code>GET /repos/&lt;owner&gt;/&lt;repo&gt;/releases/latest</code> - un endpoint che GitHub stesso
+filtra gia' per restituire solo l'ultima Release definitiva, nessuna logica di selezione scritta qui.</li>
+<li><strong>Testing</strong>: propone SEMPRE la Release piu' recente in assoluto, marcata pre-release
+o no - utile solo per chi vuole provare novita' in anteprima, sconsigliato su un tenant di
+produzione.</li>
+</ul>
+<p>Il canale e' una preferenza <strong>locale a questa installazione</strong> (<code>Config\update-channel.txt</code>,
+escluso da git) - cambiarlo non ha alcun effetto sul repository, solo su quali Release questa copia
+dell'app propone.</p>
+
+<div class="ok"><strong>Sicurezza dei dati del tenant, per struttura non per promessa:</strong> quando
+si applica un aggiornamento, il codice scarica l'archivio della Release da GitHub e sovrascrive i
+file dell'installazione con quelli scaricati. Quell'archivio e' <strong>esattamente l'albero tracciato
+da git</strong> a quel tag - <code>Config\</code>, <code>Logs\</code>, <code>Uploads\</code>,
+<code>Reports\</code>, <code>Testing\</code> non ci sono MAI dentro (esclusi da <code>.gitignore</code>,
+mai committati), quindi l'aggiornamento non puo' fisicamente toccare tenant, chat, Knowledge Base,
+secret o report esistenti - non perche' vengono esclusi "a mano", ma perche' semplicemente non
+esistono nel materiale scaricato. Stessa garanzia strutturale gia' usata per l'isolamento della
+Knowledge Base (sezione 17.13).</div>
+
+<h3>Limite noto</h3>
+<p>Un file rimosso in una versione piu' recente non viene ripulito automaticamente da un aggiornamento
+- vengono applicate solo aggiunte e modifiche. Per una pulizia completa (raro che serva) resta
+disponibile il percorso garantito al 100%: cancellare la cartella e riclonare il repository.</p>
+
+<div class="note">L'azione di aggiornamento e' <strong>SOLO da GUI</strong> (pulsante "Aggiorna ora"),
+mai esposta come strumento all'AI - modifica l'app stessa e richiede un riavvio, non qualcosa che una
+richiesta in chat deve poter innescare, stessa logica gia' applicata alla cancellazione di un
+documento dalla Knowledge Base.</div>
 </section>
 
 <!-- ============================== 18 ============================== -->

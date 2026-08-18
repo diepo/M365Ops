@@ -1393,6 +1393,48 @@ try {
                     }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
+                "GET /api/update/status" {
+                    try {
+                        $status = Get-M365OpsUpdateStatus
+                        $json = (ConvertTo-Json -InputObject $status -Compress -Depth 4)
+                    } catch {
+                        $json = (@{ error = $_.Exception.Message } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "GET /api/update/channel" {
+                    $json = (@{ channel = (Get-M365OpsUpdateChannel) } | ConvertTo-Json -Compress)
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/update/channel" {
+                    try {
+                        $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                        $body = $reader.ReadToEnd() | ConvertFrom-Json
+                        $result = Set-M365OpsUpdateChannel -Channel $body.channel
+                        $json = (@{ ok = $true; channel = $result.Channel } | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ ok = $false; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/update/apply" {
+                    # Stessa infrastruttura di riavvio sicuro degli altri punti che la usano
+                    # (POST /api/restart, salvataggio script personalizzati) - il riavvio scatta
+                    # SOLO dopo che questa risposta e' gia' stata inviata, cosi' l'utente vede
+                    # sempre prima l'esito del download/applicazione prima che il processo cambi.
+                    try {
+                        $result = Install-M365OpsUpdate
+                        if ($result.Applied) {
+                            $script:RestartRequested = $true
+                            $json = (@{ ok = $true; text = "Aggiornato da $($result.FromVersion) a $($result.ToVersion). Riavvio in corso..."; result = $result } | ConvertTo-Json -Compress -Depth 4)
+                        } else {
+                            $json = (@{ ok = $true; text = $result.Reason; result = $result } | ConvertTo-Json -Compress -Depth 4)
+                        }
+                    } catch {
+                        $json = (@{ ok = $false; text = "Errore durante l'aggiornamento: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
                 default {
                     $response.StatusCode = 404
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes("Not found")
