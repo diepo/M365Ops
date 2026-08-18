@@ -1276,6 +1276,18 @@ try {
                     }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
+                "POST /api/tenants/remove" {
+                    $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                    $body = $reader.ReadToEnd() | ConvertFrom-Json
+                    try {
+                        $result = Remove-M365OpsTenant -Name $body.name
+                        $json = (@{ ok = $true; text = "Profilo '$($result.Name)' rimosso." } | ConvertTo-Json -Compress)
+                    }
+                    catch {
+                        $json = (@{ ok = $false; text = $_.Exception.Message } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
                 "POST /api/chat" {
                     $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
                     $body = $reader.ReadToEnd() | ConvertFrom-Json

@@ -862,9 +862,11 @@
         row.innerHTML = `
           <span class="p-name">${p.name}</span>
           <span class="p-tenant">${p.tenantId} <span class="hint">(${modeTag})</span></span>
-          <button data-name="${p.name}" class="${isActive ? 'active-btn' : ''}">${isActive ? 'Attivo' : 'Attiva'}</button>
+          <button data-name="${p.name}" class="activate-btn ${isActive ? 'active-btn' : ''}">${isActive ? 'Attivo' : 'Attiva'}</button>
+          <button data-name="${p.name}" class="remove-btn" title="${isActive ? 'Non puoi rimuovere il tenant attivo - attivane prima un altro' : 'Rimuovi profilo (i dati gia\' salvati per questo tenant non vengono toccati)'}" ${isActive ? 'disabled' : ''} style="background:var(--critical-soft); color:var(--critical); border:1px solid var(--critical);">✕</button>
         `;
-        row.querySelector('button').addEventListener('click', () => activateProfile(p.name));
+        row.querySelector('.activate-btn').addEventListener('click', () => activateProfile(p.name));
+        row.querySelector('.remove-btn').addEventListener('click', () => removeProfile(p.name));
         profileList.appendChild(row);
       }
     } catch (e) {
@@ -1085,6 +1087,22 @@
       } else {
         settingsStatus.textContent = 'Errore: ' + (data.text || 'sconosciuto');
       }
+    } catch (e) {
+      settingsStatus.textContent = 'Errore di comunicazione: ' + e.message;
+    }
+  }
+
+  async function removeProfile(name) {
+    if (!confirm(`Rimuovere il profilo '${name}'? Lo storico chat, la Knowledge Base e i report gia' salvati per questo tenant NON vengono cancellati - restano sul disco, solo il profilo sparisce dall'elenco.`)) return;
+    settingsStatus.textContent = 'rimozione in corso...';
+    try {
+      const res = await fetch('/api/tenants/remove', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      const data = await res.json();
+      settingsStatus.textContent = data.text || (data.ok ? 'Fatto.' : 'Errore sconosciuto.');
+      if (data.ok) loadProfiles();
     } catch (e) {
       settingsStatus.textContent = 'Errore di comunicazione: ' + e.message;
     }

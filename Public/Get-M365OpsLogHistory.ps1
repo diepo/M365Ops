@@ -24,7 +24,11 @@ function Get-M365OpsLogHistory {
     $logDir = Join-Path $script:M365OpsModuleRoot 'Logs'
     if (-not (Test-Path $logDir)) { return @() }
 
-    $cutoff = (Get-Date).Date.AddDays(-[Math]::Max($Days, 0))
+    # BUG reale trovato dal vivo il 18/08/2026: con -Days 1 ("Oggi" in GUI) la soglia
+    # calcolata come oggi.AddDays(-1) e' la MEZZANOTTE DI IERI, e un file datato ieri
+    # soddisfa comunque ">= soglia" - "Oggi" includeva quindi anche ieri. -Days conta i
+    # giorni TOTALI da includere (oggi compreso), quindi si arretra di (Days - 1), non Days.
+    $cutoff = (Get-Date).Date.AddDays(-([Math]::Max($Days, 1) - 1))
     $files = Get-ChildItem -Path $logDir -Filter 'm365ops-*.log' -File | Where-Object {
         if ($_.BaseName -match 'm365ops-(\d{8})$') {
             try { [datetime]::ParseExact($Matches[1], 'yyyyMMdd', $null) -ge $cutoff } catch { $true }
