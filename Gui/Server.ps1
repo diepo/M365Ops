@@ -970,6 +970,22 @@ try {
                     }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
+                "GET /api/logs/search" {
+                    try {
+                        $days = 30
+                        if ($request.QueryString["days"]) { [void][int]::TryParse($request.QueryString["days"], [ref]$days) }
+                        $searchParams = @{ Days = $days; MaxResults = 500 }
+                        if ($request.QueryString["search"]) { $searchParams.Search = $request.QueryString["search"] }
+                        if ($request.QueryString["level"] -in @('Info', 'Warn', 'Error')) { $searchParams.Level = $request.QueryString["level"] }
+                        if ($request.QueryString["tenant"]) { $searchParams.Tenant = $request.QueryString["tenant"] }
+                        $entries = @(Get-M365OpsLogHistory @searchParams)
+                        $json = ConvertTo-Json -InputObject $entries -Compress -Depth 3
+                        if ($entries.Count -eq 0) { $json = "[]" }
+                    } catch {
+                        $json = (@{ error = $_.Exception.Message } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
                 "GET /api/custom-scripts" {
                     $scripts = @(Get-M365OpsCustomScriptCatalog)
                     $json = if ($scripts.Count -eq 0) { "[]" } else { ConvertTo-Json -InputObject $scripts -Compress -Depth 4 }

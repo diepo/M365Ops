@@ -399,12 +399,28 @@
     <p class="hint">Script "home made" in <code>Scripts\Custom</code> (report/estrazioni specifiche per questo tenant). Vedi il README nella cartella per la convenzione. Dopo averne aggiunto o modificato uno, riavvia il server per caricarlo.</p>
     <div id="custom-scripts-list" class="hint">Caricamento...</div>
 
-    <h2 style="margin-top:20px;">Log delle azioni (oggi)</h2>
-    <p class="hint">Storico persistente (un file al giorno in <code>Logs\</code>) di messaggi ricevuti, tool AI chiamati/completati e azioni confermate eseguite — utile per capire cosa stava facendo l'app in caso di blocco o comportamento inatteso.</p>
-    <div class="actions">
-      <button id="reload-logs-btn">↻ Aggiorna log</button>
+    <h2 style="margin-top:20px;">Cronologia log</h2>
+    <p class="hint">Storico persistente (un file al giorno in <code>Logs\</code>) di messaggi ricevuti, tool AI chiamati/completati e azioni confermate eseguite. I file non vengono mai cancellati in automatico — restano su disco finché non li rimuovi tu manualmente, quindi la cronologia disponibile è già ben oltre 6 mesi. Il periodo qui sotto limita solo quanto indietro cerca QUESTA ricerca, non quanto esiste davvero.</p>
+    <div class="actions" style="flex-wrap:wrap; row-gap:8px;">
+      <select id="log-period-select" style="padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+        <option value="1">Oggi</option>
+        <option value="7">Ultimi 7 giorni</option>
+        <option value="30" selected>Ultimi 30 giorni</option>
+        <option value="183">Ultimi 6 mesi</option>
+        <option value="365">Ultimo anno</option>
+        <option value="36500">Tutto</option>
+      </select>
+      <input type="text" id="log-search-input" placeholder="cerca testo (es. un UPN, un errore, un cmdlet)..." style="flex:1; min-width:200px; padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+      <select id="log-level-select" style="padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+        <option value="">Tutti i livelli</option>
+        <option value="Info">Info</option>
+        <option value="Warn">Warn</option>
+        <option value="Error">Error</option>
+      </select>
+      <button id="log-search-btn">Cerca</button>
     </div>
-    <pre id="logs-view" style="max-height:300px; overflow-y:auto; background:var(--surface-alt); padding:10px 12px; border-radius:var(--radius-sm); font-size:11px; white-space:pre-wrap; margin-top:8px;">Caricamento...</pre>
+    <div id="log-search-status" class="hint" style="margin-top:6px;"></div>
+    <pre id="logs-view" style="max-height:400px; overflow-y:auto; background:var(--surface-alt); padding:10px 12px; border-radius:var(--radius-sm); font-size:11px; white-space:pre-wrap; margin-top:8px;">Caricamento...</pre>
   </div>
 </div>
 
@@ -1634,17 +1650,34 @@
 
   async function loadLogs() {
     const view = document.getElementById('logs-view');
-    view.textContent = 'Caricamento...';
+    const status = document.getElementById('log-search-status');
+    const days = document.getElementById('log-period-select').value;
+    const search = document.getElementById('log-search-input').value.trim();
+    const level = document.getElementById('log-level-select').value;
+    view.textContent = 'Ricerca in corso...';
+    status.textContent = '';
     try {
-      const res = await fetch('/api/logs');
-      const lines = await res.json();
-      view.textContent = (Array.isArray(lines) && lines.length > 0) ? lines.join('\n') : '(nessuna riga di log per oggi)';
-      view.scrollTop = view.scrollHeight;
+      const params = new URLSearchParams({ days });
+      if (search) params.set('search', search);
+      if (level) params.set('level', level);
+      const res = await fetch('/api/logs/search?' + params.toString());
+      const entries = await res.json();
+      if (entries.error) {
+        view.textContent = 'Errore: ' + entries.error;
+        return;
+      }
+      if (!Array.isArray(entries) || entries.length === 0) {
+        view.textContent = '(nessuna riga trovata per questo periodo/filtro)';
+        return;
+      }
+      view.textContent = entries.map(e => `${e.Timestamp}\t[${e.Level}]\t${e.Tenant}\t${e.Message}`).join('\n');
+      status.textContent = entries.length >= 500 ? `${entries.length} righe (limite raggiunto - restringi la ricerca per vedere tutto)` : `${entries.length} righe trovate`;
     } catch (e) {
       view.textContent = 'Errore nel caricare i log: ' + e.message;
     }
   }
-  document.getElementById('reload-logs-btn').addEventListener('click', loadLogs);
+  document.getElementById('log-search-btn').addEventListener('click', loadLogs);
+  document.getElementById('log-search-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadLogs(); });
 
   settingsBtn.addEventListener('click', () => {
     settingsPanel.classList.toggle('open');
