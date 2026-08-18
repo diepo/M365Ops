@@ -136,7 +136,7 @@
   <li>Report AI-orchestrati con grafici — dettagli tecnici</li>
   <li>Memoria della conversazione — dettagli tecnici</li>
   <li>Appendice A — struttura dei file</li>
-  <li>Appendice B — comandi rapidi di riferimento</li>
+  <li>Appendice B — tutto avviene dalla GUI, non serve PowerShell</li>
 </ol>
 </div>
 
@@ -222,9 +222,11 @@ Modulo M365Ops (Public/*.ps1, Private/*.ps1)                    │
 uso dalle rispettive cmdlet (<code>Install-Module ... -Scope CurrentUser</code>), non serve
 preinstallarli manualmente.</div>
 
-<h3>3.1 Controllo e installazione automatica (17/08/2026)</h3>
-<p>Su richiesta esplicita, l'app non si limita più a segnalare i prerequisiti mancanti: li
-installa da sola dove tecnicamente possibile, in due punti diversi a seconda di COSA manca.</p>
+<h3>3.1 Controllo e installazione automatica (17/08/2026, reso completamente silenzioso il 18/08/2026)</h3>
+<p>Su richiesta esplicita, l'app non si limita a segnalare i prerequisiti mancanti: li installa
+da sola dove tecnicamente possibile, senza che l'operatore debba far nulla — un doppio click su
+<code>M365Ops.bat</code> è sufficiente perché l'ambiente sia pronto all'uso, in due punti diversi
+a seconda di COSA manca.</p>
 <div class="ok"><strong>PowerShell 7</strong> — controllato da <code>M365Ops.bat</code> stesso,
 PRIMA di avviare <code>pwsh.exe</code>: se manca, lancia <code>winget install Microsoft.PowerShell</code>
 in modo silenzioso e poi procede normalmente. Deve stare nel file <code>.bat</code> (eseguito da
@@ -232,17 +234,20 @@ in modo silenzioso e poi procede normalmente. Deve stare nel file <code>.bat</co
 proprio PowerShell 7, non esiste alcun modo di eseguire codice PowerShell per sistemarlo da solo.
 Se <code>winget</code> stesso non è disponibile (raro, PC molto datati), la finestra mostra il
 link diretto per l'installazione manuale invece di restare bloccata senza spiegazioni.</div>
-<div class="ok"><strong>Node.js e Microsoft Edge</strong> — il banner "Ambiente non completo" già
-esistente (tab Impostazioni) mostra ora un pulsante <strong>"Installa automaticamente"</strong>
-quando uno dei due manca, che chiama <code>Install-M365OpsPrerequisites</code>
-(<code>POST /api/install-prerequisites</code>): esegue <code>winget install</code> per quello
-mancante e aggiorna subito il PATH del processo corrente dal registro di sistema, così il
-risultato è utilizzabile senza dover riavviare l'intero server. Serve comunque un click esplicito
-dell'operatore — non parte da sola in background — stesso principio del pulsante "Riavvia"
-esistente.</div>
-<p>Se <code>winget</code> non è disponibile sul PC, sia <code>M365Ops.bat</code> sia il pulsante
-lo segnalano chiaramente invece di fallire in modo oscuro, con l'indicazione di dove scaricare
-l'installer manualmente.</p>
+<div class="ok"><strong>Node.js e Microsoft Edge</strong> — controllati e installati in modo
+completamente silenzioso da <code>Launch-M365Ops.ps1</code>, PRIMA di avviare il server e senza
+alcun click richiesto (chiama <code>Install-M365OpsPrerequisites</code> in-process appena
+PowerShell 7 è già garantito presente dal passo precedente). Il banner "Ambiente non completo"
+(tab Impostazioni) con il pulsante <strong>"Installa automaticamente"</strong> resta comunque
+disponibile come ripetizione manuale, per l'unico caso in cui il controllo silenzioso all'avvio
+fallisca (es. <code>winget</code> assente o bloccato da policy aziendali) — chiama la stessa
+<code>Install-M365OpsPrerequisites</code> (<code>POST /api/install-prerequisites</code>) e
+aggiorna subito il PATH del processo corrente dal registro di sistema, così il risultato è
+utilizzabile senza dover riavviare l'intero server.</div>
+<p>Se <code>winget</code> non è disponibile sul PC, sia <code>M365Ops.bat</code> sia il controllo
+silenzioso all'avvio lo segnalano chiaramente (in <code>Logs\</code> e, per Node/Edge, anche nel
+banner della GUI) invece di fallire in modo oscuro, con l'indicazione di dove scaricare l'installer
+manualmente.</p>
 </section>
 
 <!-- ============================== 4 ============================== -->
@@ -485,26 +490,31 @@ restituisce righe, basta attendere e riprovare — non serve rifare i passi prec
 <h2>7. Registrazione del tenant nel modulo</h2>
 <p>Il file <code>Config\tenants.json</code> è la fonte di verità per ogni tenant configurato.
 <strong>Non contiene mai segreti</strong>: solo ID, thumbprint del certificato (non è un segreto) e
-il NOME della variabile d'ambiente che contiene il client secret.</p>
-
-<pre class="code">Import-Module .\M365Ops.psd1
-
-Set-M365OpsTenant -Name "contoso-test" -TenantId "contoso.onmicrosoft.com" `
-    -ClientId "00000000-0000-0000-0000-000000000001" -SecretEnvVar "M365_CLIENT_SECRET" `
-    -ExchangeCertThumbprint "0000000000000000000000000000000000000000" `
-    -EmailSender "diego@contoso.com"
-
-<span class="c"># il secret si imposta UNA VOLTA sul PC, fuori da questo modulo</span>
-setx M365_CLIENT_SECRET "il-valore-copiato-dal-portale"
-setx ANTHROPIC_API_KEY  "la-tua-api-key-claude"
-
-Connect-M365Ops -TenantProfile "contoso-test"</pre>
+il NOME della variabile d'ambiente che contiene il client secret. Tutta questa sezione si fa dalla
+GUI, tab <strong>Tenant</strong> → riquadro "Aggiungi / aggiorna profilo" — non serve aprire un
+terminale.</p>
+<ol>
+<li><strong>Nome profilo</strong> — un nome a scelta per riconoscerlo (es. <code>contoso-test</code>).</li>
+<li><strong>Tenant ID</strong> — dominio <code>....onmicrosoft.com</code> o GUID del tenant, indifferentemente.</li>
+<li><strong>Modalità di autenticazione</strong> — App-only (richiede App Registration, sezioni 4-6) o
+    Delegata (login col tuo utente, sezione 10).</li>
+<li>Se App-only: <strong>Client ID</strong>, <strong>nome variabile d'ambiente per il secret</strong>
+    (es. <code>M365_CLIENT_SECRET</code>) e — nel campo separato subito sotto —
+    <strong>il valore del secret stesso</strong>, copiato dal portale Entra ID: il campo lo scrive
+    direttamente nella variabile d'ambiente del tuo utente Windows (mai in un file), lascialo vuoto
+    per non toccare un valore già impostato in precedenza.</li>
+<li><strong>Thumbprint certificato Exchange</strong> (solo App-only, facoltativo se non usi Exchange).</li>
+<li><strong>Salva profilo</strong> → il tenant appare nell'elenco sopra: clicca <strong>Attiva</strong>
+    per connetterti (equivalente a <code>Connect-M365Ops</code>).</li>
+</ol>
+<p>Il mittente email (per l'invio report) e la chiave del motore AI (<code>ANTHROPIC_API_KEY</code>
+o le variabili Azure OpenAI) si impostano allo stesso modo, ciascuno dal proprio tab (rispettivamente
+"Email" e "Motore AI") — sempre un campo di testo, mai una variabile d'ambiente da impostare a mano.</p>
 
 <h3>Aggiungere un secondo tenant (in parallelo, senza toccare il primo)</h3>
-<pre class="code">Set-M365OpsTenant -Name "cliente-x" -TenantId "clientex.onmicrosoft.com" `
-    -ClientId "&lt;app-registration-id-cliente-x&gt;" -SecretEnvVar "M365_CLIENT_SECRET_CLIENTEX"
-setx M365_CLIENT_SECRET_CLIENTEX "..."
-Connect-M365Ops -TenantProfile "cliente-x"</pre>
+<p>Stesso riquadro, di nuovo: compila i campi con i dati del nuovo tenant (nome profilo diverso,
+propria App Registration/secret) e Salva — il profilo precedente resta intatto e selezionabile
+in qualsiasi momento dall'elenco.</p>
 <div class="note">Ogni tenant ha la propria App Registration, il proprio certificato Exchange, il
 proprio mittente email e i propri connettori MCP (sezione 9) — tutto annidato nel <em>proprio</em>
 oggetto dentro <code>tenants.json</code>, senza condivisione con altri profili.</div>
@@ -643,13 +653,12 @@ da GUI (tab MCP-Connettori):</p>
 <div class="note">Perché tenant-scoped: due tenant diversi possono avere connettori, credenziali
 o versioni del server MCP diverse in parallelo, senza che la configurazione dell'uno interferisca
 con quella dell'altro.</div>
-<pre class="code"><span class="c"># riconnettere Lokka manualmente dopo una modifica</span>
-Connect-M365OpsLokka
-<span class="c"># rimuovere un server MCP (Lokka torna ai valori di default anziche' sparire)</span>
-Remove-M365OpsMcpServer -Name "nome-server"</pre>
-<p>Dalla GUI: ogni server elencato sotto "Altri server MCP" ha un pulsante "Rimuovi" (con
-conferma). Lokka non è rimovibile da lì (è builtIn): "rimuoverlo" significherebbe solo
-azzerare una personalizzazione, quindi si gestisce modificando i campi comando/argomenti.</p>
+<p>Anche la gestione a runtime è interamente da GUI, tab MCP-Connettori: il pulsante
+<strong>"↻ Riconnetti con la nuova configurazione"</strong> chiama <code>Connect-M365OpsLokka
+-Force</code> dopo ogni modifica ai campi comando/argomenti. Ogni server elencato sotto "Altri
+server MCP" ha un proprio pulsante "Rimuovi" (con conferma). Lokka non è rimovibile da lì (è
+builtIn): "rimuoverlo" significherebbe solo azzerare una personalizzazione, quindi si gestisce
+modificando i campi comando/argomenti invece che con una rimozione vera e propria.</p>
 </section>
 
 <!-- ============================== 10 ============================== -->
@@ -687,11 +696,9 @@ sempre un'azione esplicita tua — non avviene mai automaticamente in mezzo a un
 </div>
 
 <h3>10.3 Configurazione</h3>
-<pre class="code">Set-M365OpsTenant -Name "cliente-y" -TenantId "clientey.onmicrosoft.com" `
-    -AuthMode Delegated -DelegatedUpn "mario.rossi@clientey.onmicrosoft.com"
-Connect-M365Ops -TenantProfile "cliente-y"</pre>
-<p>Oppure dalla GUI: tab Tenant → "Modalità di autenticazione" → Delegata → inserisci il tuo UPN
-su quel tenant → Salva profilo. Compare un riquadro "Login delegato" con un pulsante
+<p>Dalla GUI, tab Tenant → riquadro "Aggiungi / aggiorna profilo": "Modalità di autenticazione" →
+Delegata → inserisci il tuo UPN su quel tenant (es. <code>mario.rossi@clientey.onmicrosoft.com</code>)
+→ Salva profilo → Attiva. Compare un riquadro "Login delegato" con un pulsante
 <strong>"Accedi con il mio utente"</strong>.</p>
 
 <h3>10.4 Primo login (device code flow)</h3>
@@ -751,13 +758,17 @@ nella console del processo (<code>To sign in, use a web browser to open the page
 https://login.microsoft.com/device and enter the code ...</code>). Con la correzione, lo stesso
 flusso ora restituisce il codice immediatamente nella risposta HTTP, senza mai bloccare il server.</div>
 
-<h3>10.7 GUI riorganizzata — stato connessioni sempre visibile</h3>
-<p>Il tab <strong>Tenant</strong> ora mostra, subito sotto l'elenco profili, un pannello "Stato
-connessioni — tenant attivo" con un indicatore per ciascuno (pallino verde/giallo): modalità
-(App-only/Delegata), Microsoft Graph, Exchange Online, e Lokka (solo App-only, non pertinente in
-modalità Delegata). La sezione <strong>Exchange Online</strong> (pulsante di connessione/test) è
-stata spostata qui da MCP/Connettori, dato che è dal tab Tenant che si gestisce tutto il resto
-del tenant attivo — il tab MCP/Connettori ora contiene solo Lokka e altri server MCP.</p>
+<h3>10.7 GUI riorganizzata — stato connessioni annidato nella riga del tenant attivo</h3>
+<p>Il tab <strong>Tenant</strong> mostra un indicatore per ciascun servizio (pallino verde/giallo):
+modalità (App-only/Delegata), Microsoft Graph, Exchange Online, e Lokka (solo App-only, non
+pertinente in modalità Delegata). La sezione <strong>Exchange Online</strong> (pulsante di
+connessione/test) vive qui, non in MCP/Connettori, dato che è dal tab Tenant che si gestisce tutto
+il resto del tenant attivo — il tab MCP/Connettori contiene solo Lokka e altri server MCP.
+Dal 18/08/2026 questo pannello non è più un blocco fisso sotto l'elenco profili: ogni riga tenant
+ha un proprio chevron espandi/collassa, e solo il tenant <strong>attivo</strong> mostra il
+pannello reale (espanso di default) — le righe degli altri profili, quando espanse, mostrano solo
+un avviso che non c'è nulla di reale da verificare finché non li attivi. Attivare un tenant diverso
+sposta il pannello reale sulla sua riga automaticamente.</p>
 <div class="ok">Il provider AI selezionato nel tab "Motore AI" è persistito su
 <code>Config\ai-provider.json</code> (solo il nome, non è un segreto) — un riavvio del server
 lo ricarica automaticamente, non torna più a Claude come default se stavi usando Azure OpenAI.</div>
@@ -981,12 +992,18 @@ chat) invece di avviarne una seconda in conflitto sulla stessa porta o lasciarne
 background. Legge inoltre <code>Config\last-active-tenant.txt</code> (scritto da
 <code>Connect-M365Ops</code> ad ogni cambio tenant) per far ripartire il server esattamente sul
 tenant su cui stavi lavorando l'ultima volta, non su un default fisso.</div>
-<h3>12.2 Avvio manuale da terminale</h3>
+<h3>12.2 Avvio manuale da terminale (facoltativo — non serve per l'uso normale)</h3>
+<p>Il doppio click su <code>M365Ops.bat</code> (12.1) è sufficiente in ogni caso normale: questa
+sezione esiste solo per chi preferisce vedere l'output in un terminale invece che in una finestra
+nascosta, o per diagnosticare un avvio che fallisce silenziosamente in modo "con un click".</p>
 <pre class="code">cd &lt;percorso-della-cartella-M365Ops&gt;
-.\Start-M365OpsWebApp.ps1</pre>
-<p>Il server web parte su <code>http://localhost:8743/</code>, carica automaticamente l'ultimo
-tenant attivo e avvia la connessione a Lokka. Dal tab Manutenzione della GUI è disponibile un
-pulsante di riavvio che non richiede di tornare al terminale.</p>
+.\Launch-M365Ops.ps1</pre>
+<p>È lo stesso identico script richiamato da <code>M365Ops.bat</code> (resume-session,
+rilevamento porta, controllo prerequisiti inclusi) — la sola differenza è che l'output resta
+visibile nella finestra invece che nascosto. Il server web parte sulla porta configurata (8743 di
+default, sezione "Aggiornamenti" nel tab Manutenzione per cambiarla), carica automaticamente
+l'ultimo tenant attivo e avvia la connessione a Lokka. Dal tab Manutenzione della GUI è comunque
+disponibile un pulsante di riavvio che non richiede di tornare al terminale.</p>
 <div class="warn">Il riavvio (pulsante GUI o <code>POST /api/restart</code>) è l'unico modo
 sicuro di far ripartire il server: essendo a thread singolo, la richiesta di riavvio viene
 "eseguita" solo subito dopo aver chiuso la risposta HTTP corrente, quindi non può mai
@@ -1224,6 +1241,11 @@ invece di limitarsi a spiegarti come farlo a mano — vedi sezione 17.6 per i de
 <tr><td>BUG SERIO trovato dal vivo durante il test della nuova area spoof: stessa classe "errore non terminante ignorato in silenzio" gia' vista per Teams, applicata preventivamente a tutti i 27 nuovi cmdlet di scrittura</td><td><span class="badge done">corretto</span></td><td><code>New-M365OpsTenantAllowBlockListSpoofItem</code> riportava "Fatto" anche quando <code>New-TenantAllowBlockListSpoofItems</code> falliva con un vero errore lato server Microsoft ("A server side error has occurred..."), perche' mancava <code>-ErrorAction Stop</code> - lo stesso identico schema di <code>Get-M365OpsTeamsExternalAccessConfig</code> trovato poche ore prima nello stesso giorno. Corretto su TUTTI i 27 cmdlet di scrittura di questa estensione (non solo quello dove si e' manifestato), non solo su quello dove il bug e' stato osservato per la prima volta - verificato dal vivo: l'errore reale (persistente su questo tenant per questa specifica funzione, non un bug M365Ops) ora viene mostrato correttamente invece del falso "Fatto"</td></tr>
 <tr><td>BUG reale trovato dal vivo dalla diagnosi automatica dell'app stessa: <code>Remove-QuarantinePolicy</code> non supporta <code>-Confirm</code></td><td><span class="badge done">corretto</span></td><td>A differenza di quasi ogni altro <code>Remove-*</code> di Exchange (verificato: tutti gli altri Remove- di questa estensione supportano -Confirm), <code>Remove-QuarantinePolicy</code> non lo espone nella sua sintassi ufficiale - passarlo produceva un errore di binding parametro. Trovato dalla stessa infrastruttura di autodiagnosi dell'app (Invoke-M365OpsErrorTriage) durante un test dal vivo di pulizia, non da revisione manuale del codice - ha anche proposto la correzione esatta (rifiutata l'applicazione automatica per prudenza, applicata a mano). Verificato dal vivo end-to-end dopo il fix: policy creata, verificata presente, eliminata, verificata assente</td></tr>
 <tr><td>BUG SERIO trovato dal vivo (non collegato alle estensioni sopra): un client disconnesso a meta' risposta poteva far crashare l'INTERO processo server, non solo quella richiesta</td><td><span class="badge done">corretto</span></td><td>Il server e' realmente crashato durante il test odierno (processo terminato, porta non piu' in ascolto) dopo che un client (timeout/tab chiusa) si e' disconnesso mentre il server stava ancora scrivendo la risposta ("The specified network name is no longer available"). Il blocco <code>catch</code> che gestisce QUALSIASI errore di richiesta provava a sua volta a scrivere una risposta d'errore sulla stessa connessione ormai morta, senza una propria protezione - quella SECONDA eccezione ("This operation cannot be performed after the response has been submitted") risaliva non gestita fino a terminare l'intero processo, non solo la richiesta in corso. Corretto avvolgendo sia la scrittura della risposta d'errore sia la chiusura dello stream nel <code>finally</code> in try/catch propri - un client che sparisce a meta' ora fa fallire silenziosamente solo quella singola richiesta, mai l'app per tutti gli altri. Verificato dal vivo: server riavviato e rimasto in piedi sotto ulteriori richieste con timeout forzato, anche se la stessa identica race condition di rete non e' riproducibile a comando in modo deterministico</td></tr>
+<tr><td>BUG di documentazione trovato dal vivo dall'utente: la guida si contraddiceva su Node.js/PowerShell 7 (sezione 3 diceva "si installano da soli", sezione 18.4 diceva "no, manuale")</td><td><span class="badge done">corretto</span></td><td>La tabella di 18.4 era rimasta ferma a prima dell'introduzione dell'auto-installer (sezione 3.1, 17/08/2026) e non era mai stata riallineata. Corretta per riflettere lo stato vero, e resa coerente riscrivendo anche 18.5 (checklist PC nuovo, che indicava ancora <code>.\Start-M365OpsWebApp.ps1</code>, uno script superato)</td></tr>
+<tr><td>Nuovo: installazione di Node.js e Microsoft Edge resa completamente silenziosa all'avvio, nessun click richiesto</td><td><span class="badge done">funzionante</span></td><td>Richiesto esplicitamente dall'utente ("deve esserci l'autoinstallazione di tutto cio' che manca per essere pronta all'uso"): prima richiedevano un click esplicito sul pulsante "Installa automaticamente" nel banner Impostazioni. <code>Launch-M365Ops.ps1</code> ora chiama <code>Install-M365OpsPrerequisites</code> in-process, silenziosamente, PRIMA di avviare il server - stesso principio gia' in uso per PowerShell 7 in <code>M365Ops.bat</code>. Il pulsante manuale resta solo come fallback per il caso raro in cui il controllo silenzioso fallisca (winget assente/bloccato)</td></tr>
+<tr><td>Guida riscritta per non presentare piu' comandi PowerShell come modo d'uso dell'app (richiesto esplicitamente due volte dall'utente)</td><td><span class="badge done">completato</span></td><td>Le sezioni 7 (registrazione tenant), 9 (riconnessione Lokka), 10.3 (setup delegato) e 12.2 (avvio manuale) mostravano blocchi di comando (<code>Set-M365OpsTenant</code>, <code>setx</code>, <code>Connect-M365OpsLokka</code>...) per operazioni che hanno gia' tutte un equivalente diretto in GUI - riscritte come passi GUI. L'Appendice B (intero "reference rapido" di comandi, incluso un esempio con lo script di avvio ormai superato) e' stata sostituita con una nota che rimanda alla GUI/chat per ogni operazione. Restano documentati come comandi PowerShell SOLO i passaggi realmente esterni all'app e inevitabili (App Registration/certificato in Entra ID, ruolo RBAC Exchange, trasferimento certificato su PC nuovo) - mai piu' presentati come "modo d'uso" del modulo</td></tr>
+<tr><td>Nuovo: tab Tenant riorganizzato ad accordion - stato connessioni annidato dentro la riga del tenant attivo</td><td><span class="badge done">funzionante</span></td><td>Richiesto dall'utente: prima il blocco "Stato connessioni" (Exchange/SharePoint/Teams/Intune) restava fisso sotto l'elenco profili anche con i tenant collassati, mostrando dati non pertinenti se non coincideva col tenant attivo. Ora ogni riga tenant ha un proprio chevron espandi/collassa; il tenant attivo mostra il pannello reale (spostato li' via <code>appendChild</code>, mai clonato - gli ID interni come <code>mcp-exchange-status</code> restano validi qualunque riga lo ospiti) espanso di default; le righe inattive mostrano solo un avviso "attiva questo tenant per vedere lo stato delle connessioni". Verificato dal vivo su entrambi i tenant reali (vnsys-test, AlePiras): espandi/collassa, hint sulle righe inattive, nessun errore in console</td></tr>
+<tr><td>BUG SERIO trovato dal vivo testando l'accordion sopra: il pannello reale spariva del tutto al SECONDO cambio di tenant attivo (non al primo)</td><td><span class="badge done">corretto</span></td><td><code>#active-tenant-detail</code> vive nell'HTML statico come fratello di <code>#profile-list</code> solo al primissimo caricamento pagina; dopo il primo render viene spostato DENTRO una riga (annidato in <code>#profile-list</code>). <code>loadProfiles()</code> svuotava incondizionatamente <code>profileList.innerHTML</code> a ogni chiamata, distruggendo per sempre il pannello reale (con tutti i suoi listener) se gia' annidato li' da un render precedente - invisibile al primo test (il nodo era ancora fuori da <code>#profile-list</code>) ma riproducibile al secondo cambio tenant. Corretto staccando <code>#active-tenant-detail</code> (se gia' annidato) PRIMA di svuotare, non dopo. Verificato dal vivo ripetendo esattamente lo scenario che aveva rotto: due cambi di tenant consecutivi (vnsys-test → AlePiras → vnsys-test), pannello reale presente e funzionante a ogni passaggio</td></tr>
 </table>
 </section>
 
@@ -1803,20 +1825,23 @@ Import-PfxCertificate -FilePath "M365Ops-Exchange.pfx" -CertStoreLocation Cert:\
 <div class="warn">Elimina il file <code>.pfx</code> dopo l'import — non lasciarlo in giro, contiene la chiave privata.</div>
 
 <h3>18.4 Dipendenze di sistema sul PC nuovo</h3>
+<p>Non serve installare nulla a mano prima di copiare la cartella: <code>M365Ops.bat</code> si
+occupa di ogni prerequisito da solo al primo avvio (sezione 3.1).</p>
 <table>
 <tr><th>Componente</th><th>Si installa da sola?</th></tr>
-<tr><td>Moduli PowerShell (<code>ExchangeOnlineManagement</code>, <code>ImportExcel</code>)</td><td><span class="badge done">sì</span> — installati automaticamente al primo uso se mancanti</td></tr>
-<tr><td>Node.js (<code>npx</code>, richiesto da Lokka)</td><td><span class="badge pending">no</span> — prerequisito di sistema, va installato manualmente prima del primo avvio (<a href="https://nodejs.org">nodejs.org</a>, oppure <code>winget install OpenJS.NodeJS</code>); senza, Lokka fallisce con un errore chiaro ma l'AI usa comunque le cmdlet dirette come fallback</td></tr>
-<tr><td>Microsoft Edge (per l'export PDF)</td><td><span class="badge done">di solito già presente</span> — incluso di default su Windows 11; se assente, CSV/XLSX restano disponibili, solo il PDF fallisce con un errore chiaro</td></tr>
-<tr><td>PowerShell 7+</td><td><span class="badge pending">no</span> — prerequisito di sistema (<code>winget install Microsoft.PowerShell</code>)</td></tr>
+<tr><td>PowerShell 7+</td><td><span class="badge done">sì</span> — <code>M365Ops.bat</code> lo controlla ed installa via winget PRIMA di avviare qualunque altra cosa, in modo silenzioso</td></tr>
+<tr><td>Node.js (<code>npx</code>, richiesto da Lokka) e Microsoft Edge</td><td><span class="badge done">sì</span> — controllati e installati in modo silenzioso da <code>Launch-M365Ops.ps1</code> prima di avviare il server, nessun click richiesto</td></tr>
+<tr><td>Moduli PowerShell (<code>ExchangeOnlineManagement</code>, <code>ImportExcel</code>, <code>IntuneWin32App</code>)</td><td><span class="badge done">sì</span> — installati automaticamente al primo uso se mancanti</td></tr>
 </table>
+<div class="note">Se <code>winget</code> non è disponibile sul PC nuovo (raro, PC molto datati),
+sia <code>M365Ops.bat</code> sia il banner "Ambiente non completo" nel tab Impostazioni lo
+segnalano chiaramente con il link per l'installazione manuale, invece di fallire in modo oscuro.</div>
 
 <h3>18.5 Checklist rapida per il PC nuovo</h3>
 <ol>
-<li>Installa PowerShell 7+ e Node.js (18.4)</li>
 <li>Copia l'intera cartella <code>M365Ops\</code></li>
 <li>Se usi Exchange in modalità AppOnly: importa il certificato (18.3)</li>
-<li>Avvia <code>.\Start-M365OpsWebApp.ps1</code> — i moduli PowerShell mancanti si installano da soli</li>
+<li>Doppio click su <code>M365Ops.bat</code> — prerequisiti e moduli PowerShell mancanti si installano da soli, il browser si apre da solo sulla chat</li>
 <li>Dalla GUI (tab Tenant/Motore AI/Email), reimposta i secret — <code>tenants.json</code> arriva già con la struttura corretta, mancano solo i valori</li>
 <li>Se un tenant è in modalità Delegated, fai il login la prima volta che ti serve (tab Tenant)</li>
 </ol>
@@ -2068,63 +2093,28 @@ un'azione dimenticata ancora pronta a essere eseguita da un vecchio "sì".</p>
 ├── docs\
 │   ├── Guida-Configurazione.html    sorgente di questa guida
 │   └── Guida-Configurazione.pdf     versione stampabile
-├── Start-M365OpsWebApp.ps1          avvio server web da terminale (sezione 12.2)
-├── Launch-M365Ops.ps1 / M365Ops.bat avvio con un click, resume-session (sezione 12.1)
+├── Launch-M365Ops.ps1 / M365Ops.bat avvio con un click (12.1) o da terminale (12.2), resume-session, auto-install prerequisiti
+├── Start-M365OpsWebApp.ps1 / Start-M365Ops.ps1   superati da Launch-M365Ops.ps1 (mancano rilevamento porta e resume-session) - lasciati solo per compatibilità con script esterni esistenti, non usarli per l'avvio normale
 └── README.md                        guida rapida sviluppatore</div>
 </section>
 
 <!-- ============================== APPENDICE B ============================== -->
 <section class="page">
-<h2>Appendice B — Comandi rapidi di riferimento</h2>
-<h3>Setup completo da zero</h3>
-<pre class="code">Import-Module .\M365Ops.psd1
-Set-M365OpsTenant -Name "contoso-test" -TenantId "contoso.onmicrosoft.com" `
-    -ClientId "00000000-0000-0000-0000-000000000001" -SecretEnvVar "M365_CLIENT_SECRET" `
-    -ExchangeCertThumbprint "0000000000000000000000000000000000000000" -EmailSender "diego@contoso.com"
-Connect-M365Ops -TenantProfile "contoso-test"
-.\Start-M365OpsWebApp.ps1</pre>
-
-<h3>Diagnostica</h3>
-<pre class="code">Get-M365OpsActiveTenantInfo          <span class="c"># stato tenant, Lokka, Exchange</span>
-Get-M365OpsMcpServers                <span class="c"># connettori MCP del tenant attivo</span>
-Connect-M365OpsLokka                 <span class="c"># riconnette Lokka manualmente</span>
-Connect-M365OpsExchange              <span class="c"># testa la connessione Exchange app-only</span></pre>
-
-<h3>Report</h3>
-<pre class="code">Export-M365OpsReport -Data $devices -Format pdf -Path "Reports\devices.pdf" -Title "Device Report"
-Send-M365OpsReportEmail -Path "Reports\devices.pdf" -To "destinatario@contoso.com"
-
-<span class="c"># report generico con grafico, stesso meccanismo usato dall'AI (sezione 22)</span>
-Export-M365OpsDataReport -Data $licenze -Title "Licenze Microsoft 365" `
-    -ChartFields @(@{ Field = "skuPartNumber"; Label = "Distribuzione licenze"; Type = "Pie" })</pre>
-
-<h3>MFA (sezione 21 — il reset è irreversibile, chiedi sempre conferma se lo automatizzi)</h3>
-<pre class="code">Get-M365OpsUserMfaStatus -Upn "mario.rossi@contoso.com"
-Reset-M365OpsUserMfa -Upn "mario.rossi@contoso.com"      <span class="c"># rimuove i metodi MFA, MAI la password</span></pre>
-
-<h3>Tracking messaggi (Get-MessageTraceV2, non la cmdlet classica in dismissione)</h3>
-<pre class="code">Get-M365OpsMessageTrace -SenderAddress "mario.rossi@contoso.com" -StartDate (Get-Date).AddDays(-3)
-Get-M365OpsMessageTraceDetail -MessageTraceId &lt;guid&gt; -RecipientAddress "anna.bianchi@contoso.com"</pre>
-
-<h3>Setup tenant senza App Registration (delegato)</h3>
-<pre class="code">Set-M365OpsTenant -Name "cliente-y" -TenantId "clientey.onmicrosoft.com" `
-    -AuthMode Delegated -DelegatedUpn "mario.rossi@clientey.onmicrosoft.com"
-Connect-M365Ops -TenantProfile "cliente-y"
-Start-M365OpsDelegatedLogin           <span class="c"># mostra URL + codice, poi apri il link e accedi</span>
-Complete-M365OpsDelegatedLogin        <span class="c"># un tentativo di verifica (la GUI lo ripete da sola)</span></pre>
-
-<h3>Esempi Exchange Online (le 50+ cmdlet della sezione 11)</h3>
-<pre class="code">Get-M365OpsMailboxUsageReport | Export-Csv "Reports\usage.csv" -NoTypeInformation
-Get-M365OpsSharedMailboxReport
-Get-M365OpsForwardingReport                    <span class="c"># sicurezza: inoltri automatici</span>
-Get-M365OpsSharedMailboxSignInStatus           <span class="c"># sicurezza: mailbox condivise con login abilitato</span>
-Grant-M365OpsMailboxPermission -Identity "fatture@contoso.com" -User "mario.rossi@contoso.com" -PermissionType FullAccess
-
-<span class="c"># migrazione su un endpoint gia' configurato (mai credenziali nuove da qui)</span>
-Get-M365OpsMigrationEndpoints
-New-M365OpsMigrationBatch -Name "Batch1" -SourceEndpoint "Hybrid Migration Endpoint - EWS (Default Web Site)" `
-    -Users "mario.rossi@contoso.com","anna.bianchi@contoso.com"    <span class="c"># creato NON avviato</span>
-Start-M365OpsMigrationBatch -Identity "Batch1"                <span class="c"># passo separato</span></pre>
+<h2>Appendice B — Tutto avviene dalla GUI, non serve PowerShell</h2>
+<p>Per scelta esplicita, l'uso quotidiano di M365Ops non richiede mai di scrivere un comando
+PowerShell: setup del tenant, motore AI, email, connettori MCP, report, reset MFA, tracking
+messaggi, migrazioni, sicurezza email, SharePoint/OneDrive, Teams — ogni operazione descritta in
+questa guida ha un campo, un pulsante o una richiesta in chat come suo equivalente diretto in
+GUI (vedi in particolare le sezioni 7, 9, 11.1, 13, 17). Le cmdlet PowerShell (<code>Get-Command
+-Module M365Ops</code> per l'elenco completo) restano lo strato che la GUI stessa chiama dietro
+le quinte, e sono comunque disponibili per chi vuole scriptare qualcosa di più avanzato da un
+terminale — ma non sono la via prevista per l'uso normale, e questa guida non le presenta più
+come tale.</p>
+<p>Le uniche eccezioni reali, dove un passaggio manuale fuori dalla GUI resta inevitabile perché
+riguarda strumenti esterni (Azure, Exchange, il certificate store di Windows) e non l'app in sé,
+sono documentate nel punto in cui servono: creazione dell'App Registration e del certificato
+(sezioni 4-5), assegnazione del ruolo RBAC su Exchange Online (sezione 6), e trasferimento del
+certificato su un PC nuovo (sezione 18.3).</p>
 
 <footer class="pagefoot">M365Ops — Guida alla Configurazione — documento vivo, aggiornalo ad ogni modifica rilevante</footer>
 </section>

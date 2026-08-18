@@ -162,57 +162,60 @@
 
   <div class="tab-panel" id="tab-tenant">
     <h2>Profili tenant salvati</h2>
+    <p class="hint">Clicca un profilo per vedere lo stato delle connessioni — solo quello del tenant <b>attivo</b> è reale (gli altri non sono connessi finché non li attivi), gli altri profili restano chiusi.</p>
     <div id="profile-list"></div>
 
-    <h2>Stato connessioni — tenant attivo</h2>
-    <div id="connection-status-panel" class="hint">Caricamento...</div>
+    <div id="active-tenant-detail" style="display:none; margin-top:6px; margin-bottom:16px; padding-left:14px; border-left:3px solid var(--accent);">
+      <h3 style="margin-top:6px;">Stato connessioni</h3>
+      <div id="connection-status-panel" class="hint">Caricamento...</div>
 
-    <div id="delegated-login-box" style="display:none; margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
-      <p class="hint" id="delegated-login-status">Nessuna sessione attiva.</p>
-      <div class="actions">
-        <button id="delegated-login-btn">Accedi a Microsoft Graph con il mio utente</button>
+      <div id="delegated-login-box" style="display:none; margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+        <p class="hint" id="delegated-login-status">Nessuna sessione attiva.</p>
+        <div class="actions">
+          <button id="delegated-login-btn">Accedi a Microsoft Graph con il mio utente</button>
+        </div>
+        <div id="delegated-login-code" style="display:none; margin-top:10px; font-size:13px;"></div>
       </div>
-      <div id="delegated-login-code" style="display:none; margin-top:10px; font-size:13px;"></div>
-    </div>
 
-    <div id="exchange-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
-      <h3 style="margin-top:0;">Exchange Online</h3>
-      <div id="mcp-exchange-status" class="hint">caricamento stato...</div>
-      <p class="hint">Sui tenant App-only la connessione è silenziosa (certificato). Sui tenant Delegati mostra un codice da inserire su un'altra pagina — non blocca più l'app durante l'attesa.</p>
-      <div class="actions">
-        <button id="exchange-test-btn">Connetti / Test connessione Exchange</button>
-        <span id="exchange-status-msg"></span>
+      <div id="exchange-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+        <h3 style="margin-top:0;">Exchange Online</h3>
+        <div id="mcp-exchange-status" class="hint">caricamento stato...</div>
+        <p class="hint">Sui tenant App-only la connessione è silenziosa (certificato). Sui tenant Delegati mostra un codice da inserire su un'altra pagina — non blocca più l'app durante l'attesa.</p>
+        <div class="actions">
+          <button id="exchange-test-btn">Connetti / Test connessione Exchange</button>
+          <span id="exchange-status-msg"></span>
+        </div>
+        <div id="exchange-login-code" style="display:none; margin-top:10px; font-size:13px;"></div>
       </div>
-      <div id="exchange-login-code" style="display:none; margin-top:10px; font-size:13px;"></div>
-    </div>
 
-    <div id="sharepoint-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
-      <h3 style="margin-top:0;">SharePoint / OneDrive</h3>
-      <div id="mcp-sharepoint-status" class="hint">caricamento stato...</div>
-      <p class="hint">App-only è silenzioso (stesso certificato di Exchange, ma richiede il permesso separato "SharePoint" → Sites.FullControl.All, vedi guida sezione 4.3). Sui tenant Delegati si apre un browser per il login: il server resta bloccato per tutti finché non lo completi — fallo qui PRIMA di chiedere un report in chat, mai durante una richiesta composta.</p>
-      <div class="actions">
-        <button id="sharepoint-test-btn">Connetti / Test connessione SharePoint</button>
-        <span id="sharepoint-status-msg"></span>
+      <div id="sharepoint-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+        <h3 style="margin-top:0;">SharePoint / OneDrive</h3>
+        <div id="mcp-sharepoint-status" class="hint">caricamento stato...</div>
+        <p class="hint">App-only è silenzioso (stesso certificato di Exchange, ma richiede il permesso separato "SharePoint" → Sites.FullControl.All, vedi guida sezione 4.3). Sui tenant Delegati si apre un browser per il login: il server resta bloccato per tutti finché non lo completi — fallo qui PRIMA di chiedere un report in chat, mai durante una richiesta composta.</p>
+        <div class="actions">
+          <button id="sharepoint-test-btn">Connetti / Test connessione SharePoint</button>
+          <span id="sharepoint-status-msg"></span>
+        </div>
       </div>
-    </div>
 
-    <div id="teams-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
-      <h3 style="margin-top:0;">Microsoft Teams</h3>
-      <div id="mcp-teams-status" class="hint">caricamento stato...</div>
-      <p class="hint">App-only: elenco Team/canali/membri funziona subito con lo stesso certificato di Exchange - criteri di riunione/chiamata/messaggistica e configurazione accesso esterno richiedono in più il permesso "Skype and Teams Tenant Admin API" (vedi guida sezione 4.4). Sui tenant Delegati si apre una finestra per il login: il server resta bloccato per tutti finché non lo completi — fallo qui PRIMA di chiedere dati in chat, mai durante una richiesta composta.</p>
-      <div class="actions">
-        <button id="teams-test-btn">Connetti / Test connessione Teams</button>
-        <span id="teams-status-msg"></span>
+      <div id="teams-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+        <h3 style="margin-top:0;">Microsoft Teams</h3>
+        <div id="mcp-teams-status" class="hint">caricamento stato...</div>
+        <p class="hint">App-only: elenco Team/canali/membri funziona subito con lo stesso certificato di Exchange - criteri di riunione/chiamata/messaggistica e configurazione accesso esterno richiedono in più il permesso "Skype and Teams Tenant Admin API" (vedi guida sezione 4.4). Sui tenant Delegati si apre una finestra per il login: il server resta bloccato per tutti finché non lo completi — fallo qui PRIMA di chiedere dati in chat, mai durante una richiesta composta.</p>
+        <div class="actions">
+          <button id="teams-test-btn">Connetti / Test connessione Teams</button>
+          <span id="teams-status-msg"></span>
+        </div>
       </div>
-    </div>
 
-    <div id="intune-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
-      <h3 style="margin-top:0;">Intune</h3>
-      <div id="mcp-intune-status" class="hint">caricamento stato...</div>
-      <p class="hint" id="intune-warning">Sui tenant App-only la connessione è silenziosa (client secret). Sui tenant Delegati il modulo di pacchettizzazione (IntuneWin32App) non supporta un flusso non bloccante come Exchange: cliccando qui sotto si apre il browser (scegli l'account esplicitamente) e <b>il server resta bloccato per tutti</b> finché non completi il login. Fallo qui, PRIMA di chiedere in chat di pacchettizzare un'app — mai durante una richiesta composta, dove bloccherebbe l'app senza preavviso. (Il flusso a codice dispositivo non è usato qui: bug reale del modulo IntuneWin32App su PowerShell 7 che lo rende sempre fallito.)</p>
-      <div class="actions">
-        <button id="intune-test-btn">Connetti Intune (browser)</button>
-        <span id="intune-status-msg"></span>
+      <div id="intune-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+        <h3 style="margin-top:0;">Intune</h3>
+        <div id="mcp-intune-status" class="hint">caricamento stato...</div>
+        <p class="hint" id="intune-warning">Sui tenant App-only la connessione è silenziosa (client secret). Sui tenant Delegati il modulo di pacchettizzazione (IntuneWin32App) non supporta un flusso non bloccante come Exchange: cliccando qui sotto si apre il browser (scegli l'account esplicitamente) e <b>il server resta bloccato per tutti</b> finché non completi il login. Fallo qui, PRIMA di chiedere in chat di pacchettizzare un'app — mai durante una richiesta composta, dove bloccherebbe l'app senza preavviso. (Il flusso a codice dispositivo non è usato qui: bug reale del modulo IntuneWin32App su PowerShell 7 che lo rende sempre fallito.)</p>
+        <div class="actions">
+          <button id="intune-test-btn">Connetti Intune (browser)</button>
+          <span id="intune-status-msg"></span>
+        </div>
       </div>
     </div>
 
@@ -862,23 +865,47 @@
     }
   });
 
+  // Quali profili sono "aperti" in questa sessione di GUI (solo stato visivo locale, mai
+  // salvato) - il tenant attivo entra qui automaticamente ad ogni attivazione, cosi' il suo
+  // stato connessioni resta visibile di default senza un click in piu', mentre gli altri
+  // restano chiusi finche' l'utente non li apre esplicitamente (nulla da mostrare comunque,
+  // solo il tenant attivo ha una connessione reale da verificare).
+  const expandedTenantNames = new Set();
+
   async function loadProfiles() {
     try {
       const res = await fetch('/api/tenants');
       const data = await res.json();
+      // #active-tenant-detail vive SOLO nell'HTML statico come fratello di #profile-list alla
+      // primissima chiamata - dal render successivo in poi e' gia' annidato dentro una riga
+      // (spostato li' sotto, mai clonato), quindi profileList.innerHTML='' lo distruggerebbe
+      // per sempre se non lo si stacca PRIMA di svuotare. Bug reale trovato dal vivo il
+      // 18/08/2026: dopo aver attivato un secondo tenant, il pannello reale spariva del tutto
+      // invece di seguire la nuova riga attiva.
+      const activeTenantDetail = document.getElementById('active-tenant-detail');
+      if (activeTenantDetail && profileList.contains(activeTenantDetail)) {
+        document.body.appendChild(activeTenantDetail);
+        activeTenantDetail.style.display = 'none';
+      }
       profileList.innerHTML = '';
       const profiles = Array.isArray(data) ? data : [data];
       if (profiles.length === 0 || !data || (data.length === undefined && !data.name)) {
         profileList.innerHTML = '<div class="hint">Nessun profilo salvato ancora.</div>';
         return;
       }
+      if (currentTenantName) { expandedTenantNames.add(currentTenantName); }
       for (const p of profiles) {
         if (!p || !p.name) continue;
+        const isActive = p.name === currentTenantName;
+        const isExpanded = expandedTenantNames.has(p.name);
+        const wrap = document.createElement('div');
+        wrap.className = 'profile-row-wrap';
+        wrap.style.marginBottom = '6px';
         const row = document.createElement('div');
         row.className = 'profile-row';
-        const isActive = p.name === currentTenantName;
         const modeTag = p.authMode === 'Delegated' ? 'delegata' : 'app-only';
         row.innerHTML = `
+          <span class="p-expand-toggle" title="Mostra/nascondi stato connessioni" style="cursor:pointer; width:16px; display:inline-block; color:var(--text-muted); user-select:none;">${isExpanded ? '▾' : '▸'}</span>
           <span class="p-name">${p.name}</span>
           <span class="p-tenant">${p.tenantId} <span class="hint">(${modeTag})</span></span>
           <button data-name="${p.name}" class="activate-btn ${isActive ? 'active-btn' : ''}">${isActive ? 'Attivo' : 'Attiva'}</button>
@@ -886,7 +913,33 @@
         `;
         row.querySelector('.activate-btn').addEventListener('click', () => activateProfile(p.name));
         row.querySelector('.remove-btn').addEventListener('click', () => removeProfile(p.name));
-        profileList.appendChild(row);
+
+        const detail = document.createElement('div');
+        detail.className = 'profile-row-detail';
+        detail.style.cssText = `display:${isExpanded ? 'block' : 'none'}; padding-left:22px; margin-top:4px;`;
+        if (!isActive) {
+          detail.innerHTML = `<p class="hint">Attiva questo tenant per vedere lo stato delle connessioni (solo il tenant attivo ha una connessione reale da verificare).</p>`;
+        }
+        // Il toggle apre/chiude SOLO la visibilita' - il contenuto vero per il tenant attivo
+        // resta l'unico nodo #active-tenant-detail esistente (spostato qui sotto, mai clonato),
+        // cosi' tutti gli ID che il resto del codice usa (mcp-exchange-status, ecc.) restano
+        // validi indipendentemente da quale riga lo ospita in questo momento.
+        const toggle = row.querySelector('.p-expand-toggle');
+        toggle.addEventListener('click', () => {
+          const nowExpanded = detail.style.display !== 'none';
+          detail.style.display = nowExpanded ? 'none' : 'block';
+          toggle.textContent = nowExpanded ? '▸' : '▾';
+          if (nowExpanded) { expandedTenantNames.delete(p.name); } else { expandedTenantNames.add(p.name); }
+        });
+
+        wrap.appendChild(row);
+        wrap.appendChild(detail);
+        profileList.appendChild(wrap);
+
+        if (isActive && activeTenantDetail) {
+          detail.appendChild(activeTenantDetail);
+          activeTenantDetail.style.display = isExpanded ? 'block' : 'none';
+        }
       }
     } catch (e) {
       profileList.innerHTML = '<div class="hint">Errore nel caricare i profili.</div>';

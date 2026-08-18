@@ -59,6 +59,23 @@ if (-not $Port) {
 $logDir = Join-Path $root 'Logs'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
 
+# Controllo prerequisiti (Node.js, Microsoft Edge) PRIMA di avviare il server, in modo
+# silenzioso - nessun click richiesto. Richiesto esplicitamente dall'utente il 18/08/2026:
+# "deve esserci l'autoinstallazione di tutto cio che manca per essere pronta all'uso".
+# Il pulsante "Installa automaticamente" nel banner Impostazioni resta come fallback manuale
+# per il solo caso in cui questo controllo silenzioso fallisca (es. winget assente/bloccato).
+try {
+    Import-Module (Join-Path $root 'M365Ops.psd1') -Force -ErrorAction Stop
+    $prereqResults = Install-M365OpsPrerequisites
+    $prereqResults | ForEach-Object {
+        if ($_.Status -eq 'Failed') {
+            Write-Host "Prerequisito non installato automaticamente: $($_.Name) - $($_.Detail)" -ForegroundColor Yellow
+        }
+    }
+} catch {
+    Write-Host "Controllo automatico dei prerequisiti (Node.js/Edge) non riuscito: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 # Sempre pwsh.exe (PowerShell 7), mai powershell.exe (5.1) - il modulo e il server sono
 # scritti e testati per PS7, non per Windows PowerShell. Non ci si affida a $PID/Get-Process
 # qui perche' questo script stesso potrebbe girare sotto un pwsh.exe diverso da quello
