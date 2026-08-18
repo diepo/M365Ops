@@ -58,7 +58,19 @@ function Get-M365OpsCommandCatalog {
             # l'handler sotto fallirebbe con "genera prima un report" anche se la richiesta
             # completa lo chiedeva nello stesso messaggio (bug reale, stesso schema gia' visto
             # per SharedMailboxPermissions il 17/08/2026).
-            DeferWords   = @('genera\w*', 'crea\w*', 'esporta\w*', 'aggiorna\w*')
+            #
+            # BUG SERIO trovato dal vivo il 18/08/2026 durante uno stress test: questo handler
+            # invia SEMPRE e SOLO $script:LastReportPath (l'ultimo file generato in sessione),
+            # senza mai controllare se corrisponde davvero all'argomento del messaggio. Con
+            # "mandami via mail un report dei dispositivi non conformi a X" dopo aver appena
+            # generato un report DIVERSO (es. mailbox condivise), l'app proponeva di inviare
+            # a X il file sbagliato con dati non richiesti - nessun errore, nessun avviso.
+            # 'report\s+(dei|delle|di|degli|su|sui|sulle|sull)' intercetta il caso in cui il
+            # messaggio DESCRIVE esplicitamente il contenuto del report voluto (rischio di
+            # scambio) e lo devia all'AI, che ha il contesto per accorgersi della discrepanza
+            # invece di inviare alla cieca. Un "invialo"/"mandalo" senza descrizione resta
+            # invece sul percorso rapido, corretto: si riferisce sempre all'ultimo generato.
+            DeferWords   = @('genera\w*', 'crea\w*', 'esporta\w*', 'aggiorna\w*', 'report\s+(dei|delle|di|degli|su|sui|sulle|sull)')
             RequiresAI   = $false
             Handler      = {
                 param($toAddress)
@@ -264,7 +276,16 @@ function Get-M365OpsCommandCatalog {
             # remediation/analisi ("...e qual e' il piano di remediation consigliato") veniva
             # risposta col solo elenco grezzo, troncando silenziosamente la parte che richiede
             # ragionamento AI - stesso schema di richiesta composta gia' visto altrove.
-            DeferWords   = @('piano', 'remediation', 'consigl', 'roadmap', 'perch', 'causa')
+            #
+            # BUG SERIO trovato dal vivo lo stesso giorno, durante lo stress test che ha corretto
+            # anche EmailLastReport: "mandami via mail un report dei dispositivi non conformi a
+            # X" veniva deviato correttamente da EmailLastReport (grazie al fix su quella voce),
+            # ma cadeva DRITTO su questa voce subito dopo - che mostrava l'elenco grezzo in chat
+            # e ignorava in silenzio "mandami via mail", senza mai proporre un invio email.
+            # 'mail'/'email' come DeferWords fanno si' che una richiesta che nomina anche l'invio
+            # passi all'AI (che ha propose_send_report_email e puo' gestire l'intera richiesta
+            # composta in un unico ragionamento), invece di rispondere solo a meta'.
+            DeferWords   = @('piano', 'remediation', 'consigl', 'roadmap', 'perch', 'causa', 'mail', 'email')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { Get-M365OpsManagedDevices -NonCompliantOnly }
@@ -381,7 +402,16 @@ function Get-M365OpsCommandCatalog {
             # vero problema dell'utente che iniziava per caso con quella parola ("aiuto! ho perso
             # l'accesso al mio account, cosa devo fare"), rispondendo con l'elenco comandi invece
             # di passare all'AI che avrebbe potuto aiutare davvero con il problema reale.
-            DeferWords   = @('account', 'accesso', 'password', 'non riesco', 'errore', 'problema', 'bloccat')
+            #
+            # BUG SERIO trovato dal vivo durante uno stress test lo stesso giorno: 'accesso' e
+            # 'non riesco' come stringhe letterali non coprivano le coniugazioni piu' comuni -
+            # "un dipendente NON RIESCE PIU' ad ACCEDERE alla mail" (terza persona, verbo
+            # "accedere" invece del sostantivo "accesso") non veniva deviato da NESSUNO dei sei
+            # DeferWords, e l'AI non veniva mai interpellata su un problema reale di un utente.
+            # 'access\w*|acced\w*' copre sia il sostantivo (accesso/accessi) sia le forme del
+            # verbo accedere (accedo/accedi/accede/accedere/acceduto); 'non riesc\w*' copre
+            # tutte le persone (riesco/riesci/riesce/riescono), non solo la prima singolare.
+            DeferWords   = @('account', 'access\w*', 'acced\w*', 'password', 'non riesc\w*', 'errore', 'problema', 'bloccat')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { $null }

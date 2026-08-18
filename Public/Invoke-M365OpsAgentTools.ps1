@@ -1084,6 +1084,36 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             }
                         }
                     }
+                    "teams_query" {
+                        # BUG SERIO trovato dal vivo il 18/08/2026 durante uno stress test: questo
+                        # case non esisteva affatto - "teams_query" e' dichiarato nello schema
+                        # (l'AI lo vede come strumento disponibile e lo chiama per davvero, vedi
+                        # log "Tool AI chiamato: teams_query ...") ma ogni chiamata cadeva nel
+                        # 'default' dello switch sotto, che restituisce "Tool sconosciuto" -
+                        # l'AI riceveva quella stringa come risultato e la riportava all'utente
+                        # come "strumento non disponibile", anche quando $teamsReadAllowlist e
+                        # Get-M365OpsTeamsPolicies/Get-M365OpsTeamsExternalAccessConfig esistono
+                        # e funzionano perfettamente se chiamati direttamente. Le liste/canali/
+                        # membri di base non erano mai colpite perche' l'AI le recupera quasi
+                        # sempre via graph_api_call (Teams espone quei dati anche su Graph
+                        # standard) - solo le due cmdlet Cs*-only (Policies, ExternalAccessConfig)
+                        # passano per forza da qui, quindi il gap e' rimasto invisibile finora.
+                        if ($block.input.cmdlet -notin $teamsReadAllowlist) {
+                            "Cmdlet '$($block.input.cmdlet)' non e' nell'elenco consentito per teams_query."
+                        } else {
+                            $params = @{}
+                            if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
+                            try {
+                                & $block.input.cmdlet @params | ConvertTo-Json -Depth 6 -Compress
+                            }
+                            catch {
+                                # "Access Denied" qui significa quasi sempre il permesso Application
+                                # mancante "Skype and Teams Tenant Admin API" (sezione 4.4 della
+                                # guida), non un problema della query - vedi descrizione strumento.
+                                "Query Teams fallita: $($_.Exception.Message)"
+                            }
+                        }
+                    }
                     "propose_exo_write" {
                         if ($block.input.cmdlet -notin $exoWriteAllowlist) {
                             "Cmdlet '$($block.input.cmdlet)' non e' nell'elenco consentito per propose_exo_write."

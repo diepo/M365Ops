@@ -495,8 +495,18 @@
     const timeTag = document.createElement('span');
     timeTag.className = 'msg-time';
     timeTag.style.cssText = 'font-size:11px; color:var(--text-faint); font-weight:normal; text-transform:none; letter-spacing:normal; flex-shrink:0;';
-    const d = timestamp ? new Date(timestamp) : new Date();
-    timeTag.textContent = isNaN(d.getTime()) ? '' : d.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    // BUG reale trovato dal vivo (18/08/2026): per lo storico salvato PRIMA di questa
+    // funzione (senza campo timestamp), usare "adesso" come ripiego produceva un orario
+    // FALSO che cambiava ad ogni reload - un messaggio vecchio poteva mostrare un orario
+    // piu' tardo di uno vero e realmente piu' recente, facendo sembrare l'ordine sbagliato
+    // (non lo era: l'ordine nell'array e' sempre cronologico, solo l'orario mostrato mentiva).
+    // undefined (5° argomento omesso, messaggio LIVE appena inviato) -> "adesso" e' corretto.
+    // null (esplicito, passato dal loop dello storico per una voce senza timestamp salvato)
+    // -> meglio non mostrare nulla che mostrare un orario inventato.
+    if (timestamp !== null) {
+      const d = timestamp ? new Date(timestamp) : new Date();
+      timeTag.textContent = isNaN(d.getTime()) ? '' : d.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
     header.appendChild(tag);
     header.appendChild(timeTag);
     const body = document.createElement('div');
@@ -574,7 +584,7 @@
     try {
       const histRes = await fetch('/api/chat/history');
       const history = await histRes.json();
-      history.forEach(turn => addMessage(turn.role === 'user' ? 'user' : 'ai', turn.text, false, turn.attachments, turn.timestamp));
+      history.forEach(turn => addMessage(turn.role === 'user' ? 'user' : 'ai', turn.text, false, turn.attachments, turn.timestamp || null));
     } catch (e) {
       // Storico e' solo un miglioramento di comodita' - non deve mai impedire l'avvio della chat.
     }

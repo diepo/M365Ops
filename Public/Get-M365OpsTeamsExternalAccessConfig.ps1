@@ -7,12 +7,21 @@ function Get-M365OpsTeamsExternalAccessConfig {
         Report di sicurezza classico - stesso spirito di Get-M365OpsSharePointSites per la
         condivisione esterna.
     .NOTES
-        NON ANCORA VERIFICATO DAL VIVO - stesso permesso mancante di Get-M365OpsTeamsPolicies
-        (vedi le sue NOTES e la sezione 4.4 della guida).
+        Verificato dal vivo il 18/08/2026 durante uno stress test: fallisce con "Access Denied"
+        sul tenant di test, stesso permesso mancante di Get-M365OpsTeamsPolicies ("Skype and
+        Teams Tenant Admin API", vedi sezione 4.4 della guida).
+
+        BUG reale trovato dal vivo lo stesso giorno: mancava -ErrorAction Stop sui 4 cmdlet Cs*
+        sotto (fix gia' applicato a Get-M365OpsTeamsPolicies il 17/08/2026 per lo STESSO motivo,
+        mai riportato qui). Senza, "Access Denied" e' un errore NON terminante che produce un
+        array vuoto invece di un'eccezione catturabile - il chiamante (teams_query in
+        Invoke-M365OpsAgentTools) leggeva quindi "nessun dato" invece del vero errore di
+        permesso, e l'AI riportava all'utente un fuorviante "strumento non disponibile" invece
+        di spiegare la causa reale (mancanza del permesso, non un problema tecnico).
     #>
     Connect-M365OpsTeams
 
-    $federation = Get-CsTenantFederationConfiguration | ForEach-Object {
+    $federation = Get-CsTenantFederationConfiguration -ErrorAction Stop | ForEach-Object {
         [pscustomobject]@{
             ConfigType         = 'Federazione esterna'
             Identity           = $_.Identity
@@ -22,7 +31,7 @@ function Get-M365OpsTeamsExternalAccessConfig {
             BlockedDomains     = ($_.BlockedDomains | Out-String).Trim()
         }
     }
-    $guestMessaging = Get-CsTeamsGuestMessagingConfiguration | ForEach-Object {
+    $guestMessaging = Get-CsTeamsGuestMessagingConfiguration -ErrorAction Stop | ForEach-Object {
         [pscustomobject]@{
             ConfigType = 'Ospiti - messaggistica'
             Identity   = $_.Identity
@@ -31,7 +40,7 @@ function Get-M365OpsTeamsExternalAccessConfig {
             AllowUserEditMessage = $_.AllowUserEditMessage
         }
     }
-    $guestMeeting = Get-CsTeamsGuestMeetingConfiguration | ForEach-Object {
+    $guestMeeting = Get-CsTeamsGuestMeetingConfiguration -ErrorAction Stop | ForEach-Object {
         [pscustomobject]@{
             ConfigType = 'Ospiti - riunioni'
             Identity   = $_.Identity
@@ -40,7 +49,7 @@ function Get-M365OpsTeamsExternalAccessConfig {
             ScreenSharingMode = $_.ScreenSharingMode
         }
     }
-    $guestCalling = Get-CsTeamsGuestCallingConfiguration | ForEach-Object {
+    $guestCalling = Get-CsTeamsGuestCallingConfiguration -ErrorAction Stop | ForEach-Object {
         [pscustomobject]@{
             ConfigType = 'Ospiti - chiamate'
             Identity   = $_.Identity
