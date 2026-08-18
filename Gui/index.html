@@ -382,6 +382,15 @@
       <span id="restart-status"></span>
     </div>
 
+    <h2 style="margin-top:20px;">Porta del server</h2>
+    <p class="hint">In ascolto ora su: <b id="server-port-active">—</b>. Se questa porta è già occupata da un altro programma all'avvio, M365Ops sceglie da solo la prima libera successiva. La preferenza qui sotto vale solo per il <b>prossimo avvio completo</b> (chiudi tutto e rilancia <code>M365Ops.bat</code>) — "Riavvia server" sopra resta sempre sulla porta già in uso in questa sessione, per non lasciare la scheda del browser già aperta puntata su un indirizzo morto.</p>
+    <div class="actions">
+      <label style="font-size:12.5px; color:var(--text-muted);">Porta preferita al prossimo avvio:</label>
+      <input type="number" id="server-port-input" min="1024" max="65535" style="width:90px; padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+      <button id="server-port-save-btn">Salva</button>
+      <span id="server-port-status"></span>
+    </div>
+
     <h2 style="margin-top:20px;">Aggiornamenti</h2>
     <p class="hint">Versione installata: <b id="update-current-version">—</b>. Canale "Stabile" propone solo le Release pubblicate come definitive su GitHub; "Test" propone anche le versioni beta (pre-release) — utile solo se vuoi provare novita' in anteprima, non consigliato su un tenant di produzione.</p>
     <div class="actions">
@@ -1328,7 +1337,7 @@
       if (btn.dataset.tab === 'ai') loadAiUsage();
       if (btn.dataset.tab === 'mcp') { loadMcpStatus(); loadMcpServers(); }
       if (btn.dataset.tab === 'email') loadEmailSettings();
-      if (btn.dataset.tab === 'maint') { loadCustomScripts(); loadLogs(); loadUpdateStatus(); }
+      if (btn.dataset.tab === 'maint') { loadCustomScripts(); loadLogs(); loadUpdateStatus(); loadServerPort(); }
     });
   });
 
@@ -1546,6 +1555,38 @@
     } catch (e) {
       status.textContent = 'Errore di comunicazione: ' + e.message;
       btn.disabled = false;
+    }
+  });
+
+  async function loadServerPort() {
+    try {
+      const res = await fetch('/api/server-port');
+      const data = await res.json();
+      if (data.error) return;
+      document.getElementById('server-port-active').textContent = data.activePort;
+      document.getElementById('server-port-input').value = data.preferredPort;
+    } catch (e) {
+      // pannello di comodo, un errore qui non deve disturbare il resto del tab
+    }
+  }
+
+  document.getElementById('server-port-save-btn').addEventListener('click', async () => {
+    const statusEl = document.getElementById('server-port-status');
+    const port = parseInt(document.getElementById('server-port-input').value, 10);
+    if (!port || port < 1024 || port > 65535) {
+      statusEl.textContent = 'Porta non valida (1024-65535).';
+      return;
+    }
+    statusEl.textContent = 'salvataggio...';
+    try {
+      const res = await fetch('/api/server-port', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ port })
+      });
+      const data = await res.json();
+      statusEl.textContent = data.ok ? `Salvata. Avrà effetto dal prossimo avvio completo (chiudi tutto e rilancia M365Ops.bat).` : ('Errore: ' + (data.text || 'sconosciuto'));
+    } catch (e) {
+      statusEl.textContent = 'Errore di comunicazione: ' + e.message;
     }
   });
 

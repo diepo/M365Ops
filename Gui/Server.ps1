@@ -348,6 +348,13 @@ function Execute-PendingAction {
                 $emailResult = Send-M365OpsReportEmail -To $action.To -AttachmentPath $action.AttachmentPath -Subject $action.Subject -Body $action.Body
                 return @{ role = 'system'; text = "Fatto. $emailResult" }
             }
+            'RestartServer' {
+                # Confermato dall'utente in risposta al suggerimento automatico sotto (catch
+                # del conflitto di assembly .NET) - stessa infrastruttura di riavvio sicuro
+                # del pulsante GUI/POST /api/restart, agisce solo dopo l'invio di questa risposta.
+                $script:RestartRequested = $true
+                return @{ role = 'system'; text = "Riavvio in corso - riprova l'azione appena il server e' di nuovo raggiungibile (qualche secondo)." }
+            }
             'NewCustomScript' {
                 # Validazione ripetuta qui (difesa in profondita', non ci si fida del solo
                 # controllo gia' fatto lato dispatch AI in Invoke-M365OpsAgentTools): percorso
@@ -376,6 +383,23 @@ function Execute-PendingAction {
     catch {
         $errorMessage = $_.Exception.Message
         Write-M365OpsLog "Azione fallita: Type=$($action.Type) Errore=$errorMessage" -Level Error
+
+        # Rilevamento deterministico del conflitto di assembly .NET diagnosticato dal vivo il
+        # 18/08/2026 (0x80131040, "Could not load file or assembly... manifest definition does
+        # not match the assembly reference"): capita dopo che il processo server ha usato
+        # troppi moduli PowerShell pesanti diversi (Graph, PnP, MicrosoftTeams,
+        # ExchangeOnlineManagement, Purview/IPPS) nella stessa sessione lunga - non e' un bug
+        # nel codice di M365Ops, isolato e confermato riproducendo la STESSA scrittura in un
+        # processo fresco (riuscita) e nel processo reale prima/dopo un riavvio (fallita poi
+        # riuscita). Intercettato QUI, prima della diagnosi AI generica (che non conosce questa
+        # causa specifica e propone un'indagine approfondita inutile) - risposta immediata,
+        # deterministica, sempre corretta per questo pattern esatto, con un riavvio proponibile
+        # con un click invece di dover andare a cercarlo nel tab Manutenzione.
+        if ($errorMessage -match 'Could not load file or assembly|0x80131040|assembly.{0,40}manifest definition does not match') {
+            $confirmText = "Scrittura fallita per un conflitto tra i moduli PowerShell caricati in questa sessione del server (Graph/PnP/Teams/Exchange/Purview usati insieme in un processo lungo) - non e' un problema dei dati o dei permessi. Il riavvio del server risolve in modo affidabile (verificato dal vivo): apre un processo pulito, la scrittura poi funziona normalmente. Vuoi che riavvii ora?"
+            $script:PendingAction = @{ Type = 'RestartServer'; ConfirmText = $confirmText }
+            return @{ role = 'ai'; text = "$confirmText`n(rispondi 'si' per riavviare, 'no' per lasciare com'e')" }
+        }
 
         # Se l'azione e' stata costruita da testo libero con estrazione a regex (non AI) ed
         # e' fallita, primo tentativo prima di arrendersi: chiedere all'AI di rileggere il
@@ -855,9 +879,44 @@ function Handle-ChatMessage {
 $indexHtmlPath = Join-Path $PSScriptRoot 'index.html'
 $indexHtml = Get-Content $indexHtmlPath -Raw -Encoding UTF8
 
-$listener = New-Object System.Net.HttpListener
-$listener.Prefixes.Add("http://localhost:$Port/")
-$listener.Start()
+# Rilevamento automatico porta occupata (18/08/2026, richiesto dall'utente): se $Port e' gia'
+# in uso da un altro programma, si prova in sequenza le porte successive fino a trovarne una
+# libera, invece di fallire con un errore HttpListener criptico. Il test e' il vero
+# $listener.Start() (non un proxy tipo TcpListener separato) - l'unico modo di sapere con
+# certezza che HttpListener stesso riuscira' a legarsi, dato che usa http.sys sotto e non un
+# semplice bind Socket, quindi un proxy diverso potrebbe dare falsi positivi/negativi.
+$originalRequestedPort = $Port
+$listener = $null
+$boundOk = $false
+for ($candidatePort = $Port; $candidatePort -le $Port + 20; $candidatePort++) {
+    $listener = New-Object System.Net.HttpListener
+    $listener.Prefixes.Add("http://localhost:$candidatePort/")
+    try {
+        $listener.Start()
+        $Port = $candidatePort
+        $boundOk = $true
+        break
+    } catch {
+        $listener.Close()
+        $listener = $null
+    }
+}
+if (-not $boundOk) {
+    Write-Host "Porta $originalRequestedPort occupata e nessuna porta libera trovata tra $originalRequestedPort e $($originalRequestedPort + 20) - impossibile avviare." -ForegroundColor Red
+    exit 1
+}
+if ($Port -ne $originalRequestedPort) {
+    Write-Host "Porta $originalRequestedPort gia' in uso da un altro programma - avviato invece sulla porta $Port." -ForegroundColor Yellow
+    Write-M365OpsLog "Porta $originalRequestedPort occupata, avviato invece su $Port."
+}
+
+# Scritta SEMPRE (anche se coincide col valore richiesto): e' cosi' che Launch-M365Ops.ps1 sa
+# su quale porta REALE controllare/aprire il browser, senza dover indovinare o assumere che
+# coincida sempre con quella passata inizialmente.
+$activePortFile = Join-Path $moduleRoot 'Config\active-port.txt'
+New-Item -ItemType Directory -Force -Path (Split-Path $activePortFile) -ErrorAction SilentlyContinue | Out-Null
+Set-Content -Path $activePortFile -Value $Port -Encoding UTF8 -NoNewline
+
 Write-Host "M365Ops web app in ascolto su http://localhost:$Port/ (Ctrl+C per fermare)" -ForegroundColor Green
 
 try {
@@ -1427,6 +1486,25 @@ try {
                         $json = (ConvertTo-Json -InputObject $status -Compress -Depth 4)
                     } catch {
                         $json = (@{ error = $_.Exception.Message } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "GET /api/server-port" {
+                    try {
+                        $json = (@{ activePort = $Port; preferredPort = (Get-M365OpsServerPort) } | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ error = $_.Exception.Message } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/server-port" {
+                    try {
+                        $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                        $body = $reader.ReadToEnd() | ConvertFrom-Json
+                        $result = Set-M365OpsServerPort -Port ([int]$body.port)
+                        $json = (@{ ok = $true; preferredPort = $result.Port } | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ ok = $false; text = $_.Exception.Message } | ConvertTo-Json -Compress)
                     }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }

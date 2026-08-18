@@ -6,26 +6,34 @@
     in corso, cosi' non si perde lo stato (tenant attivo, file caricato, connessioni).
 #>
 param(
-    [int]$Port = 8743
+    [int]$Port
 )
 
 $root = $PSScriptRoot
 $serverScript = Join-Path $root 'Gui\Server.ps1'
-$statusUrl = "http://localhost:$Port/api/status"
-$homeUrl = "http://localhost:$Port/"
+$activePortFile = Join-Path $root 'Config\active-port.txt'
+$portPrefFile = Join-Path $root 'Config\server-port.txt'
 
 function Test-M365OpsServerUp {
+    param([int]$TestPort)
     try {
-        Invoke-RestMethod -Uri $statusUrl -Method GET -TimeoutSec 2 -ErrorAction Stop | Out-Null
+        Invoke-RestMethod -Uri "http://localhost:$TestPort/api/status" -Method GET -TimeoutSec 2 -ErrorAction Stop | Out-Null
         return $true
     } catch {
         return $false
     }
 }
 
-if (Test-M365OpsServerUp) {
-    Start-Process $homeUrl
-    return
+# Se un'istanza e' gia' attiva, la porta VERA e' quella scritta da Server.ps1 all'ultimo avvio
+# (puo' differire dal default/dalla preferenza se all'epoca era occupata da un altro
+# programma) - va controllata quella, non un valore assunto, altrimenti si rischia di aprire
+# il browser su una porta morta mentre il server vero risponde altrove.
+if (Test-Path $activePortFile) {
+    $lastKnownPort = (Get-Content $activePortFile -Raw -ErrorAction SilentlyContinue).Trim()
+    if ($lastKnownPort -match '^\d+$' -and (Test-M365OpsServerUp -TestPort ([int]$lastKnownPort))) {
+        Start-Process "http://localhost:$lastKnownPort/"
+        return
+    }
 }
 
 # Nessuna istanza attiva: la avvia da zero, riprendendo l'ultimo tenant usato se noto
@@ -36,6 +44,17 @@ if (Test-Path $lastTenantFile) {
     try { $tenantProfile = (Get-Content $lastTenantFile -Raw -ErrorAction Stop).Trim() } catch {}
 }
 if (-not $tenantProfile) { $tenantProfile = 'contoso-test' }
+
+# Porta di PARTENZA da provare: parametro esplicito > preferenza salvata (tab Manutenzione) >
+# 8743. E' solo un punto di partenza - se occupata da un altro programma, Server.ps1 sceglie
+# da solo la prima libera successiva e scrive quella reale in Config\active-port.txt.
+if (-not $Port) {
+    $Port = 8743
+    if (Test-Path $portPrefFile) {
+        $savedPort = (Get-Content $portPrefFile -Raw -ErrorAction SilentlyContinue).Trim()
+        if ($savedPort -match '^\d+$') { $Port = [int]$savedPort }
+    }
+}
 
 $logDir = Join-Path $root 'Logs'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
@@ -67,13 +86,21 @@ Start-Process -FilePath $pwshPath -ArgumentList @('-NoProfile', '-STA', '-File',
 
 # Attende che risponda prima di aprire il browser, per evitare la pagina "impossibile
 # raggiungere il sito" se il browser si apre prima che il server sia pronto (~1-2s tipici).
+# Server.ps1 potrebbe finire su una porta DIVERSA da quella richiesta se occupata da un altro
+# programma - si rilegge active-port.txt ad ogni giro invece di continuare a controllare solo
+# quella di partenza, che potrebbe non essere mai quella vera.
 $ready = $false
+$actualPort = $Port
 for ($i = 0; $i -lt 20; $i++) {
     Start-Sleep -Milliseconds 500
-    if (Test-M365OpsServerUp) { $ready = $true; break }
+    if (Test-Path $activePortFile) {
+        $currentPort = (Get-Content $activePortFile -Raw -ErrorAction SilentlyContinue).Trim()
+        if ($currentPort -match '^\d+$') { $actualPort = [int]$currentPort }
+    }
+    if (Test-M365OpsServerUp -TestPort $actualPort) { $ready = $true; break }
 }
 
-Start-Process $homeUrl
+Start-Process "http://localhost:$actualPort/"
 if (-not $ready) {
     Write-Host "Il server non ha risposto entro 10s - se la pagina non si carica, riprova tra poco." -ForegroundColor Yellow
     Start-Sleep -Seconds 3

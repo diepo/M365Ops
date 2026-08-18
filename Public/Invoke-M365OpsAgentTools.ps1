@@ -287,7 +287,7 @@ Esegue una query di SOLA LETTURA su Exchange Online (dati non disponibili via Gr
             name = "propose_exo_write"
             description = @"
 Proponi un'azione di SCRITTURA su Exchange Online. NON viene mai eseguita qui: la proposta torna all'utente per conferma esplicita. Specifica 'cmdlet' (uno di questi), 'parameters' e 'reason' (spiegazione in italiano). OGNI cmdlet qui sotto accetta ANCHE una chiave 'ExtraParams' (oggetto) dentro 'parameters' per qualsiasi altro parametro nativo non elencato esplicitamente - verifica sempre il nome esatto con lookup_ms_docs prima di usarlo, non indovinare:
-- New-M365OpsSharedMailbox {DisplayName, PrimarySmtpAddress}
+- New-M365OpsSharedMailbox {DisplayName, PrimarySmtpAddress} / Remove-M365OpsSharedMailbox {Identity} - Remove-Mailbox nativo, funziona anche su sale/attrezzature nonostante il nome
 - Grant-M365OpsMailboxPermission / Revoke-M365OpsMailboxPermission {Identity, User, PermissionType: FullAccess|SendAs}
 - Add-M365OpsSendOnBehalf / Remove-M365OpsSendOnBehalf {Identity, User}
 - New-M365OpsDistributionGroup {DisplayName, PrimarySmtpAddress, Members?} / New-M365OpsMailSecurityGroup {stessi parametri}
@@ -455,7 +455,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
         'Get-M365OpsMoveRequestDiagnostic'
     )
     $exoWriteAllowlist = @(
-        'New-M365OpsSharedMailbox', 'Grant-M365OpsMailboxPermission', 'Revoke-M365OpsMailboxPermission',
+        'New-M365OpsSharedMailbox', 'Remove-M365OpsSharedMailbox', 'Grant-M365OpsMailboxPermission', 'Revoke-M365OpsMailboxPermission',
         'Add-M365OpsSendOnBehalf', 'Remove-M365OpsSendOnBehalf', 'New-M365OpsDistributionGroup',
         'Remove-M365OpsDistributionGroup', 'Add-M365OpsDistributionGroupMember', 'Remove-M365OpsDistributionGroupMember',
         'New-M365OpsMailSecurityGroup', 'New-M365OpsDynamicDistributionGroup', 'New-M365OpsTransportRule',
