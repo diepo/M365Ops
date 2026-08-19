@@ -11,7 +11,11 @@ function Add-M365OpsDistributionGroupMember {
         [hashtable]$ExtraParams = @{}
     )
     Connect-M365OpsExchange
-    $params = @{ Identity = $Identity; Member = $Member; Confirm = $false }
+    # -ErrorAction Stop OBBLIGATORIO - bug reale trovato dal vivo il 19/08/2026 durante un
+    # bug-hunt mirato: senza, "Couldn't find object" e' non terminante e veniva ignorato in
+    # silenzio, la funzione riportava Added=$true senza aver aggiunto nulla per davvero
+    # (verificato: Get-DistributionGroupMember restituiva 0 membri subito dopo).
+    $params = @{ Identity = $Identity; Member = $Member; Confirm = $false; ErrorAction = 'Stop' }
     foreach ($key in $ExtraParams.Keys) { $params[$key] = $ExtraParams[$key] }
     Add-DistributionGroupMember @params
     Write-Host "$Member aggiunto a $Identity" -ForegroundColor Green

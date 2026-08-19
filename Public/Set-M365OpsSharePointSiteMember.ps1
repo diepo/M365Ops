@@ -20,10 +20,12 @@ function Set-M365OpsSharePointSiteMember {
     $group = Get-PnPGroup | Where-Object { $_.Title -like "*$Role*" } | Select-Object -First 1
     if (-not $group) { throw "Nessun gruppo '$Role' trovato sul sito $SiteUrl - verifica prima con Get-M365OpsSharePointSitePermissions." }
 
+    # -ErrorAction Stop su entrambi i rami: stesso bug di errore non terminante ignorato in
+    # silenzio gia' trovato su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026).
     if ($Action -eq 'Add') {
-        Add-PnPGroupMember -Group $group.Title -LoginName $User | Out-Null
+        Add-PnPGroupMember -Group $group.Title -LoginName $User -ErrorAction Stop | Out-Null
     } else {
-        Remove-PnPGroupMember -Group $group.Title -LoginName $User | Out-Null
+        Remove-PnPGroupMember -Group $group.Title -LoginName $User -ErrorAction Stop | Out-Null
     }
 
     Write-Host "$User $(if ($Action -eq 'Add') { 'aggiunto a' } else { 'rimosso da' }) '$($group.Title)' su $SiteUrl" -ForegroundColor Green

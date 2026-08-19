@@ -14,7 +14,9 @@ function Remove-M365OpsSendOnBehalf {
     $mailbox = Get-Mailbox -Identity $Identity
     $remaining = @($mailbox.GrantSendOnBehalfTo) | Where-Object { $_ -ne $User }
 
-    $params = @{ Identity = $Identity; GrantSendOnBehalfTo = $remaining }
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026).
+    $params = @{ Identity = $Identity; GrantSendOnBehalfTo = $remaining; ErrorAction = 'Stop' }
     foreach ($key in $ExtraParams.Keys) { $params[$key] = $ExtraParams[$key] }
     Set-Mailbox @params
 

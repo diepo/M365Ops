@@ -15,7 +15,9 @@ function Set-M365OpsRoomMailboxBookingPolicy {
         [hashtable]$ExtraParams = @{}
     )
     Connect-M365OpsExchange
-    $params = @{ Identity = $Identity }
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026).
+    $params = @{ Identity = $Identity; ErrorAction = 'Stop' }
     if ($AutomateProcessing) { $params.AutomateProcessing = $AutomateProcessing }
     if ($ResourceDelegates) { $params.ResourceDelegates = $ResourceDelegates; $params.AllBookInPolicy = $false }
     if ($MaximumDurationInMinutes) { $params.MaximumDurationInMinutes = $MaximumDurationInMinutes }

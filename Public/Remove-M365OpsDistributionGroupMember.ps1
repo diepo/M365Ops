@@ -11,7 +11,9 @@ function Remove-M365OpsDistributionGroupMember {
         [hashtable]$ExtraParams = @{}
     )
     Connect-M365OpsExchange
-    $params = @{ Identity = $Identity; Member = $Member; Confirm = $false }
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026).
+    $params = @{ Identity = $Identity; Member = $Member; Confirm = $false; ErrorAction = 'Stop' }
     foreach ($key in $ExtraParams.Keys) { $params[$key] = $ExtraParams[$key] }
     Remove-DistributionGroupMember @params
     Write-Host "$Member rimosso da $Identity" -ForegroundColor Green

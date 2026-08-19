@@ -21,7 +21,9 @@ function Set-M365OpsCalendarPermission {
     $folder = "$($Identity):\$($calendarFolder.Name)"
     $existing = Get-MailboxFolderPermission -Identity $folder -User $User -ErrorAction SilentlyContinue
 
-    $params = @{ Identity = $folder; User = $User; AccessRights = $AccessRights }
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026).
+    $params = @{ Identity = $folder; User = $User; AccessRights = $AccessRights; ErrorAction = 'Stop' }
     foreach ($key in $ExtraParams.Keys) { $params[$key] = $ExtraParams[$key] }
 
     if ($existing) {

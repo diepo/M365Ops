@@ -15,7 +15,9 @@ function Add-M365OpsSendOnBehalf {
     $current = @($mailbox.GrantSendOnBehalfTo)
     if ($current -contains $User) { throw "$User ha gia' SendOnBehalf su $Identity." }
 
-    $params = @{ Identity = $Identity; GrantSendOnBehalfTo = ($current + $User) }
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026).
+    $params = @{ Identity = $Identity; GrantSendOnBehalfTo = ($current + $User); ErrorAction = 'Stop' }
     foreach ($key in $ExtraParams.Keys) { $params[$key] = $ExtraParams[$key] }
     Set-Mailbox @params
 

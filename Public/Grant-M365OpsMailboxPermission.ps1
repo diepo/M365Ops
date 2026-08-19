@@ -13,12 +13,14 @@ function Grant-M365OpsMailboxPermission {
         [hashtable]$ExtraParams = @{}
     )
     Connect-M365OpsExchange
+    # -ErrorAction Stop su entrambi i rami: stesso bug di errore non terminante ignorato in
+    # silenzio gia' trovato su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026).
     if ($PermissionType -eq 'FullAccess') {
-        $params = @{ Identity = $Identity; User = $User; AccessRights = 'FullAccess'; InheritanceType = 'All'; AutoMapping = $true }
+        $params = @{ Identity = $Identity; User = $User; AccessRights = 'FullAccess'; InheritanceType = 'All'; AutoMapping = $true; ErrorAction = 'Stop' }
         foreach ($key in $ExtraParams.Keys) { $params[$key] = $ExtraParams[$key] }
         Add-MailboxPermission @params | Out-Null
     } else {
-        $params = @{ Identity = $Identity; Trustee = $User; AccessRights = 'SendAs'; Confirm = $false }
+        $params = @{ Identity = $Identity; Trustee = $User; AccessRights = 'SendAs'; Confirm = $false; ErrorAction = 'Stop' }
         foreach ($key in $ExtraParams.Keys) { $params[$key] = $ExtraParams[$key] }
         Add-RecipientPermission @params | Out-Null
     }

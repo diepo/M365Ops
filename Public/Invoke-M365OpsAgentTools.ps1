@@ -994,9 +994,19 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
 
             $output = try {
                 switch ($block.name) {
-                    "list_devices" { Get-M365OpsManagedDevices | ConvertTo-Json -Depth 5 -Compress }
-                    "list_noncompliant_devices" { Get-M365OpsManagedDevices -NonCompliantOnly | ConvertTo-Json -Depth 5 -Compress }
-                    "get_device_compliance_reasons" { Get-M365OpsDeviceComplianceReasons -Id $block.input.deviceId | ConvertTo-Json -Depth 5 -Compress }
+                    # -InputObject @(...) -AsArray su ogni risultato di query in questo switch (non
+                    # solo qui sotto): bug reale trovato dal vivo il 19/08/2026 durante un bug-hunt
+                    # mirato. "risultato | ConvertTo-Json" appiattisce un array a 0 o 1 elementi -
+                    # stessa classe di bug gia' corretta altrove nel progetto (Add-/Remove-
+                    # M365OpsKnowledgeDocument, sezione 23.1 della guida) ma mai propagata qui.
+                    # Con 0 elementi (es. "nessun dispositivo non conforme" - l'esito piu' comune
+                    # su un tenant sano) il modello riceveva una stringa VUOTA come risultato dello
+                    # strumento invece di "[]", indistinguibile da un fallimento silenzioso.
+                    # Verificato dal vivo: Get-M365OpsManagedDevices -NonCompliantOnly | ConvertTo-Json
+                    # su un set vuoto produce una stringa di lunghezza 0.
+                    "list_devices" { ConvertTo-Json -InputObject @(Get-M365OpsManagedDevices) -Depth 5 -Compress -AsArray }
+                    "list_noncompliant_devices" { ConvertTo-Json -InputObject @(Get-M365OpsManagedDevices -NonCompliantOnly) -Depth 5 -Compress -AsArray }
+                    "get_device_compliance_reasons" { ConvertTo-Json -InputObject @(Get-M365OpsDeviceComplianceReasons -Id $block.input.deviceId) -Depth 5 -Compress -AsArray }
                     "get_user_overview" { Get-M365OpsUserOverview -Upn $block.input.upn | ConvertTo-Json -Depth 6 -Compress }
                     "get_group_overview" { Get-M365OpsGroupOverview -GroupName $block.input.groupName | ConvertTo-Json -Depth 6 -Compress }
                     "get_user_mfa_status" { Get-M365OpsUserMfaStatus -Upn $block.input.upn | ConvertTo-Json -Depth 6 -Compress }
@@ -1165,7 +1175,8 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             $params = @{}
                             if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
                             $script:M365OpsLastReportWarnings = $null
-                            $queryResult = & $block.input.cmdlet @params | ConvertTo-Json -Depth 6 -Compress
+                            # -InputObject @(...) -AsArray: vedi nota sul bug 0/1-elementi in cima a questo switch.
+                            $queryResult = ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 6 -Compress -AsArray
                             # Alcune cmdlet (es. Get-M365OpsMessageTrace) troncano un risultato troppo
                             # grande per non far esplodere il contesto del modello (bug reale 17/08/2026:
                             # una query di 30 giorni senza filtro ha superato da sola il limite token di
@@ -1184,7 +1195,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             $params = @{}
                             if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
                             try {
-                                & $block.input.cmdlet @params | ConvertTo-Json -Depth 8 -Compress
+                                ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 8 -Compress -AsArray
                             }
                             catch {
                                 "Query Intune fallita: $($_.Exception.Message)"
@@ -1198,7 +1209,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             $params = @{}
                             if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
                             try {
-                                & $block.input.cmdlet @params | ConvertTo-Json -Depth 6 -Compress
+                                ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 6 -Compress -AsArray
                             }
                             catch {
                                 # L'errore piu' probabile qui, finche' il permesso SharePoint non
@@ -1233,7 +1244,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             $params = @{}
                             if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
                             try {
-                                & $block.input.cmdlet @params | ConvertTo-Json -Depth 6 -Compress
+                                ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 6 -Compress -AsArray
                             }
                             catch {
                                 # "term not recognized" qui significa quasi sempre ruolo Purview
@@ -1264,7 +1275,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             $params = @{}
                             if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
                             try {
-                                & $block.input.cmdlet @params | ConvertTo-Json -Depth 6 -Compress
+                                ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 6 -Compress -AsArray
                             }
                             catch {
                                 # "Access Denied" qui significa quasi sempre il permesso Application
@@ -1370,7 +1381,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             $params = @{}
                             if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
                             try {
-                                & $block.input.cmdlet @params | ConvertTo-Json -Depth 6 -Compress
+                                ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 6 -Compress -AsArray
                             }
                             catch {
                                 # Script "home made", non del modulo core - piu' probabile che abbia

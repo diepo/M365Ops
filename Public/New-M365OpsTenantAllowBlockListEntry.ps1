@@ -17,7 +17,10 @@ function New-M365OpsTenantAllowBlockListEntry {
         [string]$Notes
     )
     Connect-M365OpsExchange
-    $params = @{ ListType = $ListType; Entries = $Entries }
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026) - qui e' lo stesso servizio
+    # gia' colpito in passato da "A server side error has occurred" su New-TenantAllowBlockListSpoofItems.
+    $params = @{ ListType = $ListType; Entries = $Entries; ErrorAction = 'Stop' }
     $params[$Action] = $true
     if ($NoExpiration) { $params.NoExpiration = $true }
     elseif ($ExpirationDate) { $params.ExpirationDate = $ExpirationDate }

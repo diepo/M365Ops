@@ -9,6 +9,8 @@ function Remove-M365OpsTenantAllowBlockListEntry {
         [Parameter(Mandatory)] [string[]]$Entries
     )
     Connect-M365OpsExchange
-    Remove-TenantAllowBlockListItems -ListType $ListType -Entries $Entries
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026).
+    Remove-TenantAllowBlockListItems -ListType $ListType -Entries $Entries -ErrorAction Stop
     Write-Host "Voce rimossa dalla Tenant Allow/Block List ($ListType): $($Entries -join ', ')" -ForegroundColor Green
 }
