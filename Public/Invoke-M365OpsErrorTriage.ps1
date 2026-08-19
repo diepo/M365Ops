@@ -39,6 +39,42 @@ function Invoke-M365OpsErrorTriage {
         }
     }
 
+    if (-not $docsSnippet) {
+        # BUG STRUTTURALE trovato dal vivo il 19/08/2026 (segnalato dall'utente dopo aver dovuto
+        # chiedere lui stesso la correzione di un errore reale): il pre-fetch sopra copre SOLO i
+        # fallimenti di uno script Scripts\Custom che chiama una cmdlet PowerShell nativa
+        # riconoscibile per nome (Verbo-Nome). Una scrittura Graph diretta (propose_graph_write/
+        # propose_intune_write - es. la sintassi di una regola di un Assignment Filter Intune) non
+        # ha ne' un file sorgente ne' un nome di cmdlet PowerShell da estrarre con la regex sopra,
+        # quindi restava SEMPRE senza alcuna documentazione: l'AI diagnosticava alla cieca e
+        # correttamente si rifiutava di indovinare (comportamento corretto date le informazioni
+        # disponibili - ma quelle informazioni erano sistematicamente incomplete per questa intera
+        # classe di errori). Prova reale che ha innescato il fix: "Invalid assignment filter rule:
+        # (device.osVersion -ge ...)" - un problema documentato e risolvibile (l'operatore -ge non
+        # e' valido sulla proprieta' 'osVersion', serve la proprieta' 'operatingSystemVersion'),
+        # mai cercato perche' nessun nome di cmdlet PowerShell compare nell'errore Graph.
+        # Fix: una chiamata AI breve ed economica (max 60 token, Invoke-M365OpsAgent - non serve
+        # tool-calling per un solo termine di ricerca) chiede PRIMA "cosa cercheresti su Microsoft
+        # Learn per capire questo errore", poi Invoke-M365OpsLookupMsDocs usa quel termine - stessa
+        # fonte di verita' di sempre (incluso il suo fallback di ricerca generica Microsoft Learn,
+        # gia' esistente, mai raggiunto finora quando l'errore non nomina una cmdlet PowerShell).
+        try {
+            $searchTopic = (Invoke-M365OpsAgent -Provider $Provider -MaxTokens 60 -Prompt @"
+Questa azione su Microsoft Graph/Intune/Exchange Online e' fallita con questo errore:
+$ErrorMessage
+
+Contesto: $Context
+
+Rispondi SOLO con il termine di ricerca (poche parole, in inglese) da cercare su Microsoft Learn
+per trovare la pagina di documentazione che spiega la sintassi/i valori corretti per risolvere
+QUESTO errore specifico - nessun altro testo, nessuna spiegazione, nessuna virgolettatura.
+"@).Trim()
+            if ($searchTopic -and $searchTopic.Length -lt 200) {
+                $docsSnippet = "`n`nDocumentazione Microsoft Learn REALE trovata per questo errore (usala come fonte di verita' per la sintassi corretta, non la tua conoscenza pregressa):`n--- $searchTopic ---`n$(Invoke-M365OpsLookupMsDocs -Topic $searchTopic)"
+            }
+        } catch { }
+    }
+
     $prompt = @"
 Un'azione in un modulo PowerShell che gestisce Intune/Microsoft Graph/Exchange Online e' fallita con questo errore:
 
