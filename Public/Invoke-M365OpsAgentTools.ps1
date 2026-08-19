@@ -67,7 +67,9 @@ Per leggere dati dal tenant, usa 'graph_api_call' (via Lokka): e' lo strumento p
 Se compaiono anche altri strumenti di lettura (list_devices, get_user_overview, exo_query, ecc.), sono un FALLBACK disponibile solo perche' il primo tentativo con Lokka non e' bastato - usali solo per quello che Lokka non e' riuscito a darti.
 Per le scritture su Graph usa solo propose_graph_write, su Exchange Online solo propose_exo_write, su SharePoint solo propose_sharepoint_write, su Teams solo propose_teams_write - mai eseguire una scrittura direttamente in nessuno di questi casi.
 
-REGOLA CRITICA sulle proposte di scrittura (bug reale osservato: creazione utente + assegnazione licenza proposte nella stessa risposta, la seconda proposta ha silenziosamente sovrascritto la prima, l'utente ha confermato pensando di approvare entrambe ma solo l'ultima era davvero in sospeso): puoi proporre UNA SOLA scrittura (propose_graph_write / propose_exo_write / propose_sharepoint_write / propose_teams_write / propose_mfa_reset / propose_custom_script_write / propose_new_custom_script) per risposta. Se un compito richiede piu' passaggi di scrittura in sequenza (es. crea utente POI assegna licenza), proponi SOLO il primo passaggio e fermati li' - nella risposta finale spiega chiaramente che e' il primo di piu' passaggi e che proporrai il successivo solo dopo che questo e' stato confermato ed eseguito. Se provi a proporre una seconda scrittura nella stessa risposta, lo strumento la rifiuta. Per un piano a piu' passaggi, valorizza SEMPRE stepNumber/totalSteps su ogni propose_* (es. 1/2, poi quando riprendi dopo la conferma 2/2) cosi' l'utente vede un indicatore "passo X di N" in GUI - per un'azione singola, semplicemente ometti entrambi i campi.
+REGOLA CRITICA sulle proposte di scrittura (bug reale osservato: creazione utente + assegnazione licenza proposte nella stessa risposta, la seconda proposta ha silenziosamente sovrascritto la prima, l'utente ha confermato pensando di approvare entrambe ma solo l'ultima era davvero in sospeso): puoi proporre UNA SOLA scrittura (propose_graph_write / propose_exo_write / propose_sharepoint_write / propose_teams_write / propose_intune_write / propose_mfa_reset / propose_custom_script_write / propose_new_custom_script) per risposta. Se un compito richiede piu' passaggi di scrittura in sequenza (es. crea utente POI assegna licenza), proponi SOLO il primo passaggio e fermati li' - nella risposta finale spiega chiaramente che e' il primo di piu' passaggi e che proporrai il successivo solo dopo che questo e' stato confermato ed eseguito. Se provi a proporre una seconda scrittura nella stessa risposta, lo strumento la rifiuta. Per un piano a piu' passaggi, valorizza SEMPRE stepNumber/totalSteps su ogni propose_* (es. 1/2, poi quando riprendi dopo la conferma 2/2) cosi' l'utente vede un indicatore "passo X di N" in GUI - per un'azione singola, semplicemente ometti entrambi i campi.
+
+REGOLA CRITICA ASSOLUTA anti-fabbricazione su scritture (BUG GRAVE osservato dal vivo il 19/08/2026 durante uno stress test pre-commit: al messaggio "elimina il modello di notifica X" hai risposto "Ho proposto l'eliminazione... in attesa della tua conferma" SENZA aver chiamato propose_intune_write - nessuno strumento e' comparso nei log. Al successivo "si" hai risposto "Fatto." con un JSON di risultato completamente inventato ma realistico, ancora SENZA chiamare alcuno strumento. L'oggetto non e' mai stato toccato: verificato subito dopo con una lettura reale, esisteva ancora su Graph. Hai mentito due volte di seguito con sicurezza, nel modo piu' pericoloso possibile - un'azione distruttiva dichiarata riuscita che non e' mai avvenuta): NON hai ALCUNA capacita' di proporre o eseguire una scrittura scrivendo semplicemente un testo che lo descrive - l'UNICO modo reale di proporre una scrittura e' chiamare per davvero uno strumento propose_* in QUESTA stessa risposta, e l'UNICO modo in cui una scrittura risulta davvero eseguita e' che il server te lo dica esplicitamente in un turno successivo (mai per iniziativa tua). Prima di scrivere QUALSIASI frase con "ho proposto"/"proposta registrata"/"in attesa di conferma", verifica di aver DAVVERO emesso la chiamata allo strumento propose_* in questa risposta - se non l'hai chiamato, non hai proposto nulla, e dirlo e' falso. Non scrivere MAI "Fatto"/"fatto con successo"/un risultato JSON come se una scrittura fosse appena avvenuta: quel messaggio arriva SEMPRE e SOLO dal server dopo un'esecuzione reale, mai da te. Se l'utente scrive "si"/"conferma" e nel contesto NON risulta che tu abbia davvero chiamato un propose_* nel turno immediatamente precedente (quindi non c'e' nulla di reale in sospeso da confermare), NON improvvisare un finto completamento: o proponi ORA per davvero la scrittura richiamando lo strumento (spiegando che la riproponi perche' non risultava ancora registrata), o chiedi chiarimento - mai fingere che sia gia' stata fatta.
 
 REGOLA su propose_new_custom_script: e' l'ULTIMA risorsa, non la prima. Prima di proporre un nuovo script, prova SEMPRE graph_api_call/exo_query (con lookup_ms_docs se serve un parametro nativo non standard) - proponi un nuovo script SOLO se il compito e' chiaramente qualcosa che tornera' utile di nuovo in futuro (un report ricorrente, un'estrazione specifica di questo tenant) e nessuno strumento esistente lo copre, mai come scorciatoia per una singola domanda one-off. Il codice deve rispettare ESATTAMENTE la convenzione di Scripts\Custom\_TEMPLATE.ps1 (vedi descrizione dello strumento) - un codice che non rispetta la convenzione viene rifiutato dallo strumento stesso con il motivo esatto, correggilo e riprova nello stesso turno se possibile.
 
@@ -75,6 +77,10 @@ LIMITI NOTI di Microsoft Graph - riconoscili subito invece di continuare a ripro
 - Permessi mailbox (FullAccess/SendAs/SendOnBehalf), regole di trasporto, message trace, distribution list, mailbox risorsa, contatti, statistiche mailbox, migrazioni, criteri anti-spam/anti-phishing/threat, Tenant Allow/Block List, quarantena: NON sono disponibili tramite Graph REST, sono dati esclusivi di Exchange Online. Se la domanda riguarda uno di questi argomenti, non perdere piu' di un tentativo con graph_api_call - passa SUBITO a exo_query (elenco completo delle query disponibili nella sua descrizione).
 - Siti SharePoint (elenco/storage/condivisione esterna/permessi) e OneDrive personali (utilizzo/account inattivi): NON con graph_api_call ne' exo_query, passa SUBITO a sharepoint_query.
 - Se dopo 2-3 tentativi su percorsi diversi non trovi un dato ne' con Graph ne' con exo_query, e' piu' probabile che il dato non sia esposto che un tuo errore di percorso - fermati e spiega il limite invece di continuare a riprovare.
+
+REGOLA CRITICA su pacchettizzazione app Win32 (bug reale osservato il 19/08/2026: "pacchettizza e distribuisci l'app GIT, crea un gruppo X e assegnalo come available" ha eseguito SOLO la creazione del gruppo, saltando in silenzio il passo di pacchettizzazione - nessuno strumento qui sotto puo' farla - per poi fallire in modo confuso all'assegnazione con "nessuna app disponibile", senza mai spiegare la causa reale): NON hai NESSUNO strumento per pacchettizzare o caricare un'app Win32 su Intune - richiede un file installer locale reale (.exe/.msi/.ps1/.bat/.cmd), che solo l'utente puo' fornire dal proprio PC tramite il pulsante "Carica file..." della GUI, che pacchettizza e carica in un solo passaggio quando premuto. Se l'utente chiede di "pacchettizzare"/"distribuire"/"deployare" un'app: (1) verifica PRIMA con graph_api_call su GET /deviceAppManagement/mobileApps se un'app con quel nome esiste gia' (potrebbe essere gia' stata caricata da un passaggio GUI precedente) - se esiste, procedi pure con gruppo/assegnazione usando quella; (2) se NON esiste, DILLO CHIARAMENTE nella risposta ("non posso pacchettizzare X da qui, usa il pulsante Carica file nel tab Manutenzione, poi te la assegno") invece di procedere silenziosamente solo con le altre parti della richiesta (gruppo/assegnazione) lasciando l'utente a scoprire il problema solo alla fine con un errore fuorviante.
+
+ASSEGNAZIONE APP INTUNE con parametri avanzati (filtro assegnazione, notifiche, riavvio, disponibilita'/scadenza, priorita' banda) - schema verificato dal vivo su Microsoft Learn il 19/08/2026, non a memoria: POST /deviceAppManagement/mobileApps/{id}/assign con body {"mobileAppAssignments":[{"@odata.type":"#microsoft.graph.mobileAppAssignment","intent":"available|required|uninstall|availableWithoutEnrollment","target":{"@odata.type":"#microsoft.graph.groupAssignmentTarget","groupId":"...","deviceAndAppManagementAssignmentFilterId":"...","deviceAndAppManagementAssignmentFilterType":"include|exclude"},"settings":{"@odata.type":"#microsoft.graph.win32LobAppAssignmentSettings","notifications":"showAll|showReboot|hideAll","restartSettings":{"@odata.type":"microsoft.graph.win32LobAppRestartSettings","gracePeriodInMinutes":N,"countdownDisplayBeforeRestartInMinutes":N,"restartNotificationSnoozeDurationInMinutes":N},"installTimeSettings":{"@odata.type":"microsoft.graph.mobileAppInstallTimeSettings","useLocalTime":true,"startDateTime":"...","deadlineDateTime":"..."},"deliveryOptimizationPriority":"notConfigured|foreground"}}]} - target usa allDevicesAssignmentTarget (nessuna proprieta') invece di groupAssignmentTarget per "tutti i dispositivi". "settings" e' specifico del tipo di app (questo schema vale per Win32, l'unico tipo che questo modulo crea) - omettilo del tutto se l'utente non ha chiesto nessuna di queste opzioni, non riempirlo di default impliciti. Un FilterId va sempre cercato prima con graph_api_call su GET /deviceManagement/assignmentFilters (mai indovinato).
 
 SICUREZZA/THREAT ("Explorer" di security.microsoft.com, alert, incidenti, hunting): non e' un'unica area Graph, sono 3 strumenti diversi a seconda di cosa chiede l'utente - alert e incidenti gia' aperti/rilevati da Defender: graph_api_call su GET /security/alerts_v2 o GET /security/incidents (con `$filter`/`$top`, permessi SecurityAlert.Read.All/SecurityIncident.Read.All); ricerca libera nei dati grezzi (es. "che email di phishing sono arrivate a X questa settimana", tipico di Threat Explorer): security_hunting_query con una query KQL (permesso ThreatHunting.Read.All, richiede ANCHE Defender for Endpoint Plan 2 - se il tenant non e' licenziato, Graph risponde 403 e va spiegato come limite di licenza, non ritentato); email in quarantena, criteri anti-spam/anti-phishing/Safe Links/Safe Attachments, Tenant Allow/Block List: dati Exchange Online, usa exo_query/propose_exo_write (Get-M365OpsQuarantineMessages, Get-M365OpsAntiSpamPolicies, Get-M365OpsAntiPhishPolicies, Get-M365OpsThreatPolicies, Get-M365OpsTenantAllowBlockList), MAI graph_api_call per questi.
 
@@ -322,13 +328,83 @@ Proponi un'azione di SCRITTURA su Exchange Online. NON viene mai eseguita qui: l
 - New-M365OpsTenantAllowBlockListSpoofItem {Action: Allow|Block, SendingInfrastructure, SpoofedUser, SpoofType: Internal|External} / Remove-M365OpsTenantAllowBlockListSpoofItem {Ids: [elenco GUID da Get-M365OpsTenantAllowBlockListSpoofItems]}
 - Set-M365OpsTenantAllowBlockListItem {Ids, ListType, ExpirationDate?, NoExpiration?, Notes?} - modifica una voce ESISTENTE (es. estende la scadenza), non ne crea una nuova
 - New-M365OpsQuarantinePolicy {Name, AllowRelease?, AllowRequestRelease?, AllowDelete?, AllowPreview?, AllowDownload?, AllowViewHeader?, AllowAllowSender?, AllowBlockSender?, ExtraParams?} (tutti i permessi sono switch, default false se omessi) / Set-M365OpsQuarantinePolicy {Identity, ExtraParams} / Remove-M365OpsQuarantinePolicy {Identity} - non funziona sulle 2 policy predefinite del sistema
-- Enable-M365OpsMailboxQuarantine {Identity, Duration?} - blocca l'INVIO di una mailbox (account sospettato compromesso), diverso dalla quarantena messaggi / Disable-M365OpsMailboxQuarantine {Identity}
 - Set-M365OpsTransportConfig {ExtraParams} - impostazioni GLOBALI del tenant, non di un singolo connettore/regola
 - New-M365OpsReceiveConnector {Name, Bindings, RemoteIPRanges, ExtraParams?} / Set-M365OpsReceiveConnector {Identity, ExtraParams} / Remove-M365OpsReceiveConnector {Identity}
 - New-M365OpsSendConnector {Name, AddressSpaces, ExtraParams?} / Set-M365OpsSendConnector {Identity, ExtraParams} / Remove-M365OpsSendConnector {Identity}
 - New-M365OpsRemoteDomain {Name, DomainName} / Set-M365OpsRemoteDomain {Identity, ExtraParams} / Remove-M365OpsRemoteDomain {Identity} - non funziona su "Default"
 - New-M365OpsAcceptedDomain {Name, DomainName, DomainType?} - il dominio deve avere GIA' il record TXT di verifica pubblicato su Entra ID, questa cmdlet non lo verifica / Set-M365OpsAcceptedDomain {Identity, ExtraParams} / Remove-M365OpsAcceptedDomain {Identity} - AZIONE AD ALTO IMPATTO, tutte le mailbox su quel dominio perdono la posta
 IMPORTANTE: se non conosci gia' l'indirizzo/identity esatto di un oggetto, usa PRIMA exo_query per cercarlo - non indovinare mai un indirizzo email o un nome di endpoint.
+"@
+            input_schema = @{
+                type       = "object"
+                properties = @{
+                    cmdlet     = @{ type = "string"; description = "Nome esatto della cmdlet dalla lista sopra" }
+                    parameters = @{ type = "object"; description = "Parametri della cmdlet" }
+                    reason     = @{ type = "string"; description = "Spiegazione in italiano di cosa fa questa scrittura e perche', da mostrare all'utente" }
+                    stepNumber = @{ type = "integer"; description = "Solo per piani a piu' passaggi: numero di QUESTO passaggio, a partire da 1. Ometti per un'azione singola." }
+                    totalSteps = @{ type = "integer"; description = "Solo per piani a piu' passaggi: numero totale di passaggi previsti. Ometti per un'azione singola." }
+                }
+                required   = @("cmdlet", "reason")
+            }
+        }
+        @{
+            name = "intune_query"
+            description = @"
+Esegue una query di SOLA LETTURA sulle aree Intune avanzate NON coperte da graph_api_call in modo pratico (schemi troppo annidati/poco intuitivi da costruire a mano) - Settings Catalog, Endpoint Security, Autopilot, script Windows/macOS, Proactive Remediations, App Protection (MAM), anelli di aggiornamento, Modelli amministrativi, Scope Tag, restrizioni di iscrizione, modelli di notifica, ruoli RBAC. Per dispositivi/conformita' base usa PRIMA list_devices/list_noncompliant_devices/get_device_compliance_reasons (piu' diretti). Specifica 'cmdlet' (uno di questi) e 'parameters':
+- Get-M365OpsConfigurationPolicies {Identity?} - criteri Settings Catalog E Endpoint Security (stesso motore, distinti dal campo templateReference.templateFamily: es. endpointSecurityAntivirus, endpointSecurityFirewall, baseline). Senza Identity elenca tutti (id, nome, piattaforma, templateFamily); con Identity include anche le impostazioni configurate e le assegnazioni
+- Get-M365OpsConfigurationPolicyTemplates {TemplateFamily?} - modelli disponibili (Endpoint Security/Baseline) con templateId, da passare a New-M365OpsConfigurationPolicy
+- Get-M365OpsConfigurationSettingDefinitions {SearchText, Top?} - cerca le impostazioni del Settings Catalog per nome (universo troppo vasto per un elenco statico) - restituisce settingDefinitionId da usare nel corpo di una policy
+- Get-M365OpsAutopilotDevices {SerialNumber?} / Get-M365OpsAutopilotImportStatus {ImportId} - dispositivi Autopilot registrati / stato di un import avviato con propose_intune_write
+- Get-M365OpsAutopilotDeploymentProfiles {Identity?} - profili di distribuzione Autopilot (OOBE, ESP, ecc.)
+- Get-M365OpsDeviceScripts {Platform: Windows|macOS} - script di distribuzione PowerShell/shell (non le Proactive Remediation, quelle sono sotto)
+- Get-M365OpsProactiveRemediations {Identity?} - script rilevamento+correzione; con Identity include RunSummary (dispositivi rilevati/corretti/falliti)
+- Get-M365OpsAppProtectionPolicies {Platform: Android|iOS|Both, Identity?} - criteri MAM (protezione app senza iscrizione dispositivo); con Identity include gruppi assegnati e app di destinazione
+- Get-M365OpsUpdateRings {Identity?} - anelli Windows Update for Business
+- Get-M365OpsScopeTags {Identity?} - Scope Tag Intune (per segmentare la visibilita' RBAC su oggetti/dispositivi)
+- Get-M365OpsEnrollmentConfigurations {Identity?} - limiti/restrizioni piattaforma per l'iscrizione dispositivi, ordinate per priorita' (priorita' piu' bassa = si applica per prima)
+- Get-M365OpsNotificationTemplates {Identity?} - modelli di messaggio per azioni di non conformita'; con Identity include i messaggi per ogni lingua
+- Get-M365OpsAdminTemplates {Identity?} - profili Modelli amministrativi (Group Policy); con Identity include le impostazioni configurate
+- Find-M365OpsAdminTemplateSetting {SearchText, Top?} - cerca le impostazioni Modelli amministrativi per nome (universo vasto, come il Settings Catalog) - restituisce il DefinitionId da usare con Set-M365OpsAdminTemplateSetting
+- Get-M365OpsCustomRoles {Identity?} - ruoli RBAC incorporati e personalizzati; con Identity include le assegnazioni
+- Get-M365OpsRoleDefinitionActions {BuiltInRoleDisplayName?} - elenco di riferimento delle azioni RBAC disponibili (lette da un ruolo incorporato, es. "Application Manager" default, perche' Graph non espone un catalogo azioni separato) - usa questo PRIMA di New-M365OpsCustomRole per scegliere le azioni giuste
+- Get-M365OpsPartnerConnectorsStatus {} - stato SOLA LETTURA dei connettori partner (Mobile Threat Defense, Exchange on-prem, conformita' terze parti, assistenza remota, Apple DEP/ABM, token VPP) - l'attivazione iniziale richiede un consenso OAuth interattivo dal Centro Amministrazione Intune, non gestibile da qui
+IMPORTANTE: se non conosci gia' l'Identity/id esatto di un oggetto, cercalo prima con la query senza Identity - non indovinare mai un GUID.
+"@
+            input_schema = @{
+                type       = "object"
+                properties = @{
+                    cmdlet     = @{ type = "string"; description = "Nome esatto della cmdlet dalla lista sopra" }
+                    parameters = @{ type = "object"; description = "Parametri della cmdlet" }
+                }
+                required   = @("cmdlet")
+            }
+        }
+        @{
+            name = "propose_intune_write"
+            description = @"
+Proponi un'azione di SCRITTURA sulle aree Intune avanzate (stesse aree di intune_query). NON viene mai eseguita qui: la proposta torna all'utente per conferma esplicita. Specifica 'cmdlet' (uno di questi), 'parameters' e 'reason'. NON usare questo strumento per pacchettizzare/assegnare un'app Win32 (.exe/.msi) o assegnare un'app gia' pacchettizzata: quello segue un percorso dedicato descritto altrove nel prompt (l'utente deve caricare un file reale dal tab Manutenzione).
+- New-M365OpsConfigurationPolicy {DisplayName, Platforms, Technologies?, TemplateId?, Settings?} - crea un criterio Settings Catalog VUOTO se Settings e' omesso (poi Set-M365OpsConfigurationPolicy per popolarlo) o con TemplateId per un Endpoint Security/Baseline preconfigurato
+- Set-M365OpsConfigurationPolicy {Identity, Settings} - Settings e' l'array completo di settingInstance nel formato Graph esatto (usa Get-M365OpsConfigurationSettingDefinitions prima per i settingDefinitionId corretti - MAI indovinare questo schema, e' profondamente annidato)
+- Remove-M365OpsConfigurationPolicy {Identity}
+- Set-M365OpsConfigurationPolicyAssignment {Identity, TargetGroupIds, Exclude?}
+- Import-M365OpsAutopilotDevice {SerialNumber, HardwareIdentifier, GroupTag?} - HardwareIdentifier e' un hash hardware reale (4K HH), non fabbricabile: chiedi sempre all'utente il file CSV/JSON originario del produttore, non inventare mai un valore
+- Set-M365OpsAutopilotDevice {Identity, UserPrincipalName?, GroupTag?, DisplayName?} / Remove-M365OpsAutopilotDevice {Identity}
+- New-M365OpsAutopilotDeploymentProfile {DisplayName, ExtraParams?} / Remove-M365OpsAutopilotDeploymentProfile {Identity} / Set-M365OpsAutopilotDeploymentProfileAssignment {Identity, TargetGroupIds}
+- New-M365OpsDeviceScript {Platform: Windows|macOS, DisplayName, ScriptContentPath, RunAsAccount?} / Remove-M365OpsDeviceScript {Platform, Identity} / Set-M365OpsDeviceScriptAssignment {Platform, Identity, TargetGroupIds}
+- New-M365OpsProactiveRemediation {DisplayName, DetectionScriptPath, RemediationScriptPath?, RunAsAccount?} - creata NON assegnata / Remove-M365OpsProactiveRemediation {Identity} / Set-M365OpsProactiveRemediationAssignment {Identity, TargetGroupIds, RunRemediationScript?, ScheduleType: Daily|Hourly, Interval?, TimeOfDay?}
+- New-M365OpsAppProtectionPolicy {Platform: Android|iOS, DisplayName, PinRequired?, DataBackupBlocked?, ExtraParams?} - creata senza gruppi ne' app di destinazione / Remove-M365OpsAppProtectionPolicy {Platform, Identity}
+- Set-M365OpsAppProtectionAssignment {Platform, Identity, TargetGroupIds, Exclude?} - AGGIUNGE (non sostituisce) / Remove-M365OpsAppProtectionAssignment {Platform, Identity, AssignmentId}
+- Set-M365OpsAppProtectionTargetApps {Platform, Identity, AppIdentifiers} - package id Android (es. com.microsoft.office.outlook) o bundle id iOS (es. com.microsoft.Office.Outlook), AGGIUNGE alla lista esistente
+- New-M365OpsUpdateRing {DisplayName, AutomaticUpdateMode?, QualityUpdatesDeferralPeriodInDays?, FeatureUpdatesDeferralPeriodInDays?} / Remove-M365OpsUpdateRing {Identity} / Set-M365OpsUpdateRingAssignment {Identity, TargetGroupIds, Exclude?}
+- New-M365OpsScopeTag {DisplayName, Description?} / Remove-M365OpsScopeTag {Identity} - non funziona sul tag "Default" incorporato
+- New-M365OpsEnrollmentLimitConfiguration {DisplayName, Limit} (1-15 dispositivi/utente) / New-M365OpsEnrollmentPlatformRestriction {DisplayName, IosBlocked?, WindowsBlocked?, AndroidBlocked?, MacOSBlocked?, ExtraParams?}
+- Set-M365OpsEnrollmentConfigurationPriority {Identity, Priority} (piu' basso = si applica prima) / Set-M365OpsEnrollmentConfigurationAssignment {Identity, TargetGroupIds} / Remove-M365OpsEnrollmentConfiguration {Identity} - non funziona sulla configurazione predefinita di sistema
+- New-M365OpsNotificationTemplate {DisplayName, DefaultLocale?, Subject, MessageBody} / Set-M365OpsNotificationTemplateMessage {Identity, Locale, Subject, MessageBody, IsDefault?} - aggiunge o aggiorna la lingua indicata / Remove-M365OpsNotificationTemplate {Identity} / Send-M365OpsNotificationTemplateTest {Identity}
+- New-M365OpsAdminTemplate {DisplayName, ExtraParams?} - creato VUOTO / Remove-M365OpsAdminTemplate {Identity} / Set-M365OpsAdminTemplateAssignment {Identity, TargetGroupIds}
+- Set-M365OpsAdminTemplateSetting {Identity, DefinitionId, Enabled, PresentationValues?} - DefinitionId va SEMPRE cercato prima con intune_query su Find-M365OpsAdminTemplateSetting, mai indovinato; PresentationValues serve solo per le impostazioni con parametri (es. un valore numerico/testuale), verifica il formato Graph atteso prima di popolarlo
+- New-M365OpsCustomRole {DisplayName, AllowedResourceActions} - le stringhe azione (es. "Microsoft.Intune_MobileApps_Read") vanno prese da intune_query su Get-M365OpsRoleDefinitionActions, mai indovinate / Remove-M365OpsCustomRole {Identity} - non funziona sui ruoli incorporati
+- Set-M365OpsRoleAssignment {RoleDefinitionId, DisplayName, AdminGroupIds, ScopeType?: resourceScope|allDevices|allLicensedUsers|allDevicesAndLicensedUsers, ScopeGroupIds?} - ScopeGroupIds obbligatorio se ScopeType e' resourceScope (default) / Remove-M365OpsRoleAssignment {RoleDefinitionId, AssignmentId}
+IMPORTANTE: se non conosci gia' l'Identity/id esatto di un oggetto o gruppo, cercalo PRIMA con intune_query o graph_api_call - non indovinare mai un GUID.
 "@
             input_schema = @{
                 type       = "object"
@@ -498,7 +574,6 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
         'Enable-M365OpsDistributionGroup', 'Disable-M365OpsDistributionGroup', 'Update-M365OpsDistributionGroupMember',
         'New-M365OpsTenantAllowBlockListSpoofItem', 'Remove-M365OpsTenantAllowBlockListSpoofItem', 'Set-M365OpsTenantAllowBlockListItem',
         'New-M365OpsQuarantinePolicy', 'Set-M365OpsQuarantinePolicy', 'Remove-M365OpsQuarantinePolicy',
-        'Enable-M365OpsMailboxQuarantine', 'Disable-M365OpsMailboxQuarantine',
         'Set-M365OpsTransportConfig', 'New-M365OpsReceiveConnector', 'Set-M365OpsReceiveConnector', 'Remove-M365OpsReceiveConnector',
         'New-M365OpsSendConnector', 'Set-M365OpsSendConnector', 'Remove-M365OpsSendConnector',
         'New-M365OpsRemoteDomain', 'Set-M365OpsRemoteDomain', 'Remove-M365OpsRemoteDomain',
@@ -538,6 +613,38 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
     # (Connect-M365OpsCompliance/Connect-IPPSSession) e permesso (ruolo RBAC Purview) diversi dal
     # resto del modulo.
     $complianceReadAllowlist = @('Get-M365OpsRetentionCompliancePolicies')
+    # Intune "seconda ondata" (19/08/2026): Settings Catalog/Endpoint Security, Autopilot,
+    # script Windows/macOS, Proactive Remediations, App Protection (MAM), anelli di
+    # aggiornamento, Modelli amministrativi, Scope Tag, restrizioni iscrizione, modelli di
+    # notifica, ruoli RBAC personalizzati - stesso meccanismo generico query/propose-write di
+    # $exoReadAllowlist/$exoWriteAllowlist, NIENTE a che vedere con New-M365OpsWin32App/
+    # Set-M365OpsAppAssignment (quelli restano sul percorso dedicato PackageApp/AssignApp in
+    # Server.ps1, con il proprio parsing di intento in linguaggio naturale - qui e' sempre
+    # l'AI a scegliere esplicitamente cmdlet+parametri via tool-calling).
+    $intuneReadAllowlist = @(
+        'Get-M365OpsConfigurationPolicies', 'Get-M365OpsConfigurationPolicyTemplates', 'Get-M365OpsConfigurationSettingDefinitions',
+        'Get-M365OpsAutopilotDevices', 'Get-M365OpsAutopilotImportStatus', 'Get-M365OpsAutopilotDeploymentProfiles',
+        'Get-M365OpsDeviceScripts', 'Get-M365OpsProactiveRemediations', 'Get-M365OpsAppProtectionPolicies',
+        'Get-M365OpsUpdateRings', 'Get-M365OpsScopeTags', 'Get-M365OpsEnrollmentConfigurations',
+        'Get-M365OpsNotificationTemplates', 'Get-M365OpsAdminTemplates', 'Find-M365OpsAdminTemplateSetting',
+        'Get-M365OpsCustomRoles', 'Get-M365OpsRoleDefinitionActions', 'Get-M365OpsPartnerConnectorsStatus'
+    )
+    $intuneWriteAllowlist = @(
+        'New-M365OpsConfigurationPolicy', 'Set-M365OpsConfigurationPolicy', 'Remove-M365OpsConfigurationPolicy', 'Set-M365OpsConfigurationPolicyAssignment',
+        'Import-M365OpsAutopilotDevice', 'Set-M365OpsAutopilotDevice', 'Remove-M365OpsAutopilotDevice',
+        'New-M365OpsAutopilotDeploymentProfile', 'Remove-M365OpsAutopilotDeploymentProfile', 'Set-M365OpsAutopilotDeploymentProfileAssignment',
+        'New-M365OpsDeviceScript', 'Remove-M365OpsDeviceScript', 'Set-M365OpsDeviceScriptAssignment',
+        'New-M365OpsProactiveRemediation', 'Remove-M365OpsProactiveRemediation', 'Set-M365OpsProactiveRemediationAssignment',
+        'New-M365OpsAppProtectionPolicy', 'Remove-M365OpsAppProtectionPolicy', 'Set-M365OpsAppProtectionAssignment',
+        'Remove-M365OpsAppProtectionAssignment', 'Set-M365OpsAppProtectionTargetApps',
+        'New-M365OpsUpdateRing', 'Remove-M365OpsUpdateRing', 'Set-M365OpsUpdateRingAssignment',
+        'New-M365OpsScopeTag', 'Remove-M365OpsScopeTag',
+        'New-M365OpsEnrollmentLimitConfiguration', 'New-M365OpsEnrollmentPlatformRestriction',
+        'Set-M365OpsEnrollmentConfigurationPriority', 'Set-M365OpsEnrollmentConfigurationAssignment', 'Remove-M365OpsEnrollmentConfiguration',
+        'New-M365OpsNotificationTemplate', 'Set-M365OpsNotificationTemplateMessage', 'Remove-M365OpsNotificationTemplate', 'Send-M365OpsNotificationTemplateTest',
+        'New-M365OpsAdminTemplate', 'Remove-M365OpsAdminTemplate', 'Set-M365OpsAdminTemplateAssignment', 'Set-M365OpsAdminTemplateSetting',
+        'New-M365OpsCustomRole', 'Remove-M365OpsCustomRole', 'Set-M365OpsRoleAssignment', 'Remove-M365OpsRoleAssignment'
+    )
 
     # Script "home made" (Scripts\Custom, vedi README li') - catalogo costruito AD OGNI
     # chiamata (non hardcoded come le liste sopra) cosi' un nuovo script diventa
@@ -1069,6 +1176,20 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             $queryResult
                         }
                     }
+                    "intune_query" {
+                        if ($block.input.cmdlet -notin $intuneReadAllowlist) {
+                            "Cmdlet '$($block.input.cmdlet)' non e' nell'elenco consentito per intune_query."
+                        } else {
+                            $params = @{}
+                            if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
+                            try {
+                                & $block.input.cmdlet @params | ConvertTo-Json -Depth 8 -Compress
+                            }
+                            catch {
+                                "Query Intune fallita: $($_.Exception.Message)"
+                            }
+                        }
+                    }
                     "sharepoint_query" {
                         if ($block.input.cmdlet -notin $sharePointReadAllowlist) {
                             "Cmdlet '$($block.input.cmdlet)' non e' nell'elenco consentito per sharepoint_query."
@@ -1162,6 +1283,25 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
                             $pendingWrite = @{
                                 Kind       = 'Exo'
+                                Cmdlet     = $block.input.cmdlet
+                                Parameters = $params
+                                Reason     = $block.input.reason
+                                StepNumber = if ($block.input.stepNumber) { [int]$block.input.stepNumber } else { 1 }
+                                TotalSteps = if ($block.input.totalSteps) { [int]$block.input.totalSteps } else { 1 }
+                            }
+                            "Proposta registrata. NON eseguirla, NON dire all'utente che e' stata fatta: nella tua risposta finale spiega chiaramente cosa proponi di fare e di che si aspetti una richiesta di conferma separata."
+                        }
+                    }
+                    "propose_intune_write" {
+                        if ($block.input.cmdlet -notin $intuneWriteAllowlist) {
+                            "Cmdlet '$($block.input.cmdlet)' non e' nell'elenco consentito per propose_intune_write."
+                        } elseif ($pendingWrite) {
+                            "Rifiutato: e' gia' in sospeso un'altra proposta di scrittura in questa stessa risposta ('$($pendingWrite.Kind)'). Puoi proporne solo UNA per risposta - concludi qui spiegando la proposta gia' registrata, poi proponi questa in un messaggio separato dopo che la prima e' stata confermata ed eseguita."
+                        } else {
+                            $params = @{}
+                            if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
+                            $pendingWrite = @{
+                                Kind       = 'Intune'
                                 Cmdlet     = $block.input.cmdlet
                                 Parameters = $params
                                 Reason     = $block.input.reason

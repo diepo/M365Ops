@@ -282,10 +282,21 @@ function Get-M365OpsCommandCatalog {
             # X" veniva deviato correttamente da EmailLastReport (grazie al fix su quella voce),
             # ma cadeva DRITTO su questa voce subito dopo - che mostrava l'elenco grezzo in chat
             # e ignorava in silenzio "mandami via mail", senza mai proporre un invio email.
-            # 'mail'/'email' come DeferWords fanno si' che una richiesta che nomina anche l'invio
+            # 'mail'/'email' come DeferWords fanno si' che una richiesta che nomini anche l'invio
             # passi all'AI (che ha propose_send_report_email e puo' gestire l'intera richiesta
             # composta in un unico ragionamento), invece di rispondere solo a meta'.
-            DeferWords   = @('piano', 'remediation', 'consigl', 'roadmap', 'perch', 'causa', 'mail', 'email')
+            #
+            # BUG SERIO trovato dal vivo il 19/08/2026 durante lo stress test sulla seconda ondata
+            # Intune: "controlla i dispositivi non conformi e poi dimmi se ci sono anelli di
+            # aggiornamento Windows configurati e anche i criteri MAM Android" ha risposto SOLO con
+            # l'elenco grezzo dei dispositivi, ignorando in silenzio il resto - questa voce non
+            # aveva mai ricevuto le parole di continuazione generiche ('e poi'/'e anche'/'quindi')
+            # gia' aggiunte alle voci gemelle (ListDevices/CompliancePatterns/UserOverview/
+            # GroupOverview/MfaStatus) lo stesso giorno per lo stesso identico schema di bug -
+            # questa voce era rimasta indietro perche' le sue DeferWords erano gia' state estese
+            # con parole SPECIFICHE (piano/remediation/mail) in un fix precedente, dando la falsa
+            # impressione di essere gia' a posto.
+            DeferWords   = @('piano', 'remediation', 'consigl', 'roadmap', 'perch', 'causa', 'mail', 'email', 'e poi', 'e anche', 'quindi')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { Get-M365OpsManagedDevices -NonCompliantOnly }
@@ -295,6 +306,12 @@ function Get-M365OpsCommandCatalog {
             Name         = "UserOverview"
             Description  = "Panoramica di un utente (gruppi, dispositivi, app e policy assegnate). Uso: 'panoramica utente nome@dominio.it'"
             Triggers     = @('panoramica utente', 'overview utente')
+            # Bug reale trovato dal vivo il 19/08/2026 (stesso schema di MfaStatus): "panoramica
+            # utente X e poi elenca i gruppi di distribuzione" mostrava solo la panoramica (che
+            # include gia' i GRUPPI DI CUI L'UTENTE E' MEMBRO, un dato diverso e piu' ristretto
+            # di "tutti i gruppi di distribuzione del tenant" richiesto nella seconda parte) -
+            # la vera richiesta finale spariva senza risposta.
+            DeferWords   = @('e poi', 'e anche', 'quindi')
             # Il dominio non termina mai con un punto letterale, cosi' un punto di fine frase
             # subito dopo l'indirizzo non finisce dentro l'email catturata (stesso bug/fix di
             # Get-M365OpsGroupPlanFromMessage in Server.ps1).
@@ -318,7 +335,13 @@ function Get-M365OpsCommandCatalog {
             # ampio), rispondendo con "non ho trovato un indirizzo email" invece di passare
             # all'AI. Segnali di richiesta piu' ampia (report/tenant/CA), non di un singolo
             # utente, fanno passare oltre.
-            DeferWords   = @('report', 'tutti', 'tenant', 'conditional', 'access', 'zone', 'policy', 'criteri')
+            # Secondo bug reale, stesso giorno, stesso schema ma sul lato "richiesta composta":
+            # "controlla lo stato mfa di X e poi elenca i gruppi di distribuzione" veniva
+            # gestito interamente da questo catalogo (zero costo AI) - la seconda parte della
+            # richiesta ("e poi...") spariva silenziosamente, mai eseguita da nessuno. Le parole
+            # di continuazione fanno ora passare l'intero messaggio all'AI, che gestisce
+            # correttamente richieste composte in un solo ragionamento.
+            DeferWords   = @('report', 'tutti', 'tenant', 'conditional', 'access', 'zone', 'policy', 'criteri', 'e poi', 'e anche', 'quindi')
             CaptureRegex = '([\w\.\-]+@[\w\-]+(?:\.[\w\-]+)+)'
             RequiresAI   = $false
             Handler      = {
@@ -342,6 +365,13 @@ function Get-M365OpsCommandCatalog {
             Name         = "GroupOverview"
             Description  = "Panoramica di un gruppo (membri, app e policy assegnate). Uso: 'panoramica gruppo NomeGruppo'"
             Triggers     = @('panoramica gruppo', 'overview gruppo')
+            # Bug reale trovato dal vivo il 19/08/2026 (stesso schema di MfaStatus/UserOverview):
+            # "panoramica gruppo build e poi dimmi quali connettori send sono configurati" veniva
+            # gestito qui - il CaptureRegex, greedy fino a fine stringa, catturava l'INTERO resto
+            # del messaggio come se fosse il nome del gruppo ("build e poi dimmi quali connettori
+            # send sono configurati"), fallendo con "nessun gruppo trovato" invece di rispondere
+            # a nessuna delle due richieste reali.
+            DeferWords   = @('e poi', 'e anche', 'quindi')
             CaptureRegex = 'gruppo\s+(.+)$'
             RequiresAI   = $false
             Handler      = {
@@ -362,6 +392,14 @@ function Get-M365OpsCommandCatalog {
             # a pagamento dedicata invece del normale flusso conversazionale. Richiede ora che
             # "pattern" e "non conform*"/"conformit*" compaiano vicini, entrambi presenti.
             Triggers     = @('pattern.{0,20}(non conform|conformit)', '(non conform|conformit).{0,20}pattern')
+            # Bug reale trovato dal vivo il 19/08/2026 (stesso schema di MfaStatus): l'handler
+            # chiama una funzione AI dedicata a un solo scopo (analisi pattern), senza accesso
+            # agli altri strumenti - "analizza i pattern di non conformita' e poi controlla lo
+            # stato mfa di X" produceva un'ottima analisi pattern ma ignorava del tutto la parte
+            # MFA, che nessuno eseguiva mai. Le parole di continuazione deviano ora l'intero
+            # messaggio al loop AI generale (Invoke-M365OpsAgentTools), che ha accesso a tutti
+            # gli strumenti e puo' gestire la richiesta composta in un solo ragionamento.
+            DeferWords   = @('e poi', 'e anche', 'quindi')
             CaptureRegex = $null
             RequiresAI   = $true
             Handler      = { Get-M365OpsCompliancePatterns -Provider $script:ActiveAIProvider }
@@ -380,6 +418,11 @@ function Get-M365OpsCommandCatalog {
             # richiesta esplicita (elenca/lista/mostra/quali/vedi/dammi) vicino a 'dispositiv',
             # o che il messaggio sia un comando diretto che comincia cosi'.
             Triggers     = @('(elenca|lista|mostra|mostrami|quali( sono)?|vedi|dammi).{0,20}dispositiv', '^dispositiv')
+            # Bug reale trovato dal vivo il 19/08/2026 (stesso schema di MfaStatus): "elenca i
+            # dispositivi e poi dimmi anche quanti gruppi di distribuzione ci sono" mostrava solo
+            # l'elenco dispositivi, ignorando silenziosamente "e poi..." - nessuno (ne' il
+            # catalogo ne' l'AI) rispondeva alla seconda parte.
+            DeferWords   = @('e poi', 'e anche', 'quindi')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { Get-M365OpsManagedDevices }

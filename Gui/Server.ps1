@@ -139,18 +139,27 @@ function Get-M365OpsScriptPackagePlan {
     .SYNOPSIS
         Se il file caricato per il pacchettizzamento e' uno script (.ps1/.bat/.cmd, 18/08/2026,
         richiesto esplicitamente in aggiunta a exe/msi), calcola il comando di installazione e
-        legge la detection SEMPRE richiesta esplicitamente nel messaggio - MAI dedotta, a
-        differenza di un exe: uno script non installa nulla in un percorso prevedibile
-        (C:\Program Files\<nome>), un default indovinato sarebbe silenziosamente sbagliato,
-        peggio che doverlo chiedere. Se il file NON e' uno script, restituisce $null: il
+        determina la detection - a differenza di un exe, uno script non installa nulla in un
+        percorso prevedibile (C:\Program Files\<nome>), quindi un default indovinato a caso
+        sarebbe silenziosamente sbagliato. Se il file NON e' uno script, restituisce $null: il
         chiamante prosegue con la logica exe/msi gia' esistente, invariata.
+
+        Ordine di risoluzione della detection: (1) esplicita nel messaggio dell'utente
+        ("detection file ..."/"detection registro ... valore ..."), sempre prioritaria; (2) se
+        assente, un tentativo di deduzione AI dal CONTENUTO dello script
+        (Get-M365OpsScriptDetectionSuggestion, 19/08/2026, richiesto esplicitamente
+        dall'utente) - usato solo se l'AI e' ragionevolmente sicura, e comunque mostrato
+        all'utente nel testo di conferma della sequenza (mai applicato in silenzio, con nota
+        "dedotto dall'AI... verificalo"); (3) se nemmeno l'AI e' sicura, si torna a chiedere
+        esplicitamente all'utente come sempre fatto in precedenza.
     .OUTPUTS
         $null se il file non e' uno script.
-        @{ NeedsDetectionInfo = $true; Message = "..." } se e' uno script ma manca la detection
-        nel messaggio - nessuna azione in sospeso viene creata, l'utente deve ripetere la
-        richiesta includendola.
+        @{ NeedsDetectionInfo = $true; Message = "..." } se ne' il messaggio ne' l'AI hanno
+        prodotto una detection affidabile - nessuna azione in sospeso viene creata, l'utente
+        deve ripetere la richiesta includendola esplicitamente.
         @{ InstallCmd; DetectionMode; DetectionPath; DetectionFile; DetectionRegistryKeyPath;
-           DetectionRegistryValueName; DetectionNote } se la detection e' stata trovata.
+           DetectionRegistryValueName; DetectionNote } se la detection e' stata trovata (fornita
+        dall'utente o dedotta dall'AI - DetectionNote specifica sempre quale delle due).
     #>
     param([Parameter(Mandatory)] [string]$FilePath, [Parameter(Mandatory)] [string]$Message)
 
@@ -161,14 +170,44 @@ function Get-M365OpsScriptPackagePlan {
     $fileDetection = [regex]::Match($Message, 'detection\s+file\s+"([^"]+)"|detection\s+file\s+(\S+)')
     $regDetection = [regex]::Match($Message, 'detection\s+registro\s+(\S+)\s+valore\s+(\S+)')
 
+    $installCmd = if ($ext -eq '.ps1') { "powershell.exe -ExecutionPolicy Bypass -File `"$fileName`"" } else { "`"$fileName`"" }
+
     if (-not $fileDetection.Success -and -not $regDetection.Success) {
+        # Prima di chiedere all'operatore, prova una deduzione AI dal contenuto dello script
+        # (19/08/2026, richiesto esplicitamente dall'utente) - SOLO se ragionevolmente sicura;
+        # altrimenti procede comunque a chiedere come faceva prima di questa aggiunta. Mai
+        # applicata in silenzio: la detection dedotta compare nel testo di conferma della
+        # sequenza (Confermi tutta la sequenza?) PRIMA che qualunque scrittura avvenga, con una
+        # nota che ne segnala chiaramente la provenienza - stesso principio gia' in uso per la
+        # detection dedotta dai metadati di un exe/msi qualche riga sotto.
+        $suggestion = $null
+        try { $suggestion = Get-M365OpsScriptDetectionSuggestion -FilePath $FilePath -Provider $script:ActiveAIProvider } catch {}
+
+        if ($suggestion -and $suggestion.confident -and $suggestion.DetectionMode -eq 'FileExists' -and $suggestion.DetectionFile) {
+            return @{
+                InstallCmd = $installCmd
+                DetectionMode = 'FileExists'
+                DetectionPath = $suggestion.DetectionPath
+                DetectionFile = $suggestion.DetectionFile
+                DetectionNote = "file marker $($suggestion.DetectionPath)\$($suggestion.DetectionFile) (dedotto dall'AI dal contenuto dello script: $($suggestion.explanation) - verificalo)"
+            }
+        }
+        if ($suggestion -and $suggestion.confident -and $suggestion.DetectionMode -eq 'RegistryExists' -and $suggestion.DetectionRegistryKeyPath) {
+            return @{
+                InstallCmd = $installCmd
+                DetectionMode = 'RegistryExists'
+                DetectionRegistryKeyPath = $suggestion.DetectionRegistryKeyPath
+                DetectionRegistryValueName = $suggestion.DetectionRegistryValueName
+                DetectionNote = "registro $($suggestion.DetectionRegistryKeyPath) valore $($suggestion.DetectionRegistryValueName) (dedotto dall'AI dal contenuto dello script: $($suggestion.explanation) - verificalo)"
+            }
+        }
+
+        $unsureNote = if ($suggestion -and $suggestion.explanation) { " (l'AI ha provato a dedurla dal contenuto dello script ma non era ragionevolmente sicura: $($suggestion.explanation))" } else { "" }
         return @{
             NeedsDetectionInfo = $true
-            Message = "Per uno script ($ext) non posso dedurre la detection (a differenza di un exe, non installa nulla in un percorso prevedibile) - indicami UNA delle due cose che lo script stesso crea/imposta quando ha successo, aggiungendola alla richiesta:`n- ``detection file <percorso completo del marker>`` (es. ``detection file C:\ProgramData\MiaApp\installed.txt``)`n- ``detection registro <percorso chiave> valore <nome valore>`` (es. ``detection registro HKLM:\SOFTWARE\MiaApp valore Version``)"
+            Message = "Per uno script ($ext) non posso dedurre la detection con sicurezza$unsureNote - indicami UNA delle due cose che lo script stesso crea/imposta quando ha successo, aggiungendola alla richiesta:`n- ``detection file <percorso completo del marker>`` (es. ``detection file C:\ProgramData\MiaApp\installed.txt``)`n- ``detection registro <percorso chiave> valore <nome valore>`` (es. ``detection registro HKLM:\SOFTWARE\MiaApp valore Version``)"
         }
     }
-
-    $installCmd = if ($ext -eq '.ps1') { "powershell.exe -ExecutionPolicy Bypass -File `"$fileName`"" } else { "`"$fileName`"" }
 
     if ($fileDetection.Success) {
         $markerPath = if ($fileDetection.Groups[1].Success) { $fileDetection.Groups[1].Value } else { $fileDetection.Groups[2].Value }
@@ -232,6 +271,30 @@ function Execute-PendingAction {
                     DetectionRegistryKeyPath = $action.DetectionRegistryKeyPath; DetectionRegistryValueName = $action.DetectionRegistryValueName
                 }
                 if ($script:LoadedIconPath -and (Test-Path $script:LoadedIconPath)) { $packageParams.IconPath = $script:LoadedIconPath }
+                # Personalizzazioni avanzate (19/08/2026) - passate solo se presenti su $action,
+                # cosi' un packaging senza personalizzazioni resta identico a prima di questa
+                # aggiunta. ScopeTagNames/ReturnCodes hanno nomi diversi lato New-M365OpsWin32App
+                # (ScopeTagNames/ReturnCodes), gli altri combaciano 1:1.
+                foreach ($advKey in @('MinimumFreeDiskSpaceInMB', 'MinimumMemoryInMB', 'MinimumNumberOfProcessors', 'MinimumCPUSpeedInMHz', 'InstallExperience', 'DeviceRestartBehavior', 'MaximumInstallationTimeInMinutes', 'ScopeTagNames', 'ReturnCodes')) {
+                    if ($null -ne $action.$advKey) { $packageParams[$advKey] = $action.$advKey }
+                }
+                if ($action.AllowAvailableUninstall) { $packageParams.AllowAvailableUninstall = $true }
+
+                # Dipendenza/supersedence per NOME (19/08/2026): risolti QUI in un id reale via
+                # lettura Graph, mai indovinati - se il nome non corrisponde a nessuna app
+                # esistente (o a piu' di una), la scrittura si ferma con un errore chiaro
+                # invece di procedere su un id sbagliato o ambiguo.
+                if ($action.DependsOnAppName) {
+                    $depMatches = @(Invoke-M365OpsGraphRequest -Method GET -Path "/deviceAppManagement/mobileApps?`$filter=contains(displayName,'$($action.DependsOnAppName -replace "'", "''")')" -Beta).value
+                    if ($depMatches.Count -ne 1) { return @{ role = 'error'; text = "Impossibile risolvere l'app da cui dipende '$($action.DisplayName)': '$($action.DependsOnAppName)' trova $($depMatches.Count) app corrispondenti in Intune (serve esattamente 1). Pacchettizzazione NON eseguita - correggi il nome e riprova." } }
+                    $packageParams.DependsOn = @(@{ Id = $depMatches[0].id; Type = $action.DependencyType })
+                }
+                if ($action.SupersedesAppName) {
+                    $supMatches = @(Invoke-M365OpsGraphRequest -Method GET -Path "/deviceAppManagement/mobileApps?`$filter=contains(displayName,'$($action.SupersedesAppName -replace "'", "''")')" -Beta).value
+                    if ($supMatches.Count -ne 1) { return @{ role = 'error'; text = "Impossibile risolvere l'app sostituita da '$($action.DisplayName)': '$($action.SupersedesAppName)' trova $($supMatches.Count) app corrispondenti in Intune (serve esattamente 1). Pacchettizzazione NON eseguita - correggi il nome e riprova." } }
+                    $packageParams.Supersedes = @(@{ Id = $supMatches[0].id; Type = $action.SupersedenceType })
+                }
+
                 $app = New-M365OpsWin32App @packageParams
                 $script:LastAppId = $app.id
                 $iconNote = if ($packageParams.IconPath) { " Icona applicata." } else { " Nessuna icona caricata (ne uso una generica di default)." }
@@ -248,6 +311,12 @@ function Execute-PendingAction {
 
                 $params = @{ AppId = $appId; Intent = $action.Intent }
                 if ($groupId) { $params.TargetGroupId = $groupId }
+                # Parametri avanzati (19/08/2026, richiesti esplicitamente dall'utente) - passati
+                # solo se presenti su $action, cosi' il flusso composto a coda esistente (che non
+                # li valorizza mai) continua a funzionare esattamente come prima, invariato.
+                foreach ($advKey in @('FilterId', 'FilterType', 'NotificationMode', 'RestartGracePeriodMinutes', 'RestartCountdownDisplayMinutes', 'RestartSnoozeDurationMinutes', 'AvailableDateTime', 'DeadlineDateTime', 'DeliveryOptimizationPriority')) {
+                    if ($null -ne $action.$advKey -and $action.$advKey -ne '') { $params[$advKey] = $action.$advKey }
+                }
                 Set-M365OpsAppAssignment @params
                 $scope = if ($groupId) { "il gruppo" } else { "tutti i dispositivi" }
                 return @{ role = 'system'; text = "Fatto. Assegnata come '$($action.Intent)' a $scope." }
@@ -331,6 +400,13 @@ function Execute-PendingAction {
                 if ($action.Parameters) { $action.Parameters.GetEnumerator() | ForEach-Object { $params[$_.Key] = $_.Value } }
                 $teamsResult = & $action.Cmdlet @params
                 $resultText = ($teamsResult | ConvertTo-Json -Depth 6 -Compress)
+                return @{ role = 'system'; text = "Fatto.`n$resultText" }
+            }
+            'IntuneWrite' {
+                $params = @{}
+                if ($action.Parameters) { $action.Parameters.GetEnumerator() | ForEach-Object { $params[$_.Key] = $_.Value } }
+                $intuneResult = & $action.Cmdlet @params
+                $resultText = ($intuneResult | ConvertTo-Json -Depth 6 -Compress)
                 return @{ role = 'system'; text = "Fatto.`n$resultText" }
             }
             'MfaReset' {
@@ -451,6 +527,7 @@ function Execute-PendingAction {
             'CustomWrite'     { if ($action.Cmdlet) { Join-Path $moduleRoot "Scripts\Custom\$($action.Cmdlet).ps1" } else { $null } }
             'SharePointWrite' { if ($action.Cmdlet) { Join-Path $moduleRoot "Public\$($action.Cmdlet).ps1" } else { $null } }
             'TeamsWrite'      { if ($action.Cmdlet) { Join-Path $moduleRoot "Public\$($action.Cmdlet).ps1" } else { $null } }
+            'IntuneWrite'     { if ($action.Cmdlet) { Join-Path $moduleRoot "Public\$($action.Cmdlet).ps1" } else { $null } }
             'MfaReset'    { Join-Path $moduleRoot 'Public\Reset-M365OpsUserMfa.ps1' }
             default       { $null }
         }
@@ -561,7 +638,13 @@ function Handle-ChatMessage {
     #     gruppo e assegna"). Rilevate localmente, nessuna chiamata AI: le tre azioni
     #     esistono gia' come logica singola, qui vengono solo accodate invece di
     #     escludersi a vicenda con un elseif. ---
-    $hasPackageIntent = $lower -match 'pacchett|impacchett|crea (l.)?app\b|carica app'
+    # Bug reale trovato dal vivo il 19/08/2026: 'pacchett' (doppia T) non intercettava
+    # "pacchetizza" (singola T, variante di battitura molto comune) - la richiesta composta
+    # reale di un utente ("pacchetizza e distribuisci l'app GIT, crea un gruppo X e
+    # assegnalo") e' passata con $hasPackageIntent=false, saltando in silenzio il passo di
+    # pacchettizzazione e fallendo poi in modo confuso all'assegnazione ("nessuna app
+    # disponibile"). 'pacchet{1,2}izz'/'impacchet{1,2}' tollerano ora entrambe le grafie.
+    $hasPackageIntent = $lower -match 'pacchet{1,2}izz|impacchet{1,2}|crea (l.)?app\b|carica app'
     # "grupp" senza richiedere la 'o' finale: tollera refusi tipo "grupp odi test" (visto
     # in un test reale) dove uno spazio di troppo/mancante rompe la parola "gruppo".
     $hasGroupIntent = $lower -match 'crea.{0,20}grupp|grupp.{0,10}test'
@@ -573,7 +656,10 @@ function Handle-ChatMessage {
     # gruppo competente" per SharePoint) - mai arrivate all'AI. Escluse esplicitamente se il
     # messaggio contiene segnali di un contesto diverso (ticket/mail/processo), che un vero
     # comando di assegnazione app non avrebbe motivo di nominare.
-    $hasAssignIntent = ($lower -match 'assegna\w*.{0,25}(app|required|available|obbligator|opzional|tutti|grupp)') -and
+    # BUG reale trovato dal vivo il 19/08/2026: "crea l'app GIT e rendila available all devices"
+    # non contiene 'assegna' in nessuna forma - solo "rendila"/"rendilo" + available/required, un
+    # fraseggio reale altrettanto comune quanto "assegna...". Aggiunto come alternativa.
+    $hasAssignIntent = ($lower -match 'assegna\w*.{0,25}(app|required|available|obbligator|opzional|tutti|grupp)|rendil[ao].{0,20}(available|required|obbligator|opzional)') -and
         ($lower -notmatch '\b(ticket|mail|record|flusso|subject|categoria|tag|triage|competente)\b')
     $intentCount = 0
     if ($hasPackageIntent) { $intentCount++ }
@@ -603,7 +689,19 @@ function Handle-ChatMessage {
             }
 
             $insight = Get-M365OpsInstallerInsight -Path $script:LoadedFilePath
-            $displayName = if ($insight.ProductName) { $insight.ProductName } else { [IO.Path]::GetFileNameWithoutExtension($script:LoadedFilePath) }
+            # BUG reale trovato dal vivo il 19/08/2026: "pacchetizza X, chiamalo NomeVoluto" ignorava
+            # sempre il nome richiesto, usando SEMPRE i metadati dell'installer o il nome del file -
+            # "chiamalo"/"chiamala"/ecc. non venivano mai letti dal messaggio. Il nome esplicito
+            # dell'utente ha ora sempre priorita' quando presente. Secondo bug reale trovato dal
+            # vivo POCO DOPO aver corretto il primo: "crea l'app GIT e rendila available..." non
+            # usa nessuna delle parole sopra, il nome e' l'oggetto diretto di "crea l'app X" - non
+            # riconosciuto dal primo pattern, l'app veniva ancora nominata dal file. Un secondo
+            # pattern (provato solo se il primo non trova nulla) copre anche questa forma.
+            $requestedNameMatch = [regex]::Match($msg, '(?:chiamalo|chiamala|chiamato|chiamata|nominalo|nominala|di nome|con nome)\s+(.+?)(?:\s*,|\s*\.|\s+e\s+|$)', 'IgnoreCase')
+            if (-not $requestedNameMatch.Success) {
+                $requestedNameMatch = [regex]::Match($msg, "crea\s+(?:l['’]|un['’]|una\s+|il\s+|lo\s+)?app(?:licazione)?\s+(?:chiamat[ao]\s+)?(.+?)(?:\s*,|\s*\.|\s+e\s+|`$)", 'IgnoreCase')
+            }
+            $displayName = if ($requestedNameMatch.Success -and $requestedNameMatch.Groups[1].Value.Trim()) { $requestedNameMatch.Groups[1].Value.Trim() } elseif ($insight.ProductName) { $insight.ProductName } else { [IO.Path]::GetFileNameWithoutExtension($script:LoadedFilePath) }
             $publisher = if ($insight.CompanyName) { $insight.CompanyName } else { "Sconosciuto" }
 
             if ($scriptPlan) {
@@ -635,21 +733,63 @@ function Handle-ChatMessage {
                 }
             }
 
-            $queue += @{
+            $packageAction = @{
                 Type = 'PackageApp'; DisplayName = $displayName; Publisher = $publisher
                 InstallCmd = $installCmd; UninstallCmd = $uninstallCmd
                 DetectionMode = $detectionMode; DetectionPath = $detectionPath; DetectionFile = $detectionFile; DetectionVersion = $detectionVersion
                 DetectionRegistryKeyPath = $detectionRegKeyPath; DetectionRegistryValueName = $detectionRegValueName
             }
+
+            # Opzioni avanzate di packaging menzionate A PAROLE dall'utente (19/08/2026,
+            # richiesto esplicitamente) - requisiti hardware, comportamento install/riavvio,
+            # return code, scope tag, dipendenze/supersedence. Solo estrazione, mai invenzione:
+            # ogni campo non menzionato resta $null e NON viene passato (default standard,
+            # invariato). Se l'utente non ha menzionato nulla, un promemoria nel testo di
+            # conferma gli ricorda che puo' farlo, invece di procedere in silenzio come se
+            # l'opzione non esistesse.
+            $customization = $null
+            try { $customization = Get-M365OpsWin32AppCustomizationFromMessage -Message $msg -Provider $script:ActiveAIProvider } catch {}
+
+            $customizationDetails = @()
+            if ($customization -and $customization.mentionedAnything) {
+                foreach ($simpleField in @('MinimumFreeDiskSpaceInMB', 'MinimumMemoryInMB', 'MinimumNumberOfProcessors', 'MinimumCPUSpeedInMHz', 'InstallExperience', 'DeviceRestartBehavior', 'MaximumInstallationTimeInMinutes', 'AllowAvailableUninstall', 'ScopeTagNames')) {
+                    if ($null -ne $customization.$simpleField) {
+                        $packageAction[$simpleField] = $customization.$simpleField
+                        $customizationDetails += "$simpleField=$($customization.$simpleField -join ',')"
+                    }
+                }
+                if ($customization.ReturnCodes) {
+                    $packageAction.ReturnCodes = $customization.ReturnCodes
+                    $customizationDetails += "return code: " + (($customization.ReturnCodes | ForEach-Object { "$($_.ReturnCode)=$($_.Type)" }) -join ', ')
+                }
+                # Dipendenza/supersedence per NOME: risolta all'esecuzione (Execute-PendingAction),
+                # mai un id indovinato qui - se il nome non si trova, il passo fallisce con un
+                # errore chiaro invece di procedere su un id inventato.
+                if ($customization.DependsOnAppName) {
+                    $packageAction.DependsOnAppName = $customization.DependsOnAppName
+                    $packageAction.DependencyType = if ($customization.DependencyType) { $customization.DependencyType } else { 'Detect' }
+                    $customizationDetails += "dipende da '$($customization.DependsOnAppName)' ($($packageAction.DependencyType))"
+                }
+                if ($customization.SupersedesAppName) {
+                    $packageAction.SupersedesAppName = $customization.SupersedesAppName
+                    $packageAction.SupersedenceType = if ($customization.SupersedenceType) { $customization.SupersedenceType } else { 'Update' }
+                    $customizationDetails += "sostituisce '$($customization.SupersedesAppName)' ($($packageAction.SupersedenceType))"
+                }
+            }
+
+            $queue += $packageAction
             $step++
-            $summaryLines += "$step. Pacchettizzo '$displayName' ($publisher). Install: $installCmd. $detectionNote"
+            $detailsNote = if ($customizationDetails) { " Personalizzazioni: " + ($customizationDetails -join '; ') + "." } else { " (nessuna personalizzazione avanzata indicata - requisiti hardware, comportamento riavvio, tempo massimo, disinstallazione da available, return code, scope tag, dipendenze/supersedence: procedo con gli standard Intune. Puoi indicarle a parole nella richiesta se vuoi personalizzarle.)" }
+            $summaryLines += "$step. Pacchettizzo '$displayName' ($publisher). Install: $installCmd. $detectionNote.$detailsNote"
         }
 
         if ($hasAssignIntent) {
             $step++
             $intentValue = 'available'
             if ($lower -match 'required|obbligator|forzat') { $intentValue = 'required' }
-            $allDevices = $lower -match 'tutti'
+            # BUG reale trovato dal vivo il 19/08/2026: "rendila available ALL DEVICES" (inglese,
+            # fraseggio reale comune) non veniva riconosciuto - solo l'italiano 'tutti'.
+            $allDevices = $lower -match 'tutti|all devices|all\s+the\s+devices'
             $queue += @{ Type = 'AssignApp'; Intent = $intentValue; AllDevices = $allDevices }
             $target = if ($allDevices) { "tutti i dispositivi" } else { "il gruppo creato in questa stessa sequenza" }
             $summaryLines += "$step. Assegno come '$intentValue' a $target"
@@ -673,7 +813,7 @@ function Handle-ChatMessage {
         $script:PendingAction = @{ Type = 'CreateGroup'; Name = $name; MemberUpn = $memberUpn; ConfirmText = $confirmText; OriginalMessage = $msg }
         return @{ role = 'system'; text = "$confirmText`n(rispondi 'si' o 'no')" }
     }
-    elseif ($lower -match 'pacchett|impacchett|crea app|carica app') {
+    elseif ($lower -match 'pacchet{1,2}izz|impacchet{1,2}|crea (l.)?app\b|carica app') {
         if (-not $script:LoadedFilePath) {
             return @{ role = 'system'; text = "Prima carica un file .exe/.msi/.ps1/.bat/.cmd con il pulsante sopra la casella di testo." }
         }
@@ -683,7 +823,13 @@ function Handle-ChatMessage {
         }
 
         $insight = Get-M365OpsInstallerInsight -Path $script:LoadedFilePath
-        $displayName = if ($insight.ProductName) { $insight.ProductName } else { [IO.Path]::GetFileNameWithoutExtension($script:LoadedFilePath) }
+        # Stesso fix del ramo a coda sopra (19/08/2026): il nome esplicito dell'utente
+        # ("chiamalo X" oppure "crea l'app X") ha sempre priorita' sui metadati installer/nome file.
+        $requestedNameMatch = [regex]::Match($msg, '(?:chiamalo|chiamala|chiamato|chiamata|nominalo|nominala|di nome|con nome)\s+(.+?)(?:\s*,|\s*\.|\s+e\s+|$)', 'IgnoreCase')
+        if (-not $requestedNameMatch.Success) {
+            $requestedNameMatch = [regex]::Match($msg, "crea\s+(?:l['’]|un['’]|una\s+|il\s+|lo\s+)?app(?:licazione)?\s+(?:chiamat[ao]\s+)?(.+?)(?:\s*,|\s*\.|\s+e\s+|`$)", 'IgnoreCase')
+        }
+        $displayName = if ($requestedNameMatch.Success -and $requestedNameMatch.Groups[1].Value.Trim()) { $requestedNameMatch.Groups[1].Value.Trim() } elseif ($insight.ProductName) { $insight.ProductName } else { [IO.Path]::GetFileNameWithoutExtension($script:LoadedFilePath) }
         $publisher = if ($insight.CompanyName) { $insight.CompanyName } else { "Sconosciuto" }
 
         if ($scriptPlan) {
@@ -708,14 +854,45 @@ function Handle-ChatMessage {
             $detectionText = "Detection: $detectionPath\$detectionFile >= $detectionVersion`n(percorso di detection DEDOTTO dal nome prodotto, verificalo)"
         }
 
-        $confirmText = "Pacchettizzo '$displayName' ($publisher).`nInstall: $installCmd`n$detectionText`nNON verra' assegnata a nessuno. Confermi?"
-        $script:PendingAction = @{
+        $singlePackageAction = @{
             Type = 'PackageApp'; DisplayName = $displayName; Publisher = $publisher
             InstallCmd = $installCmd; UninstallCmd = $uninstallCmd
             DetectionMode = $detectionMode; DetectionPath = $detectionPath; DetectionFile = $detectionFile; DetectionVersion = $detectionVersion
             DetectionRegistryKeyPath = $detectionRegKeyPath; DetectionRegistryValueName = $detectionRegValueName
-            ConfirmText = $confirmText
         }
+        # Stessa estrazione di personalizzazioni a parole del flusso a coda sopra (19/08/2026) -
+        # duplicata qui perche' questo e' un ramo separato (pacchettizzazione senza altre azioni
+        # nella stessa frase), non un refactor per non rischiare di toccare il flusso a coda.
+        $singleCustomization = $null
+        try { $singleCustomization = Get-M365OpsWin32AppCustomizationFromMessage -Message $msg -Provider $script:ActiveAIProvider } catch {}
+        $singleCustomizationDetails = @()
+        if ($singleCustomization -and $singleCustomization.mentionedAnything) {
+            foreach ($simpleField in @('MinimumFreeDiskSpaceInMB', 'MinimumMemoryInMB', 'MinimumNumberOfProcessors', 'MinimumCPUSpeedInMHz', 'InstallExperience', 'DeviceRestartBehavior', 'MaximumInstallationTimeInMinutes', 'AllowAvailableUninstall', 'ScopeTagNames')) {
+                if ($null -ne $singleCustomization.$simpleField) {
+                    $singlePackageAction[$simpleField] = $singleCustomization.$simpleField
+                    $singleCustomizationDetails += "$simpleField=$($singleCustomization.$simpleField -join ',')"
+                }
+            }
+            if ($singleCustomization.ReturnCodes) {
+                $singlePackageAction.ReturnCodes = $singleCustomization.ReturnCodes
+                $singleCustomizationDetails += "return code: " + (($singleCustomization.ReturnCodes | ForEach-Object { "$($_.ReturnCode)=$($_.Type)" }) -join ', ')
+            }
+            if ($singleCustomization.DependsOnAppName) {
+                $singlePackageAction.DependsOnAppName = $singleCustomization.DependsOnAppName
+                $singlePackageAction.DependencyType = if ($singleCustomization.DependencyType) { $singleCustomization.DependencyType } else { 'Detect' }
+                $singleCustomizationDetails += "dipende da '$($singleCustomization.DependsOnAppName)' ($($singlePackageAction.DependencyType))"
+            }
+            if ($singleCustomization.SupersedesAppName) {
+                $singlePackageAction.SupersedesAppName = $singleCustomization.SupersedesAppName
+                $singlePackageAction.SupersedenceType = if ($singleCustomization.SupersedenceType) { $singleCustomization.SupersedenceType } else { 'Update' }
+                $singleCustomizationDetails += "sostituisce '$($singleCustomization.SupersedesAppName)' ($($singlePackageAction.SupersedenceType))"
+            }
+        }
+        $singleDetailsNote = if ($singleCustomizationDetails) { "Personalizzazioni: " + ($singleCustomizationDetails -join '; ') + "." } else { "Nessuna personalizzazione avanzata indicata (requisiti hardware, riavvio, tempo massimo, disinstallazione da available, return code, scope tag, dipendenze/supersedence) - procedo con gli standard Intune. Puoi indicarle a parole se vuoi personalizzarle." }
+
+        $confirmText = "Pacchettizzo '$displayName' ($publisher).`nInstall: $installCmd`n$detectionText`n$singleDetailsNote`nNON verra' assegnata a nessuno. Confermi?"
+        $singlePackageAction.ConfirmText = $confirmText
+        $script:PendingAction = $singlePackageAction
         return @{ role = 'system'; text = "$confirmText`n(rispondi 'si' o 'no')" }
     }
     elseif (($lower -match 'assegna\w*.{0,25}(app|required|available|obbligator|opzional|tutti|grupp)') -and
@@ -726,7 +903,7 @@ function Handle-ChatMessage {
         elseif ($lower -match 'available|opzional|disponibil') { $intentValue = 'available' }
         if (-not $intentValue) { return @{ role = 'system'; text = "Vuoi assegnarla come 'required' (obbligatoria) o 'available' (opzionale)?" } }
 
-        $allDevices = $lower -match 'tutti'
+        $allDevices = $lower -match 'tutti|all devices|all\s+the\s+devices'
         if (-not $allDevices -and -not $script:LastGroupId) {
             return @{ role = 'system'; text = "Non ho un gruppo recente. Vuoi assegnarla a 'tutti i dispositivi', o creo prima un gruppo (dimmi il nome)?" }
         }
@@ -793,6 +970,20 @@ function Handle-ChatMessage {
                         $paramsText = if ($w.Parameters -and $w.Parameters.Count -gt 0) { ($w.Parameters | ConvertTo-Json -Depth 4 -Compress) } else { "(nessuno)" }
                         $confirmText = "$stepPrefix$($result.Text)`n`n--- Scrittura Teams proposta (non ancora eseguita) ---`nCmdlet: $($w.Cmdlet)`nParametri: $paramsText`nMotivo: $($w.Reason)"
                         $script:PendingAction = @{ Type = 'TeamsWrite'; Cmdlet = $w.Cmdlet; Parameters = $w.Parameters; ConfirmText = $confirmText }
+                    }
+                    'Intune' {
+                        # Stesso meccanismo generico di 'Exo'/'SharePoint'/'Teams' qui sopra
+                        # (19/08/2026, aggiunto insieme alla seconda ondata di cmdlet Intune -
+                        # Settings Catalog, Autopilot, script, Proactive Remediations, MAM, anelli
+                        # di aggiornamento, Modelli amministrativi, Scope Tag, restrizioni
+                        # iscrizione, modelli di notifica, ruoli RBAC) - Execute-PendingAction
+                        # esegue con & $action.Cmdlet @params, nessuna logica specifica per
+                        # cmdlet necessaria qui. Percorso SEPARATO da 'PackageApp'/'AssignApp'
+                        # (pacchettizzazione Win32 da file reale), che restano sul loro flusso
+                        # dedicato di parsing del linguaggio naturale.
+                        $paramsText = if ($w.Parameters -and $w.Parameters.Count -gt 0) { ($w.Parameters | ConvertTo-Json -Depth 6 -Compress) } else { "(nessuno)" }
+                        $confirmText = "$stepPrefix$($result.Text)`n`n--- Scrittura Intune proposta (non ancora eseguita) ---`nCmdlet: $($w.Cmdlet)`nParametri: $paramsText`nMotivo: $($w.Reason)"
+                        $script:PendingAction = @{ Type = 'IntuneWrite'; Cmdlet = $w.Cmdlet; Parameters = $w.Parameters; ConfirmText = $confirmText }
                     }
                     'NewCustomScript' {
                         # A differenza di ogni altra proposta, qui l'"azione" e' aggiungere una
