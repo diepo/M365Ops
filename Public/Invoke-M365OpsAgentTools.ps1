@@ -209,7 +209,7 @@ PAGINAZIONE (bug reale osservato il 19/08/2026: chiesto 'ci sono stati accessi s
         }
         @{
             name = "generate_report"
-            description = "Genera un report (Excel e/o PDF con grafici) a partire da dati che hai GIA' raccolto con altri strumenti (graph_api_call, exo_query, ecc.) in questa stessa conversazione. Usalo quando l'utente chiede esplicitamente un report/export su uno o piu' argomenti (es. 'report licenze', 'report mailbox e gruppi con un tab permessi', 'dammi un pdf/excel su...') - non per semplici domande a cui puoi rispondere a parole. Supporta PIU' argomenti in un solo file (17/08/2026): ogni voce di 'sections' diventa un foglio Excel separato E una sezione titolata separata nel PDF - se l'utente chiede piu' cose diverse in un report (es. mailbox utente + mailbox condivise + gruppi), raccogli i dati di ognuna separatamente e passa una sezione per argomento, MAI tutto appiattito in un'unica tabella indistinta. Un report con un solo argomento ha comunque UNA sola sezione. Per ogni sezione passa in 'data' TUTTI i record raccolti (l'elenco completo, non un riassunto o un aggregato fatto da te): il conteggio/aggregazione per i grafici lo fa il codice, mai tu. Se per una sezione ha senso una distribuzione (es. permessi per tipo, licenze per SKU), passa anche 'chartFields' su quella sezione. SOLA LETTURA/EXPORT: non modifica nulla nel tenant, genera solo file locali - eseguito subito, non serve conferma dell'utente. Se il volume potenziale di UNA fonte dati e' alto (centinaia/migliaia di righe, es. message trace su un periodo lungo), valuta invece generate_raw_export: fa query+export in un solo passaggio senza far transitare le righe nella conversazione, evitando di avvicinarti al limite di contesto del modello."
+            description = "Genera un report (Excel e/o PDF con grafici) a partire da dati che hai GIA' raccolto con altri strumenti (graph_api_call, exo_query, ecc.) in questa stessa conversazione. Usalo quando l'utente chiede esplicitamente un report/export su uno o piu' argomenti (es. 'report licenze', 'report mailbox e gruppi con un tab permessi', 'dammi un pdf/excel su...') - non per semplici domande a cui puoi rispondere a parole. Supporta PIU' argomenti in un solo file (17/08/2026): ogni voce di 'sections' diventa un foglio Excel separato E una sezione titolata separata nel PDF - se l'utente chiede piu' cose diverse in un report (es. mailbox utente + mailbox condivise + gruppi), raccogli i dati di ognuna separatamente e passa una sezione per argomento, MAI tutto appiattito in un'unica tabella indistinta. Un report con un solo argomento ha comunque UNA sola sezione. Per ogni sezione passa in 'data' TUTTI i record raccolti (l'elenco completo, non un riassunto o un aggregato fatto da te): il conteggio/aggregazione per i grafici lo fa il codice, mai tu. Se per una sezione ha senso una distribuzione (es. permessi per tipo, licenze per SKU), passa anche 'chartFields' su quella sezione. SOLA LETTURA/EXPORT: non modifica nulla nel tenant, genera solo file locali - eseguito subito, non serve conferma dell'utente. ATTENZIONE (bug reale osservato dal vivo il 19/08/2026, non un caso raro): con un volume anche solo moderato (gia' un centinaio di record con diversi campi ciascuno, es. un report sign-in di soli 7 giorni), riprodurre 'data' per intero dentro l'input di QUESTA chiamata puo' avvicinarti al tuo budget di token della risposta, ed e' facile finire per scrivere una riga di riepilogo testuale invece dei record veri - esattamente il comportamento vietato qui sopra, capitato per davvero nonostante il divieto esplicito. Se non sei sicuro che il volume sia piccolo (poche decine di righe), USA SEMPRE generate_raw_export (dati da una cmdlet exo_query) o generate_raw_graph_export (dati da un percorso graph_api_call) invece di raccogliere prima e passare qui poi - fanno query+export lato server in un solo passaggio, i record non transitano mai nel tuo output, quindi non c'e' alcun rischio di sintetizzare al posto di riportare. Usa generate_report direttamente SOLO quando hai gia' visto con i tuoi occhi che i dati raccolti sono pochi (poche decine di righe) o quando servono piu' fonti diverse combinate in sezioni separate che nessuno dei due strumenti raw puo' fare da solo."
             input_schema = @{
                 type       = "object"
                 properties = @{
@@ -767,6 +767,37 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
         }
     }
 
+    # BUG SERIO trovato dal vivo il 19/08/2026, segnalato dall'utente: "fai un report dei
+    # sign-in log degli ultimi 7 giorni di diego@vnsys.it" ha prodotto un file Excel con UNA
+    # sola riga di riepilogo testuale invece dei 114 sign-in reali del periodo (verificato dal
+    # vivo: 114 eventi reali via chiamata Graph diretta). generate_raw_export sopra risolve
+    # esattamente questo problema, ma SOLO per le cmdlet di exo_query (Exchange) - i dati Graph
+    # (sign-in log, audit log, elenchi dispositivi/utenti tenant-wide) passano SOLO da
+    # graph_api_call, che non ha equivalente: con un volume non banale (qui, 114 record x
+    # ~9 campi ciascuno) il modello, dovendo riprodurre ogni riga dentro l'input JSON di
+    # generate_report entro il proprio budget di token per la risposta, ha sintetizzato un
+    # riepilogo invece di riportare tutti i record - esattamente il comportamento che
+    # generate_report vieta esplicitamente nella sua descrizione ("non un riassunto o un
+    # aggregato fatto da te"), ma la sola istruzione non basta quando il volume rende
+    # impraticabile riprodurre tutto. Stesso strumento di generate_raw_export (query+export
+    # lato server, dati mai nel contesto del modello) ma per un percorso Graph diretto invece
+    # di una cmdlet nominata, con paginazione automatica (@odata.nextLink) - il modello non
+    # deve seguirla lui stesso chiamando piu' volte graph_api_call.
+    $fallbackTools += @{
+        name = "generate_raw_graph_export"
+        description = 'Genera un export (Excel/PDF) eseguendo una chiamata Microsoft Graph CON PAGINAZIONE AUTOMATICA e scrittura file in un solo passaggio lato server, SENZA far transitare i dati grezzi nella conversazione - equivalente di generate_raw_export ma per QUALUNQUE percorso Graph diretto (stesso "path" di graph_api_call, qualunque area: sign-in log, audit log, dispositivi, utenti, gruppi, licenze, Teams, mail flow via Graph, qualunque endpoint) invece di una cmdlet Exchange nominata. REGOLA GENERALE, non solo per un caso specifico: ogni volta che l''utente chiede un REPORT/EXPORT (non una domanda a parole) su dati Graph, preferisci SEMPRE questo strumento a graph_api_call+generate_report, a meno che tu sappia gia'' con certezza che il volume e'' minimo (poche righe) - la sequenza graph_api_call+generate_report costringe OGNI riga a passare (e essere riscritta) nel tuo output, e con un volume anche solo moderato rischi di sintetizzare un riepilogo invece di riportare tutti i record, anche se te lo si vieta esplicitamente nella descrizione di generate_report (bug reale osservato dal vivo il 19/08/2026: un report sign-in di 114 eventi reali su 7 giorni e'' uscito come 1 sola riga di riepilogo testuale invece di 114 righe vere - lo stesso rischio esiste per QUALUNQUE altro report Graph di volume comparabile, non solo per i sign-in). Specifica "path" (stesso formato/query string di graph_api_call), "beta" (bool, true se l''endpoint richiede la versione beta), "title". Il server segue automaticamente @odata.nextLink fino a un tetto di sicurezza di 50000 righe totali, poi scrive il file. La risposta che ricevi e'' solo un riepilogo (conteggio righe) - MAI i dati stessi: se ti serve analizzare il contenuto nel dettaglio (non solo esportarlo), fai invece una graph_api_call separata con un filtro piu'' stretto per restare su un volume che puoi davvero vedere. SOLA LETTURA/EXPORT, eseguito subito, non serve conferma dell''utente.'
+        input_schema = @{
+            type       = "object"
+            properties = @{
+                path   = @{ type = "string"; description = "Stesso formato di graph_api_call: percorso relativo con query string opzionale (es. filtri OData) - qualunque endpoint Graph, non solo sign-in/audit" }
+                beta   = @{ type = "boolean"; description = "true se l'endpoint richiede la versione beta - stesso criterio gia' noto per graph_api_call" }
+                title  = @{ type = "string"; description = "Titolo del report/nome sezione, es. 'Dispositivi non conformi' o 'Sign-in log 7 giorni - diego@contoso.com'" }
+                format = @{ type = "string"; enum = @("xlsx", "pdf", "both"); description = "Come in generate_report: default 'xlsx' se omesso" }
+            }
+            required   = @("path", "title")
+        }
+    }
+
     # Equivalente Graph di "Explorer"/Threat Hunting (security.microsoft.com): a differenza di
     # /security/alerts_v2 e /security/incidents (letti benissimo con graph_api_call, che e' GET-
     # only), l'API di hunting query e' un POST anche se e' concettualmente SOLA LETTURA (esegue
@@ -1126,6 +1157,59 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             catch {
                                 "Export fallito: $($_.Exception.Message)"
                             }
+                        }
+                    }
+                    "generate_raw_graph_export" {
+                        try {
+                            $formats = switch ([string]$block.input.format) {
+                                'pdf' { @('pdf') }
+                                'both' { @('xlsx', 'pdf') }
+                                default { @('xlsx') }
+                            }
+                            $useBeta = [bool]$block.input.beta
+                            $currentPath = $block.input.path
+                            $allRows = @()
+                            # Stesso tetto assoluto di sicurezza di generate_raw_export (50000, non i
+                            # 1000 pensati per proteggere la conversazione - qui i dati non ci entrano
+                            # mai) + un tetto sul NUMERO di pagine indipendente dal conteggio righe,
+                            # cosi' un endpoint che pagina in blocchi minuscoli non gira all'infinito.
+                            $maxTotalRows = 50000
+                            $maxPages = 500
+                            $pageCount = 0
+                            $nextLink = $null
+                            do {
+                                $resp = Invoke-M365OpsGraphRequest -Method GET -Path $currentPath -Beta:$useBeta
+                                if ($null -ne $resp.value) { $allRows += @($resp.value) }
+                                elseif ($resp -and -not ($resp.PSObject.Properties.Name -contains '@odata.nextLink')) { $allRows += @($resp) }
+                                $nextLink = $resp.'@odata.nextLink'
+                                if ($nextLink) {
+                                    # @odata.nextLink e' sempre un URL assoluto - Invoke-M365OpsGraphRequest
+                                    # vuole un percorso RELATIVO alla base v1.0/beta che concatena da se'
+                                    # ($base + $Path) - senza questo la richiesta successiva duplicherebbe
+                                    # l'host e fallirebbe.
+                                    $currentPath = $nextLink -replace 'https://graph\.microsoft\.com/(v1\.0|beta)', ''
+                                }
+                                $pageCount++
+                            } while ($nextLink -and $allRows.Count -lt $maxTotalRows -and $pageCount -lt $maxPages)
+
+                            $truncated = [bool]$nextLink -and ($allRows.Count -ge $maxTotalRows -or $pageCount -ge $maxPages)
+
+                            if ($allRows.Count -eq 0) {
+                                "Nessun dato trovato per questo percorso - nessun file generato. Verifica il percorso/filtro prima di riprovare."
+                            } else {
+                                $sections = @(@{ Name = $block.input.title; Data = $allRows })
+                                $result = Export-M365OpsDataReport -Sections $sections -Title $block.input.title -Formats $formats
+                                $script:LastReportPath = if ($result.PdfPath) { $result.PdfPath } else { $result.XlsxPath }
+                                $reportAttachments = @()
+                                if ($result.XlsxPath) { $reportAttachments += @{ FileName = (Split-Path -Leaf $result.XlsxPath) } }
+                                if ($result.PdfPath) { $reportAttachments += @{ FileName = (Split-Path -Leaf $result.PdfPath) } }
+                                $filesNote = @(if ($result.XlsxPath) { "Excel" }; if ($result.PdfPath) { "PDF" }) -join " e "
+                                $truncNote = if ($truncated) { " ATTENZIONE: risultato troncato al tetto di sicurezza ($($allRows.Count) righe) - potrebbero esserci altri dati non esportati, restringi il filtro se serve il totale esatto." } else { "" }
+                                "Export generato con successo: $($allRows.Count) righe (dati MAI passati nella conversazione). $filesNote gia' allegato/i e scaricabile/i nell'interfaccia.$truncNote Nella tua risposta conferma solo che il file e' pronto e il conteggio righe, non descrivere il contenuto dei dati perche' non li hai visti."
+                            }
+                        }
+                        catch {
+                            "Export fallito: $($_.Exception.Message)"
                         }
                     }
                     "propose_send_report_email" {

@@ -102,7 +102,21 @@ function Get-M365OpsCommandCatalog {
         }
         [pscustomobject]@{
             Name         = "SharedMailboxPermissions"
-            Description  = "Elenca SOLO le mailbox condivise del tenant e i permessi (FullAccess/SendAs/SendOnBehalf) di ciascuna. Scatta solo se il messaggio parla esplicitamente di PERMESSI/delega su mailbox condivise - una menzione generica di 'mailbox condivisa' per altri motivi (es. una domanda sui parametri di creazione) o una richiesta di 'permessi mailbox' senza dire 'condivise' passano invece all'AI (che ha accesso a exo_query -> Get-M365OpsMailboxDelegatesReport, copertura su TUTTE le mailbox). Vedi DeferWords sotto e la nota generale in cima al file - bug reale del 17/08/2026."
+            # BUG UX trovato dal vivo il 19/08/2026 (richiesto un controllo di coerenza sul testo
+            # di "aiuto" dopo le modifiche di oggi): questo campo Description e' anche il testo
+            # mostrato DAVVERO all'utente dal comando locale "Help" - la spiegazione tecnica sul
+            # perche' il trigger e' cosi' specifico (con riferimento a "DeferWords" e a un bug del
+            # 17/08/2026, gergo interno privo di senso per un utente) ci finiva dentro per errore.
+            # Spostata qui come commento; il campo Description ora contiene solo cio' che ha senso
+            # mostrare a un utente reale, come per ogni altra voce del catalogo.
+            #
+            # Scatta solo se il messaggio parla esplicitamente di PERMESSI/delega su mailbox
+            # condivise - una menzione generica di 'mailbox condivisa' per altri motivi (es. una
+            # domanda sui parametri di creazione) o una richiesta di 'permessi mailbox' senza dire
+            # 'condivise' passano invece all'AI (che ha accesso a exo_query ->
+            # Get-M365OpsMailboxDelegatesReport, copertura su TUTTE le mailbox). Vedi DeferWords
+            # sotto e la nota generale in cima al file - bug reale del 17/08/2026.
+            Description  = "Elenca le mailbox condivise del tenant e i permessi (FullAccess/SendAs/SendOnBehalf) di ciascuna. Uso: 'permessi mailbox condivise'"
             Triggers     = @(
                 '(?=.*permess\w*)(?=.*(mailbox|casell))(?=.*(condivis\w*|shared))',
                 '(?=.*(fullaccess|full access))(?=.*(condivis\w*|shared))',
