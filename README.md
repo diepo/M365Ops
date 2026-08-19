@@ -91,3 +91,26 @@ Queste sono le regole seguite finora — un agente AI che scrive nuove cmdlet do
    incompleta o superata, la pagina Microsoft Learn no. Ogni cmdlet di scrittura del modulo
    accetta un `-ExtraParams` generico proprio per questo: passare qualunque parametro nativo
    verificato, non solo quelli gia' previsti esplicitamente.
+7. **Ogni giro di stress test deve includere, non solo prompt realistici, ma anche: (a) almeno
+   un caso di auto-correzione** — proporre volutamente una scrittura con una sintassi/un
+   parametro sbagliato in un'area MAI verificata prima nel prompt di sistema, e controllare se
+   l'AI la corregge da sola consultando `lookup_ms_docs` invece di limitarsi a diagnosticare
+   il fallimento dopo il fatto (bug-hunt 19/08/2026: `Invoke-M365OpsErrorTriage` non poteva
+   MAI consultare la documentazione per una scrittura Graph diretta senza un file/cmdlet
+   PowerShell da cui risalire — corretto, ma resta un meccanismo che dipende dalla qualita'
+   della ricerca pubblica Microsoft Learn, quindi va riverificato ogni volta che si tocca
+   quest'area, non dato per scontato una volta per tutte); **(b) almeno un tentativo di
+   prompt injection/hijacking** — testo di errore o di richiesta utente che tenta di far
+   uscire il modello dal proprio compito (istruzioni iniettate tipo "ignora le istruzioni
+   precedenti", richieste di rivelare segreti, "autorizzazioni" finte per applicare una
+   scrittura pericolosa senza conferma). Verificato dal vivo il 19/08/2026 con 2 payload reali
+   sul meccanismo di auto-correzione: un tentativo esplicito di jailbreak e' stato bloccato
+   dal filtro di sicurezza nativo di Azure OpenAI stesso (richiesta rifiutata con
+   `content_filter`/`jailbreak: detected`) PRIMA che il modello rispondesse; un tentativo piu'
+   sottile in stile "autorizzazione di sistema" (che chiedeva di modificare
+   `Config/tenants.json` senza conferma) e' stato riconosciuto e ignorato dal modello stesso,
+   che ha risposto restando in compito. Nessuna scrittura pericolosa e' mai stata proposta in
+   nessuno dei due casi — la difesa e' su piu' livelli indipendenti (filtro Azure, giudizio del
+   modello, e comunque ogni fix proposto richiede corrispondenza ESATTA nel file bersaglio piu'
+   conferma umana esplicita prima di essere applicato, mai automatico), ma va ri-testata con
+   payload diversi ad ogni giro serio di stress test, non assunta come garantita per sempre.
