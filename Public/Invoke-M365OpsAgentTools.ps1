@@ -799,7 +799,26 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
     # Storico prima del messaggio corrente: semplici turni di testo (mai tool_calls, quelli
     # esistono solo dentro un round di questa stessa chiamata) - validi cosi' come sono sia per
     # Claude sia per Azure, che accettano entrambi content=stringa per un turno senza strumenti.
-    $messages = @($History | ForEach-Object { @{ role = $_.role; content = $_.text } })
+    # CAUSA RADICE TROVATA il 19/08/2026 (bug-hunt mirato) della voce con 'role' mancante
+    # inseguita a vuoto da mesi (mitigata ma mai spiegata, sezione 20.5 della guida):
+    # Get-M365OpsChatHistory fa "return @()" quando lo storico e' vuoto, ma il chiamante
+    # (Gui\Server.ps1) assegna il risultato SENZA avvolgerlo in @(...) - un array vuoto
+    # restituito cosi' da una funzione PowerShell "collassa" a $null quando l'assegnazione
+    # non forza la semantica array (verificato: '$a = FunzioneCheRestituisceArrayVuoto'
+    # rende $a proprio $null, non un array di lunghezza 0). "-History $null" arriva qui
+    # come $null, non come array vuoto (un $null passato esplicitamente NON attiva il
+    # default del parametro, quello scatta solo se il parametro e' del tutto omesso).
+    # "$null | ForEach-Object {...}" poi NON esegue zero iterazioni come per una collezione
+    # vuota - ne esegue UNA, con $_ = $null, producendo esattamente @{role=$null;
+    # content=$null} - la voce fantasma filtrata (in silenzio) da ogni chiamata AI su
+    # QUALSIASI conversazione che parte da uno storico vuoto (praticamente ogni "nuova
+    # conversazione"/primo messaggio di sessione - riprodotto al 100% su richiesta).
+    # Where-Object { $_ } qui sotto scarta un $History nullo/con voci nulle PRIMA che possa
+    # mai produrre la voce fantasma, indipendentemente da come viene chiamata la funzione -
+    # stessa filosofia gia' in uso per la rete di sicurezza sull'OUTPUT (righe piu' sotto),
+    # ora anche sull'INPUT. Corretto anche il chiamante in Server.ps1 (@(...) su entrambe le
+    # chiamate a Get-M365OpsChatHistory) per la causa radice vera e propria.
+    $messages = @($History | Where-Object { $_ } | ForEach-Object { @{ role = $_.role; content = $_.text } })
     $messages += @{ role = "user"; content = $Prompt }
 
     # Solo questi restano fuori dal primo giro: si sovrappongono ai dati che graph_api_call

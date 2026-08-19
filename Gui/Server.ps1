@@ -949,7 +949,13 @@ function Handle-ChatMessage {
             # Storico locale della conversazione (Config\ChatHistory-<tenant>.json): senza,
             # ogni domanda di follow-up ripartirebbe da zero e l'AI non "ricorderebbe" mai la
             # domanda precedente (bug reale segnalato dall'utente il 15/08/2026).
-            $chatHistory = Get-M365OpsChatHistory -TenantName $script:ActiveTenantProfile
+            # @(...) OBBLIGATORIO qui - causa radice reale del bug "role mancante" trovata il
+            # 19/08/2026 (bug-hunt mirato, prima solo mitigata a valle, sezione 20.5 della
+            # guida): senza, quando lo storico e' vuoto Get-M365OpsChatHistory restituisce un
+            # array vuoto che PowerShell collassa a $null in un'assegnazione scalare - $null
+            # passato a -History produce poi una voce fantasma {role=null} in ogni chiamata AI
+            # (vedi Invoke-M365OpsAgentTools.ps1 per il meccanismo completo, corretto anche li').
+            $chatHistory = @(Get-M365OpsChatHistory -TenantName $script:ActiveTenantProfile)
             $result = Invoke-M365OpsAgentTools -Prompt $aiPrompt -Provider $script:ActiveAIProvider -History $chatHistory
             Write-M365OpsLog "Invoke-M365OpsAgentTools completato."
 
