@@ -564,7 +564,11 @@ function Handle-ChatMessage {
     param([string]$Message)
 
     $msg = $Message.Trim()
-    $lower = $msg.ToLower()
+    # $lower e' SOLO per il matching locale (catalogo + si/no) - normalizzato per assorbire il
+    # rumore meccanico piu' comune (apostrofi doppi, abbreviazioni SMS come "nn"/"sn"), MAI il
+    # testo originale $msg che va all'AI o nello storico: l'utente deve rivedere quello che ha
+    # scritto per davvero, e l'AI gestisce gia' bene da sola i refusi veri (bug-hunt 19/08/2026).
+    $lower = Get-M365OpsNormalizedChatText -Text $msg.ToLower()
     Write-M365OpsLog "Messaggio ricevuto: $msg"
 
     if ($script:PendingAction) {

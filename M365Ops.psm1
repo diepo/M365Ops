@@ -24,10 +24,12 @@ $publicNames = Get-ChildItem -Path (Join-Path $here 'Public') -Filter '*.ps1' | 
 $customNames = Get-ChildItem -Path $script:M365OpsCustomScriptsPath -Filter '*.ps1' -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -notlike '_*' -and (Get-Command -Name $_.BaseName -CommandType Function -ErrorAction SilentlyContinue) } |
     ForEach-Object { $_.BaseName }
-# Invoke-M365OpsGraphRequest resta in Private/ (wrapper interno, non una cmdlet documentata)
-# ma va esportata esplicitamente: Gui\Server.ps1 la chiama direttamente per eseguire una
-# scrittura Graph confermata su tenant Delegati (ramo 'LokkaWrite'), ed e' un consumer del
-# modulo come qualsiasi altro - vede solo i membri esportati, mai le funzioni Private per
-# nome, anche se il file e' dot-sourced dentro il modulo (bug reale: 'the term is not
-# recognized', scoping, non un problema di rete/import mancante - trovato il 15/08/2026).
-Export-ModuleMember -Function (@($publicNames) + @($customNames) + 'Invoke-M365OpsGraphRequest')
+# Invoke-M365OpsGraphRequest e Get-M365OpsNormalizedChatText restano in Private/ (wrapper
+# interni, non cmdlet documentate) ma vanno esportate esplicitamente: Gui\Server.ps1 le chiama
+# direttamente (la prima per una scrittura Graph confermata su tenant Delegati, ramo
+# 'LokkaWrite'; la seconda per normalizzare il testo prima del matching sul catalogo comandi,
+# bug-hunt 19/08/2026) ed e' un consumer del modulo come qualsiasi altro - vede solo i membri
+# esportati, mai le funzioni Private per nome, anche se il file e' dot-sourced dentro il modulo
+# (bug reale: 'the term is not recognized', scoping, non un problema di rete/import mancante -
+# trovato il 15/08/2026).
+Export-ModuleMember -Function (@($publicNames) + @($customNames) + 'Invoke-M365OpsGraphRequest' + 'Get-M365OpsNormalizedChatText')
