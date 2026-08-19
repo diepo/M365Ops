@@ -4,6 +4,12 @@
     (verificato con una vera chiamata HTTP, non solo un controllo di porta) NON lo riavvia
     ne' ne avvia una seconda copia in parallelo: apre solo il browser sulla sessione gia'
     in corso, cosi' non si perde lo stato (tenant attivo, file caricato, connessioni).
+
+    Questo script gira sempre con -WindowStyle Hidden (lanciato da M365Ops.bat): qualunque
+    fallimento qui dentro e' altrimenti invisibile, sia per chi fa doppio click sia per uno
+    script/automazione che lo invoca senza aspettarne il completamento. Per questo ogni esito
+    (OK o FAILED) viene sia scritto in Config\last-start-status.txt (controllabile a
+    programma) sia mostrato con un MessageBox nei casi di errore reale.
 #>
 param(
     [int]$Port
@@ -13,6 +19,32 @@ $root = $PSScriptRoot
 $serverScript = Join-Path $root 'Gui\Server.ps1'
 $activePortFile = Join-Path $root 'Config\active-port.txt'
 $portPrefFile = Join-Path $root 'Config\server-port.txt'
+$statusFile = Join-Path $root 'Config\last-start-status.txt'
+
+function Write-M365OpsStartupStatus {
+    param([string]$Status, [string]$Detail = '')
+    try {
+        $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`t$Status`t$Detail"
+        Set-Content -Path $statusFile -Value $line -Encoding UTF8 -ErrorAction Stop
+    } catch {}
+}
+
+# MessageBox visibile anche a -WindowStyle Hidden: e' l'unico modo per far sapere a chi ha
+# fatto doppio click su M365Ops.bat che qualcosa e' andato storto, dato che qui non c'e'
+# nessuna console visibile su cui scrivere.
+function Show-M365OpsStartupError {
+    param([string]$Message)
+    Write-M365OpsStartupStatus -Status 'FAILED' -Detail $Message
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+        [System.Windows.Forms.MessageBox]::Show(
+            "$Message`n`nLog: $(Join-Path $root 'Logs\server-console-error.log')",
+            'M365Ops - Avvio non riuscito',
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        ) | Out-Null
+    } catch {}
+}
 
 function Test-M365OpsServerUp {
     param([int]$TestPort)
@@ -32,6 +64,7 @@ if (Test-Path $activePortFile) {
     $lastKnownPort = (Get-Content $activePortFile -Raw -ErrorAction SilentlyContinue).Trim()
     if ($lastKnownPort -match '^\d+$' -and (Test-M365OpsServerUp -TestPort ([int]$lastKnownPort))) {
         Start-Process "http://localhost:$lastKnownPort/"
+        Write-M365OpsStartupStatus -Status 'OK' -Detail "Istanza gia' attiva, porta $lastKnownPort"
         return
     }
 }
@@ -73,7 +106,10 @@ try {
         }
     }
 } catch {
-    Write-Host "Controllo automatico dei prerequisiti (Node.js/Edge) non riuscito: $($_.Exception.Message)" -ForegroundColor Yellow
+    # Non bloccante di proposito: un fallimento qui (es. Import-Module rotto) non deve impedire
+    # il tentativo di avvio del server, che importa il modulo per conto suo in un processo
+    # separato (riga sotto) e potrebbe comunque riuscire. Si registra solo per diagnosi.
+    Write-M365OpsStartupStatus -Status 'WARNING' -Detail "Controllo prerequisiti non riuscito: $($_.Exception.Message)"
 }
 
 # Sempre pwsh.exe (PowerShell 7), mai powershell.exe (5.1) - il modulo e il server sono
@@ -89,8 +125,7 @@ if (-not $pwshPath) {
     $pwshPath = $candidatePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
 }
 if (-not $pwshPath) {
-    Write-Host "PowerShell 7 (pwsh.exe) non trovato su questo PC - necessario per avviare M365Ops." -ForegroundColor Red
-    Start-Sleep -Seconds 5
+    Show-M365OpsStartupError "PowerShell 7 (pwsh.exe) non trovato su questo PC - necessario per avviare M365Ops."
     return
 }
 
@@ -118,7 +153,8 @@ for ($i = 0; $i -lt 20; $i++) {
 }
 
 Start-Process "http://localhost:$actualPort/"
-if (-not $ready) {
-    Write-Host "Il server non ha risposto entro 10s - se la pagina non si carica, riprova tra poco." -ForegroundColor Yellow
-    Start-Sleep -Seconds 3
+if ($ready) {
+    Write-M365OpsStartupStatus -Status 'OK' -Detail "Porta $actualPort"
+} else {
+    Show-M365OpsStartupError "Il server non ha risposto entro 10s sulla porta $actualPort. La pagina e' stata aperta comunque, ma potrebbe non caricarsi - riprova tra poco o controlla i log."
 }
