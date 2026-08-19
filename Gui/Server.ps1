@@ -613,7 +613,17 @@ function Handle-ChatMessage {
         # (passa al catalogo successivo, poi eventualmente all'AI) se il messaggio contiene
         # anche uno di questi segnali di richiesta piu' ampia di quella singola voce.
         if ($entry.DeferWords) {
-            $deferPattern = '\b(' + ($entry.DeferWords -join '|') + ')\b'
+            # Solo \b INIZIALE, mai anche finale: bug reale trovato dal vivo il 19/08/2026
+            # (bug-hunt mirato) - diverse DeferWords in questo catalogo sono radici di parola
+            # ('consigl', 'perch', appena aggiunta 'correlazion'), pensate per matchare
+            # "consiglio"/"perché"/"correlazioni" ecc. Con \b anche alla fine, il confine di
+            # parola serve SUBITO dopo la radice - dove pero' la parola vera continua con altre
+            # lettere, quindi non c'e' mai un confine li' e il match falliva SEMPRE, in silenzio,
+            # da quando queste DeferWords erano state introdotte (verificato: 'consiglio' -match
+            # '\bconsigl\b' e' $false). Il \b iniziale da solo basta gia' a evitare falsi
+            # positivi a meta' parola (es. 'nn' non tocca 'innovazione': non c'e' un confine
+            # nemmeno li' prima della 'nn'), quindi rimuovere solo quello finale e' sicuro.
+            $deferPattern = '\b(' + ($entry.DeferWords -join '|') + ')'
             if ($lower -match $deferPattern) { continue }
         }
 
