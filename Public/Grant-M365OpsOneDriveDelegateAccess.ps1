@@ -23,7 +23,9 @@ function Grant-M365OpsOneDriveDelegateAccess {
     $oneDriveUrl = ($drive.webUrl -replace '/Documents/?$', '')
 
     Connect-M365OpsSharePoint -SiteUrl $oneDriveUrl
-    Add-PnPSiteCollectionAdmin -Owners $AdminUpn
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026), qui sul modulo PnP.PowerShell.
+    Add-PnPSiteCollectionAdmin -Owners $AdminUpn -ErrorAction Stop
 
     $peopleUrl = "$oneDriveUrl/_layouts/15/people.aspx?membershipGroupId=0"
     Write-Host "$AdminUpn aggiunto come amministratore su $oneDriveUrl" -ForegroundColor Green

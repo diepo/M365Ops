@@ -20,7 +20,10 @@ function Grant-M365OpsTeamsPolicy {
     # -PolicyName come obbligatorio - OMETTERLO del tutto fallisce con "missing mandatory
     # parameters: PolicyName" invece di resettare al default. Per il reset va passato
     # esplicitamente -PolicyName $null (comportamento nativo Microsoft, non un default PowerShell).
-    $params = @{ Identity = $Upn; PolicyName = $PolicyName }
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026) - i cmdlet Cs* di Teams sono
+    # gia' noti in questo progetto per errori non terminanti (sezione 17.11.1 della guida).
+    $params = @{ Identity = $Upn; PolicyName = $PolicyName; ErrorAction = 'Stop' }
 
     switch ($PolicyType) {
         'Meeting'       { Grant-CsTeamsMeetingPolicy @params }

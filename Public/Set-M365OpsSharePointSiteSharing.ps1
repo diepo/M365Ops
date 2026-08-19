@@ -11,7 +11,9 @@ function Set-M365OpsSharePointSiteSharing {
     )
     Connect-M365OpsSharePoint
 
-    Set-PnPTenantSite -Identity $SiteUrl -SharingCapability $SharingCapability
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026), qui sul modulo PnP.PowerShell.
+    Set-PnPTenantSite -Identity $SiteUrl -SharingCapability $SharingCapability -ErrorAction Stop
 
     Write-Host "SharingCapability di $SiteUrl impostata a $SharingCapability" -ForegroundColor Green
     [pscustomobject]@{ SiteUrl = $SiteUrl; SharingCapability = $SharingCapability }

@@ -126,24 +126,29 @@ function New-M365OpsWin32App {
         # l'utente deve cliccare "Connetti Intune (browser)" nella GUI prima, esplicitamente.
         Connect-M365OpsIntune
 
+        # -ErrorAction Stop su tutte le chiamate al modulo IntuneWin32App qui sotto: fix
+        # difensivo (bug-hunt 19/08/2026), stesso principio gia' applicato a EXO/PnP/Teams in
+        # questo giro - non riprodotto dal vivo per questo modulo specifico (un packaging reale
+        # richiede file/tempi non compatibili con un test rapido), ma nessuna di queste chiamate
+        # aveva mai un controllo esplicito sull'esito.
         $detectionRule = switch ($DetectionMode) {
             'Version' {
                 New-IntuneWin32AppDetectionRuleFile -Version -Path $DetectionPath -FileOrFolder $DetectionFile `
-                    -Operator greaterThanOrEqual -VersionValue $DetectionVersion -Check32BitOn64System $false
+                    -Operator greaterThanOrEqual -VersionValue $DetectionVersion -Check32BitOn64System $false -ErrorAction Stop
             }
             'FileExists' {
                 # Per script (ps1/bat/cmd): rileva un marker che lo script stesso crea/imposta al
                 # termine con successo - fornito da chi pacchettizza, mai dedotto (18/08/2026).
                 New-IntuneWin32AppDetectionRuleFile -Existence -Path $DetectionPath -FileOrFolder $DetectionFile `
-                    -DetectionType Exists -Check32BitOn64System $false
+                    -DetectionType Exists -Check32BitOn64System $false -ErrorAction Stop
             }
             'RegistryExists' {
                 New-IntuneWin32AppDetectionRuleRegistry -Existence -KeyPath $DetectionRegistryKeyPath -ValueName $DetectionRegistryValueName `
-                    -DetectionType Exists -Check32BitOn64System $false
+                    -DetectionType Exists -Check32BitOn64System $false -ErrorAction Stop
             }
         }
 
-        $requirementParams = @{ Architecture = $Architecture; MinimumSupportedWindowsRelease = $MinimumSupportedWindowsRelease }
+        $requirementParams = @{ Architecture = $Architecture; MinimumSupportedWindowsRelease = $MinimumSupportedWindowsRelease; ErrorAction = 'Stop' }
         if ($MinimumFreeDiskSpaceInMB) { $requirementParams.MinimumFreeDiskSpaceInMB = $MinimumFreeDiskSpaceInMB }
         if ($MinimumMemoryInMB) { $requirementParams.MinimumMemoryInMB = $MinimumMemoryInMB }
         if ($MinimumNumberOfProcessors) { $requirementParams.MinimumNumberOfProcessors = $MinimumNumberOfProcessors }
@@ -170,17 +175,18 @@ function New-M365OpsWin32App {
             $addParams.ReturnCode = @($ReturnCodes | ForEach-Object { New-IntuneWin32AppReturnCode -ReturnCode $_.ReturnCode -Type $_.Type })
         }
 
+        $addParams.ErrorAction = 'Stop'
         $app = Add-IntuneWin32App @addParams
 
         $notes = @()
         if ($DependsOn) {
-            $depObjects = @($DependsOn | ForEach-Object { New-IntuneWin32AppDependency -ID $_.Id -DependencyType $_.Type })
-            Add-IntuneWin32AppDependency -ID $app.id -Dependency $depObjects
+            $depObjects = @($DependsOn | ForEach-Object { New-IntuneWin32AppDependency -ID $_.Id -DependencyType $_.Type -ErrorAction Stop })
+            Add-IntuneWin32AppDependency -ID $app.id -Dependency $depObjects -ErrorAction Stop
             $notes += "dipendenze aggiunte: $($DependsOn.Count)"
         }
         if ($Supersedes) {
-            $supObjects = @($Supersedes | ForEach-Object { New-IntuneWin32AppSupersedence -ID $_.Id -SupersedenceType $_.Type })
-            Add-IntuneWin32AppSupersedence -ID $app.id -Supersedence $supObjects
+            $supObjects = @($Supersedes | ForEach-Object { New-IntuneWin32AppSupersedence -ID $_.Id -SupersedenceType $_.Type -ErrorAction Stop })
+            Add-IntuneWin32AppSupersedence -ID $app.id -Supersedence $supObjects -ErrorAction Stop
             $notes += "supersedence aggiunta: $($Supersedes.Count)"
         }
         $notesText = if ($notes) { " ($($notes -join ', '))" } else { "" }

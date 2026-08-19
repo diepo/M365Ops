@@ -270,7 +270,14 @@ function Get-M365OpsCommandCatalog {
             # inoltrata all'AI per l'analisi di sicurezza richiesta davvero. Il trigger ora
             # richiede che 'dispositiv' compaia vicino a 'non conform*' (o che il messaggio sia
             # una richiesta diretta che comincia cosi'), invece di una sottostringa isolata.
-            Triggers     = @('dispositiv.{0,30}non compliant', 'dispositiv.{0,30}non conform', 'non conform.{0,30}dispositiv', 'non compliant.{0,30}dispositiv', '^non conform', '^non compliant')
+            # BUG reale trovato dal vivo il 19/08/2026 durante un bug-hunt mirato con italiano
+            # sgrammaticato: "dispositivi mostrami quali sono kelli nn conformi" (typo comune
+            # da tastiera, "nn" per "non") NON faceva scattare questo trigger (richiedeva "non
+            # conform" letterale) - cadeva invece sul catch-all '^dispositiv' di ListDevices
+            # qui sotto, che ha risposto con TUTTI i dispositivi (compresi quelli conformi)
+            # invece dei soli non conformi richiesti, senza alcun segnale che il filtro fosse
+            # stato ignorato. '(non|nn)\s*conform*' tollera ora anche questa abbreviazione.
+            Triggers     = @('dispositiv.{0,30}(non|nn)\s*compliant', 'dispositiv.{0,30}(non|nn)\s*conform', '(non|nn)\s*conform.{0,30}dispositiv', '(non|nn)\s*compliant.{0,30}dispositiv', '^(non|nn)\s*conform', '^(non|nn)\s*compliant')
             # Bug reale trovato dal vivo il 18/08/2026: il trigger riconosce correttamente il
             # topic "dispositivi non conformi", ma una richiesta che chiede ANCHE un piano di
             # remediation/analisi ("...e qual e' il piano di remediation consigliato") veniva
@@ -422,7 +429,18 @@ function Get-M365OpsCommandCatalog {
             # dispositivi e poi dimmi anche quanti gruppi di distribuzione ci sono" mostrava solo
             # l'elenco dispositivi, ignorando silenziosamente "e poi..." - nessuno (ne' il
             # catalogo ne' l'AI) rispondeva alla seconda parte.
-            DeferWords   = @('e poi', 'e anche', 'quindi')
+            #
+            # 'conform'/'compliant'/'nn conform' aggiunti lo stesso giorno (bug-hunt mirato): il
+            # catch-all '^dispositiv' intercetta ANCHE una richiesta che parla di conformita' con
+            # "dispositivi" messo in testa alla frase (fronting comune nel parlato/scritto
+            # informale, es. "dispositivi, quali sono i non conformi" con ordine invertito) -
+            # rete di sicurezza in piu' oltre al fix diretto su ListNonCompliant: se il messaggio
+            # nomina la conformita' (anche fuori dai pattern gia' coperti sopra), questa voce si
+            # fa da parte invece di rispondere con l'elenco NON filtrato spacciandolo per
+            # completo. NON si usa il solo 'non' come DeferWord: e' una delle parole piu' comuni
+            # dell'italiano ("dispositivi non aggiornati da tempo" ecc.) - avrebbe fatto deviare
+            # all'AI anche richieste semplicissime senza alcun legame con la conformita'.
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'nn\s*conform', 'compliant', 'conform')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { Get-M365OpsManagedDevices }

@@ -16,7 +16,9 @@ function Revoke-M365OpsOneDriveDelegateAccess {
     $oneDriveUrl = ($drive.webUrl -replace '/Documents/?$', '')
 
     Connect-M365OpsSharePoint -SiteUrl $oneDriveUrl
-    Remove-PnPSiteCollectionAdmin -Owners $AdminUpn
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026), qui sul modulo PnP.PowerShell.
+    Remove-PnPSiteCollectionAdmin -Owners $AdminUpn -ErrorAction Stop
 
     Write-Host "$AdminUpn rimosso dagli amministratori di $oneDriveUrl" -ForegroundColor Green
     [pscustomobject]@{ OwnerUpn = $OwnerUpn; AdminUpn = $AdminUpn; OneDriveUrl = $oneDriveUrl; Removed = $true }

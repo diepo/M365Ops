@@ -25,16 +25,19 @@ function New-M365OpsSharePointSite {
     )
     Connect-M365OpsSharePoint
 
+    # -ErrorAction Stop su entrambi i rami: stesso bug di errore non terminante ignorato in
+    # silenzio gia' trovato su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026), qui
+    # sul modulo PnP.PowerShell.
     if ($Template -eq 'TeamSite') {
         if (-not $Alias) { throw "TeamSite richiede -Alias (parte locale dell'indirizzo del gruppo, es. 'progetto-x')." }
-        $params = @{ Type = 'TeamSite'; Title = $Title; Alias = $Alias }
+        $params = @{ Type = 'TeamSite'; Title = $Title; Alias = $Alias; ErrorAction = 'Stop' }
         if ($Owner) { $params.Owner = $Owner }
         if ($IsPublic) { $params.IsPublic = $true }
         $siteUrl = New-PnPSite @params
     }
     else {
         if (-not $Url) { throw "CommunicationSite richiede -Url (indirizzo completo del sito da creare)." }
-        $params = @{ Type = 'CommunicationSite'; Title = $Title; Url = $Url }
+        $params = @{ Type = 'CommunicationSite'; Title = $Title; Url = $Url; ErrorAction = 'Stop' }
         if ($Owner) { $params.Owner = $Owner }
         $siteUrl = New-PnPSite @params
     }
