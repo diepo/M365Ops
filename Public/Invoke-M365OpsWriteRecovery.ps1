@@ -92,6 +92,19 @@ CASUALE e sufficientemente complessa (non "Password123", non un valore prevedibi
 forceChangePasswordNextSignIn=true, cosi' l'utente la cambia al primo accesso - e' il default
 corretto quando l'utente ha detto di lasciare tutto a default, non un'invenzione arbitraria.
 
+BUG REALE trovato dal vivo il 19/08/2026 durante uno stress test mirato, IMPORTANTE: correggi
+SOLO cio' che QUESTO errore sta segnalando, anche se altre parti del corpo restano di
+correttezza incerta e non menzionate da questo errore. Esempio reale osservato: un errore
+Graph "Error converting value to type System.String[], path groupTypes" indica chiaramente
+che va corretto SOLO quel campo (da stringa ad array) - un dubbio non correlato su un ALTRO
+campo del corpo (es. se l'operatore di un'altra proprieta' della regola sia quello giusto) NON
+e' un motivo valido per rifiutare la correzione di QUESTO errore specifico: quel dubbio, se
+fondato, produrra' un errore SUCCESSIVO al prossimo tentativo (questa funzione viene richiamata
+di nuovo automaticamente ad ogni fallimento, non e' un unico tentativo) - a quel punto lo si
+affrontera' con lo stesso procedimento. Rifiutare di correggere un problema chiaro solo perche'
+resta un'incertezza su un problema DIVERSO e non ancora manifestato lascia l'utente bloccato
+su un errore che sai gia' come risolvere.
+
 Rispondi SOLO con un blocco JSON, nessun altro testo prima o dopo, in questo formato esatto:
 {
   "canFix": true|false,
@@ -100,9 +113,11 @@ Rispondi SOLO con un blocco JSON, nessun altro testo prima o dopo, in questo for
 }
 
 Imposta "canFix": false (e correctedBody: null) SOLO se ne' l'errore ne' la documentazione
-fornita indicano come correggere la richiesta, o se la correzione richiederebbe informazioni
-che solo l'utente puo' fornire (es. scegliere quale di due gruppi con lo stesso nome) - non
-inventare un valore plausibile ma incerto solo per riempire il campo.
+fornita indicano come correggere il problema che QUESTO errore descrive, o se la correzione
+richiederebbe informazioni che solo l'utente puo' fornire (es. scegliere quale di due gruppi
+con lo stesso nome) - non inventare un valore plausibile ma incerto solo per riempire il campo
+che l'errore descrive. Non bloccare pero' una correzione chiara per un dubbio su un campo
+diverso che questo errore non sta segnalando.
 "@
 
     $raw = Invoke-M365OpsAgent -Prompt $prompt -MaxTokens 800 -Provider $Provider
