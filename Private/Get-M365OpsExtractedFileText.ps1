@@ -53,8 +53,16 @@ function Get-M365OpsExtractedFileText {
         }
         '.pdf' {
             if (-not (Get-Module -ListAvailable -Name PdfLexer)) {
+                # TLS1.2/provider NuGet/-SkipPublisherCheck (22/08/2026): stesso irrobustimento
+                # applicato a Connect-M365OpsTeams.ps1 dopo un blocco reale trovato dal vivo -
+                # senza, Install-Module puo' restare in attesa per sempre di un prompt di
+                # conferma mai mostrato in un processo server senza finestra visibile.
                 Write-Host "Modulo PdfLexer non trovato, lo installo..." -ForegroundColor Yellow
-                Install-Module PdfLexer -Scope CurrentUser -Force -AllowClobber
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+                if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+                    try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch {}
+                }
+                Install-Module PdfLexer -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
             }
             Import-Module PdfLexer -ErrorAction Stop
             $doc = Open-PdfDocument -Path $FilePath
@@ -84,8 +92,16 @@ function Get-M365OpsExtractedFileText {
 function Get-M365OpsExtractedExcelText {
     param([Parameter(Mandatory)] [string]$FilePath)
     if (-not (Get-Module -ListAvailable -Name ImportExcel)) {
+        # TLS1.2/provider NuGet/-SkipPublisherCheck (22/08/2026): stesso irrobustimento
+        # applicato a Connect-M365OpsTeams.ps1 dopo un blocco reale trovato dal vivo - senza,
+        # Install-Module puo' restare in attesa per sempre di un prompt di conferma mai
+        # mostrato in un processo server senza finestra visibile.
         Write-Host "Modulo ImportExcel non trovato, lo installo..." -ForegroundColor Yellow
-        Install-Module ImportExcel -Scope CurrentUser -Force -AllowClobber
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+        if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+            try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch {}
+        }
+        Install-Module ImportExcel -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
     }
     Import-Module ImportExcel -ErrorAction Stop
     $sheetNames = Get-ExcelSheetInfo -Path $FilePath | Select-Object -ExpandProperty Name

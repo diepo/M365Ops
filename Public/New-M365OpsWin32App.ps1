@@ -99,8 +99,16 @@ function New-M365OpsWin32App {
     # fallback qui (il docstring diceva "gia' installati oggi", un'assunzione mai vera su un
     # PC nuovo).
     if (-not (Get-Module -ListAvailable -Name IntuneWin32App)) {
+        # TLS1.2/provider NuGet/-SkipPublisherCheck (22/08/2026): stesso irrobustimento
+        # applicato a Connect-M365OpsTeams.ps1 dopo un blocco reale trovato dal vivo - senza,
+        # Install-Module puo' restare in attesa per sempre di un prompt di conferma mai
+        # mostrato in un processo server senza finestra visibile.
         Write-Host "Modulo IntuneWin32App non trovato, lo installo..." -ForegroundColor Yellow
-        Install-Module IntuneWin32App -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+        if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+            try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch {}
+        }
+        Install-Module IntuneWin32App -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
     }
     Import-Module IntuneWin32App -ErrorAction Stop
 

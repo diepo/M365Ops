@@ -18,12 +18,46 @@ function Connect-M365OpsTeams {
     if ($script:M365OpsTeamsConnected -and -not $Force) { return }
 
     if ($script:M365OpsContext.AuthMode -eq 'Delegated' -and -not $AllowInteractive) {
-        throw "Sessione Teams non ancora attiva per questo tenant delegato. Il server non avvia mai un login interattivo da solo (bloccherebbe l'intera app per tutti, essendo a thread singolo) - vai al tab Tenant (non MCP/Connettori), sezione 'Stato connessioni', Microsoft Teams, e clicca 'Connetti / Test connessione Teams' per farlo esplicitamente (si apre una finestra per il codice, il server resta bloccato per tutti finche' non completi il login - fallo PRIMA di chiedere dati in chat, mai durante una richiesta composta)."
+        throw "Sessione Teams non ancora attiva per questo tenant delegato. Il server non avvia mai un login interattivo da solo (bloccherebbe l'intera app per tutti, essendo a thread singolo) - vai al tab Tenant (non MCP/Connettori), sezione 'Stato connessioni', Microsoft Teams, e clicca 'Connetti / Test connessione Teams' per farlo esplicitamente (si apre una finestra per il login, il server resta bloccato per tutti finche' non completi il login - fallo PRIMA di chiedere dati in chat, mai durante una richiesta composta). Se sembra che non succeda nulla dopo il click, la finestra di login potrebbe essersi aperta DIETRO il browser invece che in primo piano - controlla con Alt+Tab o la barra delle applicazioni prima di pensare che sia bloccato (bug reale segnalato dal vivo il 22/08/2026)."
+    }
+
+    # BUG STRUTTURALE DI TERZE PARTI, trovato e riprodotto dal vivo il 22/08/2026 (in
+    # App-only, quindi indipendente dalla modalita' Delegata o dall'ambiente Sandbox - non
+    # e' un bug di questo progetto): i moduli MicrosoftTeams e ExchangeOnlineManagement
+    # portano con se' versioni INCOMPATIBILI delle stesse librerie condivise di
+    # autenticazione (Microsoft.Identity.Client / Microsoft.IdentityModel.*) - una volta che
+    # UN modulo le ha caricate nel processo, l'ALTRO fallisce sempre, in ENTRAMBE le
+    # direzioni (riprodotto: Teams poi Exchange fallisce su
+    # Microsoft.IdentityModel.Abstractions, Exchange poi Teams fallisce su
+    # Microsoft.Identity.Client - cambiare l'ordine non risolve nulla). Vedi
+    # Connect-M365OpsExchange.ps1 per il dettaglio completo e la fonte pubblica del
+    # conflitto (documentato da anni, nessun fix lato Microsoft).
+    if ($script:M365OpsExchangeModuleImported) {
+        throw "Impossibile connettersi a Teams: il modulo ExchangeOnlineManagement e' gia' stato caricato in questo stesso processo server, e i due moduli portano versioni incompatibili delle stesse librerie di autenticazione - conflitto noto e documentato di Microsoft (non un bug di M365Ops), presente da anni, senza soluzione lato modulo. In QUESTA sessione del server puoi usare Exchange OPPURE Teams, non entrambi - riavvia il server (pulsante Manutenzione, o 'M365Ops - Termina e riavvia' sul Desktop se non risponde) per liberare il processo e usare Teams da capo."
     }
 
     if (-not (Get-Module -ListAvailable -Name MicrosoftTeams)) {
-        Write-Host "Modulo MicrosoftTeams non trovato, lo installo..." -ForegroundColor Yellow
-        Install-Module MicrosoftTeams -Scope CurrentUser -Force -AllowClobber
+        # BUG STRUTTURALE trovato il 22/08/2026: segnalato dal vivo un secondo blocco DOPO
+        # il fix -DisableWAM (v0.9.35), stavolta senza NEMMENO la riga di log "Import-Module
+        # MicrosoftTeams avviato" (la primissima diagnostica aggiunta, PRIMA di questo blocco
+        # nel codice) - prova che il blocco vero scattava ancora PIU' in alto, proprio qui:
+        # Install-Module senza -SkipPublisherCheck ne' TLS1.2/provider NuGet forzati (stesso
+        # irrobustimento gia' applicato altrove nel progetto - Bootstrap-Winget.ps1,
+        # Install-M365OpsPrerequisites.ps1, Show-M365OpsPrereqInstaller.ps1 - ma MAI qui, un
+        # fallback "al primo uso" scritto prima di quella disciplina) puo' restare in attesa
+        # di un prompt di conferma repository non attendibile mai mostrato in un processo
+        # server senza finestra visibile - bloccato per sempre, senza nessun errore ne' log,
+        # esattamente il sintomo descritto ("come prima il log non dice nulla"). Puo' capitare
+        # anche se il modulo era gia' stato installato dal GUI installer in un passaggio
+        # precedente, se per qualunque motivo quel passaggio non fosse riuscito per Teams
+        # specificamente su quel PC.
+        Write-M365OpsLog "Modulo MicrosoftTeams non trovato, lo installo (Install-Module)..."
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+        if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+            try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch {}
+        }
+        Install-Module MicrosoftTeams -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+        Write-M365OpsLog "Modulo MicrosoftTeams installato."
     }
     # Log PRIMA dell'import (22/08/2026): un blocco segnalato dal vivo non aveva scritto
     # NEMMENO la riga di diagnostica messa subito prima di Connect-MicrosoftTeams (vedi sotto)
@@ -34,6 +68,7 @@ function Connect-M365OpsTeams {
     Write-M365OpsLog "Import-Module MicrosoftTeams avviato..."
     Import-Module MicrosoftTeams -ErrorAction Stop
     Write-M365OpsLog "Import-Module MicrosoftTeams completato."
+    $script:M365OpsTeamsModuleImported = $true
 
     if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
         if (-not $script:M365OpsContext.DelegatedUpn) {

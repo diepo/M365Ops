@@ -18,11 +18,28 @@ function Connect-M365OpsCompliance {
         throw "Sessione Security & Compliance (Purview) non ancora attiva per questo tenant delegato. Il server non avvia mai un login interattivo da solo (bloccherebbe l'intera app per tutti, essendo a thread singolo) - vai al tab Tenant (sezione 'Stato connessioni'), Purview/Compliance, e clicca 'Connetti / Test connessione Purview' per farlo esplicitamente, poi riprova."
     }
 
+    # Conflitto noto MicrosoftTeams/ExchangeOnlineManagement (22/08/2026) - vedi
+    # Connect-M365OpsExchange.ps1 per il dettaglio completo. Questa funzione importa lo
+    # stesso modulo ExchangeOnlineManagement, quindi eredita lo stesso rischio.
+    if ($script:M365OpsTeamsModuleImported) {
+        throw "Impossibile connettersi a Purview: il modulo MicrosoftTeams e' gia' stato caricato in questo stesso processo server, e i due moduli portano versioni incompatibili delle stesse librerie di autenticazione - conflitto noto e documentato di Microsoft (non un bug di M365Ops), presente da anni, senza soluzione lato modulo. Riavvia il server (pulsante Manutenzione, o 'M365Ops - Termina e riavvia' sul Desktop se non risponde) per liberare il processo."
+    }
+
     if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) {
+        # TLS1.2/provider NuGet/-SkipPublisherCheck (22/08/2026): stesso irrobustimento
+        # applicato a Connect-M365OpsTeams.ps1 dopo un blocco reale trovato dal vivo - senza,
+        # Install-Module puo' restare in attesa per sempre di un prompt di conferma mai
+        # mostrato in un processo server senza finestra visibile (vedi quel file per il
+        # dettaglio completo).
         Write-Host "Modulo ExchangeOnlineManagement non trovato, lo installo..." -ForegroundColor Yellow
-        Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+        if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+            try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch {}
+        }
+        Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
     }
     Import-Module ExchangeOnlineManagement -ErrorAction Stop
+    $script:M365OpsExchangeModuleImported = $true
 
     if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
         if (-not $script:M365OpsContext.DelegatedUpn) {

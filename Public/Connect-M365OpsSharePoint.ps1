@@ -58,8 +58,17 @@ function Connect-M365OpsSharePoint {
     }
 
     if (-not (Get-Module -ListAvailable -Name PnP.PowerShell)) {
+        # TLS1.2/provider NuGet/-SkipPublisherCheck (22/08/2026): stesso irrobustimento
+        # applicato a Connect-M365OpsTeams.ps1 dopo un blocco reale trovato dal vivo - senza,
+        # Install-Module puo' restare in attesa per sempre di un prompt di conferma mai
+        # mostrato in un processo server senza finestra visibile (vedi quel file per il
+        # dettaglio completo).
         Write-Host "Modulo PnP.PowerShell non trovato, lo installo..." -ForegroundColor Yellow
-        Install-Module PnP.PowerShell -Scope CurrentUser -Force -AllowClobber
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+        if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+            try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch {}
+        }
+        Install-Module PnP.PowerShell -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
     }
     Import-Module PnP.PowerShell -ErrorAction Stop
 
