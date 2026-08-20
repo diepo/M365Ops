@@ -6,7 +6,25 @@ param(
 $moduleRoot = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $moduleRoot 'M365Ops.psd1') -Force
 . (Join-Path $PSScriptRoot 'CommandCatalog.ps1')
-Connect-M365Ops -TenantProfile $TenantProfile
+# Bug reale segnalato dal vivo il 22/08/2026 su un'installazione DAVVERO vergine (Windows
+# Sandbox, Config\tenants.json mai esistito): Connect-M365Ops lancia un'eccezione se non
+# trova NESSUN profilo salvato ("Nessun profilo salvato. Usa prima Set-M365OpsTenant.") - qui
+# girava senza try/catch, PRIMA che il listener HTTP venga mai creato piu' sotto, quindi
+# l'intero processo del server moriva all'istante, senza nemmeno aprire la porta. Da fuori
+# sembrava un server "lento a rispondere" (il sintomo osservato da Launch-M365Ops.ps1 e' un
+# generico "non ha risposto entro N secondi"), ma la causa vera era un crash immediato, non
+# lentezza - il meccanismo di onboarding "firstRun" (GET /api/status, vedi Get-M365OpsTenantList
+# poco sotto, che gia' gestiva correttamente un tenants.json assente) non poteva mai essere
+# raggiunto perche' il server non arrivava mai ad aprire la porta. Questo codice non era mai
+# stato esercitato prima d'ora: ogni test precedente di questa sessione partiva gia' da un PC
+# con almeno un profilo tenant esistente. Corretto lasciando partire il server anche senza
+# nessun tenant attivo (stato gia' previsto e gestito altrove, es. Get-M365OpsSetupStatus) -
+# l'utente vedra' il messaggio di onboarding al primo caricamento della pagina.
+try {
+    Connect-M365Ops -TenantProfile $TenantProfile
+} catch {
+    Write-Host "Nessun tenant attivabile all'avvio ('$TenantProfile'): $($_.Exception.Message) - il server parte comunque, l'utente vedra' la schermata di onboarding." -ForegroundColor Yellow
+}
 
 $script:ActiveTenantProfile = $TenantProfile
 $script:AiProviderConfigPath = Join-Path $moduleRoot 'Config\ai-provider.json'
