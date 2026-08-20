@@ -140,6 +140,7 @@
   </div>
   <div style="display:flex; align-items:center; gap:10px;">
     <span id="ai-badge">Chiamata AI in corso</span>
+    <button id="permissions-check-btn" title="Verifica quali permessi ha davvero l'app registrata su questo tenant">🔐 Stato permessi</button>
     <button id="settings-btn">⚙ Impostazioni tenant</button>
   </div>
 </header>
@@ -469,6 +470,7 @@
   const tenantLabel = document.getElementById('tenant-label');
   const aiBadge = document.getElementById('ai-badge');
   const settingsBtn = document.getElementById('settings-btn');
+  const permissionsCheckBtn = document.getElementById('permissions-check-btn');
   const settingsPanel = document.getElementById('settings-panel');
   const profileList = document.getElementById('profile-list');
   const saveProfileBtn = document.getElementById('save-profile-btn');
@@ -1830,6 +1832,8 @@
     settingsBtn.textContent = isOpen ? '← Torna alla chat' : '⚙ Impostazioni tenant';
     if (isOpen) { loadProfiles(); loadAiSettings(); loadAiUsage(); updateAuthModeFieldVisibility(); loadConnectionStatus(); loadSetupStatus(); }
   });
+
+  permissionsCheckBtn.addEventListener('click', () => sendMessage('verifica permessi app'));
 
   let currentTenantName = '';
 

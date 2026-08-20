@@ -551,5 +551,41 @@ function Get-M365OpsCommandCatalog {
                 return ($lines -join "`n")
             }
         }
+        [pscustomobject]@{
+            # Aggiunta il 21/08/2026, richiesta esplicitamente dall'utente: "vorrei fare una
+            # sezione check permessi app dove... l'interfaccia scrive all'utente se puo' usare
+            # Teams, SharePoint, Exchange etc, in lettura o anche in scrittura". Discusso con
+            # l'utente dove farla vivere (sotto-sezione statica nel tab Tenant vs pulsante in
+            # chat) - scelto il pulsante/comando in chat, coerente con come ogni altro insight
+            # di quest'app viene presentato, e riconoscibile anche scrivendo la domanda a mano.
+            # RequiresAI=$false: i dati (quali permessi sono REALMENTE concessi via Graph) sono
+            # gia' precisi e verificabili da soli, un riassunto AI aggiungerebbe solo rischio di
+            # parafrasare male un nome di permesso senza alcun beneficio.
+            Name         = "AppPermissionsCheck"
+            Description  = "Verifica quali permessi ha davvero l'app registrata (Graph/Exchange/SharePoint/Teams) e cosa manca per lettura o scrittura completa. Uso: 'verifica permessi app'"
+            Triggers     = @('(verific|controll|check).{0,15}permess', 'che permess.{0,20}(ha|hai)', 'stato permess', 'permess.{0,20}(app|applicazione|service principal)')
+            DeferWords   = @()
+            CaptureRegex = $null
+            RequiresAI   = $false
+            Handler      = { Get-M365OpsAppPermissionsCheck }
+            Formatter    = {
+                param($r)
+                $icon = @{ 'lettura+scrittura' = '✅'; 'lettura' = '🟡'; 'nessun accesso' = '❌' }
+                $lines = @("Permessi reali dell'app registrata su questo tenant (verificati ora su Microsoft Graph, non un elenco statico):", "")
+                foreach ($area in $r) {
+                    $lines += "$($icon[$area.Status]) $($area.Area) — $($area.Status)"
+                    if ($area.MissingForWrite -and $area.MissingForWrite.Count -gt 0) {
+                        $lines += "    per anche modificare (scrittura), aggiungi: $($area.MissingForWrite -join ', ')"
+                    }
+                    elseif ($area.MissingForRead -and $area.MissingForRead.Count -gt 0) {
+                        $lines += "    per abilitarlo, aggiungi: $($area.MissingForRead -join ', ')"
+                    }
+                    if ($area.Note) { $lines += "    nota: $($area.Note)" }
+                }
+                $lines += ""
+                $lines += "Ogni permesso mancante si aggiunge da App Registration → API permissions → Add a permission, poi 'Grant admin consent' (sezioni 4.2/4.3/4.4 della guida) - le assegnazioni RBAC Exchange (sezione 6) restano un controllo separato, non verificabile da qui."
+                return ($lines -join "`n")
+            }
+        }
     )
 }
