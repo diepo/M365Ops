@@ -51,19 +51,36 @@ function Get-M365OpsSetupStatus {
         }
     }
 
-    # Bug reale segnalato dal vivo il 21/08/2026 su un PC pulito: il messaggio citava SOLO la
-    # variabile del provider di default (Claude/Anthropic), dando l'impressione sbagliata che
-    # fosse l'unico provider supportato - "perche' solo anthropic? dovrebbe dire che manca una
-    # chiave API per IA". $script:ActiveAIProvider e' semplicemente il default quando nessuno e'
-    # mai stato scelto esplicitamente (Server.ps1), non un vincolo: Azure OpenAI e' un'alternativa
-    # completa, scelta dal tab Motore AI. Il Detail ora lo chiarisce esplicitamente.
-    $aiKeyVar = if ($script:ActiveAIProvider -eq 'AzureOpenAI') { 'AZURE_OPENAI_KEY' } else { 'ANTHROPIC_API_KEY' }
-    $aiKey = Get-M365OpsSecret -Name $aiKeyVar
+    # Bug reale segnalato dal vivo il 21/08/2026 su un PC pulito, corretto DUE volte: la prima
+    # correzione aveva migliorato solo il TESTO ("e' il default, non l'unico"), ma la LOGICA
+    # restava sbagliata - continuava a controllare una sola variabile scelta in base a
+    # $script:ActiveAIProvider, che e' semplicemente il valore INIZIALE del processo
+    # (Server.ps1) prima che l'utente scelga mai nulla, non una preferenza reale. Correzione
+    # vera, richiesta esplicitamente dall'utente ("non ci deve essere un provider di default"):
+    # controlla ENTRAMBI i provider alla pari, senza trattarne nessuno come predefinito -
+    # Claude e Azure OpenAI sono due alternative equivalenti, la scelta e' sempre dell'utente.
+    $hasClaudeKey = [bool](Get-M365OpsSecret -Name 'ANTHROPIC_API_KEY')
+    $hasAzureKey = [bool]((Get-M365OpsSecret -Name 'AZURE_OPENAI_KEY') -and (Get-M365OpsSecret -Name 'AZURE_OPENAI_ENDPOINT') -and (Get-M365OpsSecret -Name 'AZURE_OPENAI_DEPLOYMENT'))
     $items += [pscustomobject]@{
-        Name = "Chiave motore AI ($aiKeyVar)"
-        Status = if ($aiKey) { 'OK' } else { 'Missing' }
-        Detail = if ($aiKey) { 'Impostata.' } else { "Manca una chiave API per il motore AI: '$aiKeyVar' (provider attualmente selezionato: $($script:ActiveAIProvider), il default finche' non ne scegli uno) non e' impostata su questo PC - le richieste in linguaggio libero e il catalogo con RequiresAI falliranno. Se preferisci l'altro provider (Claude/Anthropic o Azure OpenAI), selezionalo dal tab Motore AI prima di inserire la chiave." }
-        Fix = 'Tab Motore AI -> scegli il provider che preferisci (Claude o Azure OpenAI) -> inserisci la chiave -> Salva.'
+        Name = "Chiave motore AI (Claude o Azure OpenAI)"
+        Status = if ($hasClaudeKey -or $hasAzureKey) { 'OK' } else { 'Missing' }
+        # $script:ActiveAIProvider NON e' leggibile qui: e' una variabile di Server.ps1, questa
+        # funzione vive nel modulo - il suo $script: e' un altro scope (stesso bug di scope gia'
+        # visto piu' volte in questo progetto, es. isDelegated in /api/sharepoint-test).
+        # Scoperto proprio scrivendo questa riga: il codice ORIGINALE di questo controllo aveva
+        # lo stesso identico bug (leggeva $script:ActiveAIProvider per decidere quale DELLE DUE
+        # chiavi controllare) - risultava SEMPRE $null, quindi il controllo finiva SEMPRE nel
+        # ramo ANTHROPIC_API_KEY indipendentemente da quale provider fosse davvero selezionato
+        # lato server. Root cause vera del "perche' solo anthropic?" originale, non solo un
+        # problema di testo. Rimosso il riferimento invece di costruire un bridge (vedi
+        # Get-M365OpsActiveTenantInfo per il pattern, qui non necessario): la scelta tra i due
+        # resta comunque sempre dell'utente dal tab Motore AI, non serve indovinare quale sia
+        # "attivo ora" per dare un'informazione corretta.
+        Detail = if ($hasClaudeKey -and $hasAzureKey) { "Entrambi i provider sono configurati (Claude e Azure OpenAI) - scegli quale usare dal tab Motore AI." }
+                 elseif ($hasClaudeKey) { 'Claude (Anthropic) configurato.' }
+                 elseif ($hasAzureKey) { 'Azure OpenAI configurato.' }
+                 else { 'Nessun motore AI configurato su questo PC - le richieste in linguaggio libero e il catalogo con RequiresAI falliranno. Scegli uno dei due provider equivalenti dal tab Motore AI (Claude/Anthropic o Azure OpenAI) e inserisci la chiave corrispondente - non c''e'' una scelta consigliata, sono alternative complete.' }
+        Fix = 'Tab Motore AI -> scegli Claude o Azure OpenAI -> inserisci la chiave -> Salva.'
     }
 
     $npx = (Get-Command 'npx.cmd' -ErrorAction SilentlyContinue) -or (Get-Command 'npx' -ErrorAction SilentlyContinue)

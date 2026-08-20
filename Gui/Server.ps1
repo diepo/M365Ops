@@ -1862,9 +1862,14 @@ try {
         if ($script:RestartRequested) {
             Write-Host "Riavvio richiesto dalla GUI - libero la porta e avvio una nuova istanza." -ForegroundColor Yellow
             Start-Sleep -Milliseconds 300
-            if ($script:M365OpsLokkaProcess -and -not $script:M365OpsLokkaProcess.HasExited) {
-                $script:M365OpsLokkaProcess.Kill()
-            }
+            # BUG scope trovato durante l'audit del 22/08/2026 (stessa classe di
+            # $script:ActiveAIProvider in Get-M365OpsSetupStatus, v0.9.26): $script:M365OpsLokkaProcess
+            # e' impostato da Connect-M365OpsLokka.ps1 nello scope del MODULO, non in quello di
+            # Server.ps1 - letto qui era SEMPRE $null, quindi il kill esplicito prima del riavvio
+            # non uccideva mai realmente il sottoprocesso Lokka (npx), lasciandolo orfano.
+            # Corretto usando la funzione ponte gia' esistente (stesso pattern di
+            # Get-M365OpsActiveTenantInfo) invece di leggere la variabile fuori scope.
+            Disconnect-M365OpsLokka
             $listener.Stop()
             $exePath = (Get-Process -Id $PID).Path
             # BUG corretto: passava sempre $TenantProfile (il parametro di avvio originale,
