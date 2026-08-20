@@ -276,8 +276,9 @@ Esegue una query di SOLA LETTURA su Exchange Online (dati non disponibili via Gr
 - Get-M365OpsMailFlowReport {StartDate?, EndDate?} - statistiche flusso posta
 - Get-M365OpsMessageTrace {StartDate?, EndDate?, SenderAddress?, RecipientAddress?} - tracciamento messaggi, QUALSIASI durata (es. 30 giorni): incatena automaticamente piu' query da 10 giorni (limite del servizio) e unisce i risultati, non serve spezzare tu la richiesta. Risultato troncato a 1000 righe con avviso se superate - su un periodo lungo SENZA SenderAddress/RecipientAddress il volume puo' essere enorme (intero tenant), specifica sempre il filtro se l'utente ha indicato una casella. Se l'utente vuole ESPORTARE (non analizzare a parole) un periodo/volume potenzialmente sopra le 1000 righe, usa generate_raw_export invece di exo_query+generate_report
 - Get-M365OpsMessageTraceDetail {MessageTraceId, RecipientAddress} - dettaglio hop di un messaggio
-- Get-M365OpsAntiSpamPolicies {} - criteri anti-spam (azione su spam/spam alta confidenza/phishing/bulk mail)
-- Get-M365OpsAntiPhishPolicies {} - criteri anti-phishing (soglia, mailbox/spoof intelligence, azione su fallimento autenticazione)
+- Get-M365OpsAntiSpamPolicies {} / Get-M365OpsAntiSpamRules {Identity?} - criteri anti-spam (azione su spam/spam alta confidenza/phishing/bulk mail) e le regole che li collegano a dei destinatari - un criterio SENZA una regola collegata non si applica a nessuno (tranne il criterio "Default" del sistema)
+- Get-M365OpsAntiPhishPolicies {} / Get-M365OpsAntiPhishRules {Identity?} - criteri anti-phishing (soglia, mailbox/spoof intelligence, azione su fallimento autenticazione) e le regole collegate, stesso schema criterio+regola di sopra
+- Get-M365OpsMalwareFilterPolicies {} / Get-M365OpsMalwareFilterRules {Identity?} - criteri di filtro malware (azione su allegati infetti, blocco per tipo file) e le regole collegate - DIVERSO da Safe Attachments sotto (incluso in ogni piano, nessuna licenza aggiuntiva richiesta)
 - Get-M365OpsThreatPolicies {} - criteri Safe Links + Safe Attachments (Defender for Office 365, richiede licenza P1/P2 - lista vuota se non licenziato, non un errore)
 - Get-M365OpsTenantAllowBlockList {ListType?: Sender|Url|FileHash|IP} - voci consentite/bloccate esplicitamente a livello tenant (senza ListType: tutti e 4 i tipi)
 - Get-M365OpsQuarantineMessages {StartReceivedDate?, EndReceivedDate?, RecipientAddress?, SenderAddress?, Type?} - messaggi in quarantena (default ultimi 7 giorni)
@@ -354,6 +355,13 @@ Proponi un'azione di SCRITTURA su Exchange Online. NON viene mai eseguita qui: l
 - New-M365OpsOutboundConnector {Name, RecipientDomains?, SmartHosts?, ExtraParams?} / Set-M365OpsOutboundConnector {Identity, ExtraParams} / Remove-M365OpsOutboundConnector {Identity}
 - New-M365OpsRemoteDomain {Name, DomainName} / Set-M365OpsRemoteDomain {Identity, ExtraParams} / Remove-M365OpsRemoteDomain {Identity} - non funziona su "Default"
 - New-M365OpsAcceptedDomain {Name, DomainName, DomainType?} - il dominio deve avere GIA' il record TXT di verifica pubblicato su Entra ID, questa cmdlet non lo verifica / Set-M365OpsAcceptedDomain {Identity, ExtraParams} / Remove-M365OpsAcceptedDomain {Identity} - AZIONE AD ALTO IMPATTO, tutte le mailbox su quel dominio perdono la posta
+- New-M365OpsAntiSpamPolicy {Name, ExtraParams?} / Set-M365OpsAntiSpamPolicy {Identity, ExtraParams} / Remove-M365OpsAntiSpamPolicy {Identity} - un criterio da solo non si applica a nessuno, serve anche una regola (sotto)
+- New-M365OpsAntiSpamRule {Name, HostedContentFilterPolicy, RecipientDomainIs?, SentTo?, SentToMemberOf?, ExtraParams?} - collega il criterio a dei destinatari (un criterio puo' avere UNA SOLA regola) / Set-M365OpsAntiSpamRule {Identity, ExtraParams} (NON accetta Enabled, vedi sotto) / Remove-M365OpsAntiSpamRule {Identity} / Enable-M365OpsAntiSpamRule {Identity} / Disable-M365OpsAntiSpamRule {Identity}
+- New-M365OpsAntiPhishPolicy {Name, ExtraParams?} / Set-M365OpsAntiPhishPolicy {Identity, ExtraParams} / Remove-M365OpsAntiPhishPolicy {Identity} - stesso schema criterio+regola di anti-spam
+- New-M365OpsAntiPhishRule {Name, AntiPhishPolicy, RecipientDomainIs?, SentTo?, SentToMemberOf?, ExtraParams?} / Set-M365OpsAntiPhishRule {Identity, ExtraParams} (NON accetta Enabled) / Remove-M365OpsAntiPhishRule {Identity} / Enable-M365OpsAntiPhishRule {Identity} / Disable-M365OpsAntiPhishRule {Identity}
+- New-M365OpsMalwareFilterPolicy {Name, ExtraParams?} / Set-M365OpsMalwareFilterPolicy {Identity, ExtraParams} / Remove-M365OpsMalwareFilterPolicy {Identity} - stesso schema criterio+regola
+- New-M365OpsMalwareFilterRule {Name, MalwareFilterPolicy, RecipientDomainIs?, SentTo?, SentToMemberOf?, ExtraParams?} / Set-M365OpsMalwareFilterRule {Identity, ExtraParams} (NON accetta Enabled) / Remove-M365OpsMalwareFilterRule {Identity} / Enable-M365OpsMalwareFilterRule {Identity} / Disable-M365OpsMalwareFilterRule {Identity}
+IMPORTANTE su anti-spam/anti-phishing/malware: verificato dal vivo il 21/08/2026 che NESSUNO dei tre Set-*Rule (HostedContentFilterRule/AntiPhishRule/MalwareFilterRule) accetta un parametro -Enabled, nonostante alcuna documentazione suggerisca il contrario - usa SEMPRE i cmdlet Enable-/Disable- dedicati per abilitare/disabilitare una regola, mai -ExtraParams @{Enabled=...} su un Set-*Rule (fallisce con "a parameter cannot be found").
 IMPORTANTE: se non conosci gia' l'indirizzo/identity esatto di un oggetto, usa PRIMA exo_query per cercarlo - non indovinare mai un indirizzo email o un nome di endpoint.
 "@
             input_schema = @{
@@ -569,6 +577,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
         'Get-M365OpsInboxRulesReport', 'Get-M365OpsLitigationHoldReport', 'Get-M365OpsCalendarPermissions',
         'Get-M365OpsPublicFolders', 'Get-M365OpsSharedMailboxSignInStatus',
         'Get-M365OpsAntiSpamPolicies', 'Get-M365OpsAntiPhishPolicies', 'Get-M365OpsThreatPolicies',
+        'Get-M365OpsAntiSpamRules', 'Get-M365OpsAntiPhishRules', 'Get-M365OpsMalwareFilterPolicies', 'Get-M365OpsMalwareFilterRules',
         'Get-M365OpsTenantAllowBlockList', 'Get-M365OpsQuarantineMessages', 'Invoke-M365OpsProvisioningRecipientDiagnostic',
         'Get-M365OpsMoveRequestDiagnostic',
         # Copertura estesa gruppi/allow-block/quarantena/mail flow (18/08/2026, richiesta
@@ -598,7 +607,15 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
         'Set-M365OpsTransportConfig', 'New-M365OpsInboundConnector', 'Set-M365OpsInboundConnector', 'Remove-M365OpsInboundConnector',
         'New-M365OpsOutboundConnector', 'Set-M365OpsOutboundConnector', 'Remove-M365OpsOutboundConnector',
         'New-M365OpsRemoteDomain', 'Set-M365OpsRemoteDomain', 'Remove-M365OpsRemoteDomain',
-        'New-M365OpsAcceptedDomain', 'Set-M365OpsAcceptedDomain', 'Remove-M365OpsAcceptedDomain'
+        'New-M365OpsAcceptedDomain', 'Set-M365OpsAcceptedDomain', 'Remove-M365OpsAcceptedDomain',
+        # Anti-spam/anti-phishing/filtro malware in scrittura (21/08/2026, richiesto
+        # esplicitamente dall'utente) - vedi sezione 17.19 della guida.
+        'New-M365OpsAntiSpamPolicy', 'Set-M365OpsAntiSpamPolicy', 'Remove-M365OpsAntiSpamPolicy',
+        'New-M365OpsAntiSpamRule', 'Set-M365OpsAntiSpamRule', 'Remove-M365OpsAntiSpamRule', 'Enable-M365OpsAntiSpamRule', 'Disable-M365OpsAntiSpamRule',
+        'New-M365OpsAntiPhishPolicy', 'Set-M365OpsAntiPhishPolicy', 'Remove-M365OpsAntiPhishPolicy',
+        'New-M365OpsAntiPhishRule', 'Set-M365OpsAntiPhishRule', 'Remove-M365OpsAntiPhishRule', 'Enable-M365OpsAntiPhishRule', 'Disable-M365OpsAntiPhishRule',
+        'New-M365OpsMalwareFilterPolicy', 'Set-M365OpsMalwareFilterPolicy', 'Remove-M365OpsMalwareFilterPolicy',
+        'New-M365OpsMalwareFilterRule', 'Set-M365OpsMalwareFilterRule', 'Remove-M365OpsMalwareFilterRule', 'Enable-M365OpsMalwareFilterRule', 'Disable-M365OpsMalwareFilterRule'
     )
     # SharePoint/OneDrive (17/08/2026): categoria propria invece di infilarle in $exoReadAllowlist
     # - non sono dati Exchange, usano una connessione diversa (PnP.PowerShell via

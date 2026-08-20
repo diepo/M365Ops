@@ -23,12 +23,25 @@ function Connect-M365Ops {
         throw "Profilo '$TenantProfile' non trovato. Profili disponibili: $available"
     }
 
-    # Lokka (sottoprocesso) e la sessione Exchange Online (remoting implicito) sono stato
-    # GLOBALE, non parametrizzato per singola chiamata: se non li chiudessimo qui, un comando
-    # eseguito dopo il cambio tenant rischierebbe di colpire ancora il tenant precedente.
-    # Vanno chiusi esplicitamente ad ogni cambio profilo, mai lasciati sopravvivere.
+    # Lokka (sottoprocesso), Exchange Online, Teams e SharePoint (tutti remoting implicito o
+    # sessioni PnP) sono stato GLOBALE, non parametrizzato per singola chiamata: se non li
+    # chiudessimo qui, un comando eseguito dopo il cambio tenant rischierebbe di colpire
+    # ancora il tenant precedente. Vanno chiusi esplicitamente ad ogni cambio profilo, mai
+    # lasciati sopravvivere - Teams e SharePoint aggiunti il 21/08/2026 (richiesto
+    # esplicitamente dall'utente dopo un errore di conflitto assembly .NET passando da un
+    # tenant App-only a uno Delegato nello stesso processo server: "Could not load type
+    # 'Microsoft.IdentityModel.Telemetry.TelemetryClient'..." - disconnettere le sessioni
+    # precedenti PRIMA di aprirne di nuove riduce il rischio che due percorsi di autenticazione
+    # diversi (certificato vs interattivo) restino attivi insieme nello stesso processo).
+    # NOTA IMPORTANTE, non falsa promessa: un conflitto di VERSIONE di una DLL gia' caricata nel
+    # processo .NET non si annulla disconnettendo una sessione - solo un riavvio del processo
+    # lo risolve davvero (vedi sezione 6.5 della guida). Questo e' comunque un guardrail utile
+    # e corretto di per se' (mai lasciare stato di sessione del tenant precedente attivo), non
+    # una soluzione completa al bug dei conflitti assembly.
     Disconnect-M365OpsLokka
     Disconnect-M365OpsExchange
+    Disconnect-M365OpsTeams
+    Disconnect-M365OpsSharePoint
     # IntuneWin32App non espone un vero "Disconnect" (nessuna sessione da chiudere come
     # Exchange) - resettiamo solo il nostro flag, cosi' Connect-M365OpsIntune richiede di
     # nuovo un connect esplicito (via -AllowInteractive) dopo un cambio tenant, invece di

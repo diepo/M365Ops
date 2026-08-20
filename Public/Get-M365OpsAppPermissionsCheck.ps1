@@ -31,13 +31,19 @@ function Get-M365OpsAppPermissionsCheck {
         della guida) dipende anche dal ruolo assegnato al service principal DENTRO Exchange -
         non verificabile da qui senza una connessione Exchange live: questa funzione verifica
         solo se l'autenticazione verso Exchange Online e' abilitata (Exchange.ManageAsApp).
+
+        Su un tenant DELEGATO non esiste un'App Registration da verificare (21/08/2026,
+        richiesto esplicitamente dall'utente dopo aver notato che il pulsante si limitava a
+        un errore): questa funzione delega a Get-M365OpsDelegatedPermissionsCheck, che
+        controlla invece i ruoli RBAC Exchange REALI dell'utente con cui si e' fatto login
+        (Get-ManagementRoleAssignment) - vedi quella funzione per i dettagli.
     #>
     param()
 
     if (-not $script:M365OpsContext) { throw "Nessun tenant attivo. Usa Connect-M365Ops prima." }
     $ctx = $script:M365OpsContext
     if ($ctx.AuthMode -eq 'Delegated') {
-        throw "Il check permessi si applica solo ai tenant App-only: su un tenant Delegato non esiste un'App Registration da verificare, l'accesso dipende dal ruolo Entra ID dell'utente con cui hai fatto login."
+        return (Get-M365OpsDelegatedPermissionsCheck -Context $ctx)
     }
 
     $spResp = Invoke-M365OpsGraphRequest -Method GET -Path "/servicePrincipals?`$filter=appId eq '$($ctx.ClientId)'"

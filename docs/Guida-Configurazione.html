@@ -623,6 +623,38 @@ create/verifica/modifica/verifica/rimuovi/verifica per entrambi, IN APP-ONLY (ne
 sessione per questi, a differenza di Accepted Domain sopra): funzionano perfettamente.</div>
 </section>
 
+<!-- ============================== 6.5 ============================== -->
+<section class="page">
+<h2>6.5 Conflitto assembly .NET passando da App-only a Delegato nello stesso processo</h2>
+<p>Scoperto dal vivo il 21/08/2026: connettendosi a Exchange Online come Delegato (login
+interattivo) DOPO che lo stesso processo server aveva gia' usato una connessione App-only
+(certificato), la connessione fallisce con:</p>
+<pre class="code">Errore: Token ottenuto ma la connessione a Exchange e' fallita: Could not load type
+'Microsoft.IdentityModel.Telemetry.TelemetryClient' from assembly 'Microsoft.IdentityModel.Tokens,
+Version=8.2.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35'.</pre>
+<div class="warn"><strong>Causa: conflitto di VERSIONE di una DLL condivisa</strong>, non un bug
+di questo progetto. I due percorsi di autenticazione (certificato vs interattivo/MFA) di
+<code>ExchangeOnlineManagement</code> caricano versioni diverse di <code>Microsoft.IdentityModel.Tokens</code>
+(una dipendenza condivisa con MSAL) - .NET non puo' avere due versioni della stessa DLL caricate
+insieme nello stesso processo. Una volta che una versione e' stata caricata (dalla PRIMA
+connessione, di qualunque tipo), ogni tentativo successivo che ne richiederebbe una diversa
+fallisce con un errore di tipo/assembly poco chiaro come questo.</div>
+<div class="ok"><strong>Unico rimedio reale: un processo NUOVO.</strong> Riavviare il server
+libera completamente il problema (nessuna DLL ancora caricata) - verificato dal vivo: lo stesso
+login Delegato che falliva ha funzionato subito dopo un riavvio pulito del server, PRIMA di
+qualunque altra connessione Exchange nello stesso nuovo processo.</div>
+<p>Guardrail aggiunto lo stesso giorno (richiesto esplicitamente dall'utente: "quando c'e'
+un'applicazione attiva e clicco su attiva la modalita' delegata, abbi cura di disconnettere tutto
+quanto connesso prima"): <code>Connect-M365Ops</code> ora disconnette esplicitamente Teams
+(<code>Disconnect-M365OpsTeams</code>, nuovo) e SharePoint (<code>Disconnect-M365OpsSharePoint</code>,
+nuovo) ad ogni cambio di profilo tenant, oltre a Exchange e Lokka che gia' lo facevano.</p>
+<div class="note">Onestà tecnica su questo guardrail: chiudere una SESSIONE (Disconnect-ExchangeOnline
+ecc.) non annulla una DLL gia' caricata nel processo - il guardrail riduce il rischio di stato di
+sessione del tenant precedente rimasto attivo per sbaglio (comunque corretto di per se'), ma NON
+e' una soluzione completa al conflitto di assembly sopra. Se il problema si ripresenta passando
+da un tenant all'altro con AuthMode diversa, il riavvio del server resta l'unico rimedio certo.</div>
+</section>
+
 <!-- ============================== 7 ============================== -->
 <section class="page">
 <h2>7. Registrazione del tenant nel modulo</h2>
@@ -1432,6 +1464,7 @@ invece di limitarsi a spiegarti come farlo a mano — vedi sezione 17.6 per i de
 <tr><td>Testato dal vivo: Set-M365OpsRemoteDomain e ciclo completo gruppi dinamici; corretta un'informazione sbagliata sulla sezione 6.4 (21/08/2026)</td><td><span class="badge done">corretto</span></td><td>Ripreso il compito rimasto sospeso dall'inizio della sessione ("copriamo cio' che e' implementato ma non testato"). <code>Set-M365OpsRemoteDomain</code> verificato con un toggle reale (<code>AutoForwardEnabled</code> sulla voce "Default"), letto indipendentemente, ripristinato al valore originale. <code>New-/Set-/Remove-M365OpsDynamicDistributionGroup</code> verificato con un ciclo completo: gruppo dinamico di test creato con un filtro OPATH reale, rinominato, rimosso - ogni passaggio confermato con una lettura indipendente, ambiente di test tornato pulito. <code>New-/Set-/Remove-M365OpsAcceptedDomain</code> resta deliberatamente non provato (azione ad alto impatto, bloccata comunque dallo stesso limite RBAC di Receive/SendConnector). Corretta anche un'informazione sbagliata scritta in questa stessa guida poche ore prima: la sezione 6.4 affermava "verificato oltre 12 ore dopo l'assegnazione del ruolo Exchange Administrator" - un tempo trascorso MAI verificato in modo indipendente, solo assunto in modo sbagliato dal contesto della conversazione, segnalato e corretto dall'utente ("il ruolo e' stato aggiunto circa un'ora fa non 12 ore"). Retestato a ~1 ora reale dall'assegnazione: New-AcceptedDomain/Get-ReceiveConnector falliscono ancora, ma a quell'orizzonte la propagazione resta un'ipotesi plausibile non ancora esclusa con la stessa certezza - la sezione 6.4 e' stata riscritta per riflettere onestamente questa incertezza invece di un tempo trascorso inventato</td></tr>
 <tr><td>BUG: check permessi non riconosceva un permesso Graph piu' ampio come sufficiente per uno piu' stretto (v0.9.21, 21/08/2026)</td><td><span class="badge done">corretto</span></td><td>Trovato dal vivo dall'utente, non durante lo sviluppo: "l'app ha Sites.FullControl.All che dovrebbe essere oltre Read.All ma non se ne rende conto" - confermato, il confronto in <code>Get-M365OpsAppPermissionsCheck.ps1</code> era per stringa esatta, quindi <code>Sites.FullControl.All</code> concesso non soddisfaceva un requisito di <code>Sites.Read.All</code>. Corretto riconoscendo la gerarchia standard Microsoft Graph (<code>Read.All &lt; ReadWrite.All &lt; Manage.All &lt; FullControl.All</code>, stesso prefisso): un permesso piu' ampio ora soddisfa automaticamente un requisito piu' stretto, sia nello stato lettura/scrittura sia nell'elenco "cosa manca". Verificato dal vivo via chat dopo il fix: l'area SharePoint via Graph e' passata da "nessun accesso" a "lettura". Chiarito in parallelo (stessa conversazione) il caso Intune, che l'utente aveva segnalato come apparentemente simile ma non lo era: i 3 permessi (DeviceManagementScripts/ServiceConfig/RBAC.ReadWrite.All) risultavano ancora genuinamente assenti dalle assegnazioni reali anche dopo averli "aggiunti" in Entra ID - comportamento corretto del check, non un bug: aggiungere un permesso nella lista "API permissions" non crea un'assegnazione finche' non si preme esplicitamente "Grant admin consent", verificato leggendo le assegnazioni grezze live prima di concludere</td></tr>
 <tr><td>BUG STRUTTURALE: Receive-/SendConnector erano cmdlet on-premises-only, mai esistiti in Exchange Online - risolto con InboundConnector/OutboundConnector (v0.9.22, 21/08/2026)</td><td><span class="badge done">corretto</span></td><td>Richiesto esplicitamente dall'utente: "puoi fare test in modalita' delegata?" sul limite RBAC apparente della sezione 6.4. Login Delegated reale completato con un utente membro completo di "Organization Management" (verificato con Get-ManagementRoleAssignment): <code>Get-AcceptedDomain</code> ha funzionato subito (5 domini reali) - CONFERMANDO che Accepted Domain e' un genuino limite App-only/Delegated, ora risolto documentandolo (sezione 6.4). Ma <code>Get-ReceiveConnector</code> ha dato lo STESSO "term not recognized" anche con quell'utente pienamente privilegiato - impossibile se fosse stato RBAC. Causa vera trovata verificando la documentazione ufficiale Microsoft (non a memoria): <code>Get-/New-/Set-/Remove-ReceiveConnector</code> e <code>...SendConnector</code> sono cmdlet ESCLUSIVI di Exchange on-premises, mai esistiti in Exchange Online - "this cmdlet is available only in on-premises Exchange". Un mese di indagine RBAC (sezione 6.4) era in parte una pista sbagliata per questo caso specifico: stesso messaggio di errore testuale, due cause completamente diverse. Sostituiti tutti gli 8 wrapper (Get-/New-/Set-/Remove-M365OpsReceiveConnector/SendConnector rimossi, sostituiti da .../InboundConnector/OutboundConnector) con parametri veri verificati su Microsoft Learn (SenderDomains/ConnectorType per Inbound, RecipientDomains/SmartHosts per Outbound - diversi da Bindings/RemoteIPRanges/AddressSpaces dei vecchi wrapper, concetti on-premises che non esistono in cloud). Aggiornati anche i riferimenti nel system prompt AI e nelle allowlist exo_query/propose_exo_write (Invoke-M365OpsAgentTools.ps1). Verificato dal vivo con un ciclo completo create/verifica/modifica/verifica/rimuovi/verifica per ENTRAMBI i connettori, in App-only: funzionano perfettamente, zero problemi di permessi - conferma che non era mai stato un limite RBAC per questi due cmdlet</td></tr>
+<tr><td>Anti-spam/anti-phishing/malware in scrittura, check permessi Delegated con ruoli directory, guardrail disconnect, fix login Teams (v0.9.23, 21/08/2026)</td><td><span class="badge done">corretto</span></td><td>Round esteso, richiesto esplicitamente dall'utente. (1) Implementate le 3 aree anti-spam/anti-phishing/filtro malware in scrittura (~98 cmdlet nativi, sezione 17.19): 24 nuovi wrapper (Get-/New-/Set-/Remove- per Policy+Rule x3 aree), nessun nuovo ruolo RBAC richiesto (Transport Hygiene gia' assegnato copre tutto, verificato dal vivo con un ciclo completo per ognuna). Bug reale trovato durante il test: nessuno dei tre Set-*Rule accetta -Enabled (verificato con Get-Command, non dalla documentazione che suggeriva il contrario) - aggiunti 6 cmdlet Enable-/Disable- dedicati. (2) Estesa Get-M365OpsAppPermissionsCheck per i tenant Delegati (prima si limitava a un errore): nuova Get-M365OpsDelegatedPermissionsCheck legge i ruoli RBAC Exchange REALI dell'utente (Get-ManagementRoleAssignment). Due bug segnalati dall'utente subito dopo e corretti lo stesso giorno: intestazione che diceva ancora "app registrata" su un tenant Delegato, e mancanza dei ruoli DIRECTORY Entra ID (Global Admin ecc, sistema separato da RBAC Exchange) - aggiunta una query a /me/transitiveMemberOf/directoryRole riusando il token Graph delegato gia' ottenuto. (3) Guardrail: Connect-M365Ops ora disconnette anche Teams/SharePoint (prima solo Exchange/Lokka) ad ogni cambio tenant - richiesto esplicitamente dopo aver scoperto un conflitto di versione assembly .NET (Microsoft.IdentityModel.Tokens) passando da un tenant App-only a uno Delegato nello stesso processo server (sezione 6.5) - il guardrail riduce il rischio ma solo un riavvio del processo risolve davvero il conflitto. (4) BUG STRUTTURALE trovato dal vivo (successo due volte all'utente): il login Teams Delegato (-UseDeviceAuthentication) bloccava il server per sempre senza mostrare alcun codice da nessuna parte (stampato solo sulla console nascosta del processo) - corretto rimuovendo il parametro, cosi' il modulo usa il proprio flusso interattivo di default (popup browser reale, come SharePoint) - verificato dal vivo dopo il fix, login completato senza bloccare nulla</td></tr>
 </table>
 </section>
 
@@ -1757,14 +1790,28 @@ campi restano quindi non verificati (proprietà documentate e stabili delle cmdl
 indovinate, ma da riconfermare al primo test reale come già fatto per SharePoint).</div>
 <p>Stessa governance connessione di Exchange/SharePoint: casella dedicata nel tab <strong>Tenant</strong>
 (sezione "Stato connessioni", non MCP/Connettori - vedi sezione 10.7) con pulsante "Connetti / Test
-connessione Teams" e stato in tempo reale. Su Delegato usa
-<code>Connect-MicrosoftTeams -UseDeviceAuthentication</code> (blocca il server, click esplicito con
-conferma) - <strong>non</strong> un flusso a codice dispositivo custom con client_id proprio: dopo
-che esattamente questo approccio è risultato REALMENTE sbagliato per SharePoint (client_id
-indovinato a memoria, mai verificato, fallito con AADSTS700016 - sezione 17.10), è stato rimosso
-anche qui in via preventiva, prima di scoprire lo stesso problema al primo uso reale. Lasciare che
-il modulo <code>MicrosoftTeams</code> scelga da solo il proprio client interno, invece di
-indovinarlo, è l'unica scelta di cui ci si può fidare senza un test dal vivo per ciascuna.</p>
+connessione Teams" e stato in tempo reale.</p>
+<div class="warn"><strong>BUG STRUTTURALE trovato dal vivo il 21/08/2026 (non un'ipotesi teorica -
+successo due volte all'utente): <code>-UseDeviceAuthentication</code> lasciava l'utente bloccato
+per sempre.</strong> Quel parametro stampa il codice dispositivo con <code>Write-Host</code> sulla
+CONSOLE DEL PROCESSO SERVER, non nella GUI - invisibile e irrecuperabile nell'uso normale dell'app
+(il launcher avvia il server con finestra nascosta). L'utente vedeva solo "login in corso"
+bloccato per sempre, nessun popup ne' codice da nessuna parte - comportamento CORRETTO per un
+device-code flow (che non apre mai un browser da solo), ma il codice stesso non arrivava mai
+all'utente. A differenza di Exchange/Graph (sezioni 6.5/10, che hanno un vero flusso non
+bloccante start/poll con codice mostrato in GUI), il modulo <code>MicrosoftTeams</code> non
+espone cmdlet separati per "inizia" e "completa" un device code -
+<code>Connect-MicrosoftTeams -UseDeviceAuthentication</code> e' un'unica chiamata atomica
+bloccante, non costruibile come start/poll senza intercettare la sua console (fragile).</div>
+<div class="ok">Corretto RIMUOVENDO <code>-UseDeviceAuthentication</code>: senza, il modulo usa il
+proprio flusso interattivo di default (popup browser reale, come gia' visto funzionare per
+SharePoint via <code>Connect-PnPOnline -Interactive</code>). Il motivo per cui
+<code>-UseDeviceAuthentication</code> era stato scelto in origine (lasciare al modulo la scelta
+del proprio client_id interno corretto, per evitare un client_id indovinato a memoria - stesso
+bug reale gia' visto su SharePoint, AADSTS700016, sezione 17.10) resta valido: e' una proprieta'
+del modulo stesso, non del parametro specifico - il modulo sceglie il client corretto in ENTRAMBI
+i flussi. Verificato dal vivo dopo il fix: popup browser apparso correttamente, login completato
+senza bloccare il server.</div>
 
 <h3>17.11.1 Scrittura Teams</h3>
 <p>Aggiunta il 18/08/2026, stesso motivo/richiesta di 17.9.1 (SharePoint). Stesso meccanismo di
@@ -2015,10 +2062,11 @@ progetto. Chi ha bisogno di gestirlo da M365Ops deve usare un profilo tenant Del
 
 <h3>Cosa resta fuori scope (per scelta, non dimenticanza)</h3>
 <p>Il censimento ha anche quantificato aree grandi lasciate deliberatamente fuori per ora:
-anti-spam/anti-phish/malware in scrittura (~98 cmdlet - oggi solo lettura), Retention/Compliance
-Purview incluso DLP ed eDiscovery (~65 cmdlet - oggi solo lettura, comunque limitata dal ruolo RBAC
-non assegnato), migrazione Public Folder (~40 cmdlet, sotto-mondo separato mai iniziato). Candidate
-per un'estensione futura, su richiesta esplicita.</p>
+Retention/Compliance Purview incluso DLP ed eDiscovery (~65 cmdlet - oggi solo lettura, comunque
+limitata dal ruolo RBAC non assegnato), migrazione Public Folder (~40 cmdlet, sotto-mondo separato
+mai iniziato). Candidate per un'estensione futura, su richiesta esplicita. Anti-spam/anti-phish/
+malware in scrittura (~98 cmdlet), che era in questo elenco, e' stato implementato il 21/08/2026 -
+vedi sezione 17.19.</p>
 </section>
 
 <!-- ============================== 17.16 ============================== -->
@@ -2141,6 +2189,51 @@ nessuno di questi permessi (verificato dal vivo il 17/08/2026, sezione 17.11).</
 solo se la connessione riesce) dipende anche dal ruolo assegnato al service principal DENTRO
 Exchange (sezione 6) - non verificabile da questo check senza una connessione Exchange live,
 segnalato come nota esplicita nel risultato invece di dare un falso senso di completezza.</div>
+
+<h3>Estensione per tenant Delegati (21/08/2026)</h3>
+<p>Aggiunta richiesta esplicitamente dall'utente dopo aver notato che, su un tenant Delegato, il
+pulsante si limitava a un errore ("il check si applica solo ai tenant App-only"): "non sarebbe
+meglio listare i ruoli attivi dell'utente e dirgli cosa puo'/non puo' fare con quei ruoli?". Su
+un tenant Delegato non esiste un'App Registration da verificare - l'accesso dipende dai RUOLI
+RBAC EXCHANGE REALI dell'utente con cui si e' fatto login. <code>Get-M365OpsDelegatedPermissionsCheck</code>
+(nuova, <code>Private\</code>) interroga <code>Get-ManagementRoleAssignment -RoleAssignee</code>
+per l'utente delegato e confronta i ruoli posseduti con una tabella area→ruolo.</p>
+<div class="warn"><strong>Onestà sulla copertura:</strong> solo 2 righe della tabella sono
+VERIFICATE dal vivo con una scrittura reale in modalità Delegated ("Domini accettati" via
+"Remote and Accepted Domains", confermato lo stesso giorno con un login reale; "Anti-spam/
+anti-phishing/malware" via "Transport Hygiene", confermato in App-only con lo stesso ruolo). Le
+altre righe (Connettori, Mailbox/gruppi, Regole di trasporto, Role Management) sono dedotte dal
+NOME del ruolo Exchange, non ancora confermate con una scrittura reale in Delegated - marcate
+esplicitamente come tali nel risultato (nota per riga), per non dare un falso senso di certezza.
+L'accesso Graph (Intune/Entra ID/Teams/SharePoint) in Delegated dipende dal ruolo DIRECTORY Entra
+ID dell'utente - un controllo diverso, non ancora implementato, segnalato come tale nel risultato
+invece di ometterlo in silenzio.</div>
+<p>L'elenco COMPLETO e grezzo dei ruoli RBAC Exchange posseduti dall'utente e' sempre incluso nel
+risultato (riga "informativo" dedicata) - anche per le aree non ancora mappate, cosi' non si perde
+informazione reale in nome di una tabella incompleta.</p>
+<div class="ok">Verificato dal vivo il 21/08/2026 con un login Delegato reale
+(<code>diego@vnsys.it</code>, membro di "Organization Management"): il pulsante "🔐 Stato permessi"
+mostra correttamente tutte le aree mappate come disponibili, l'elenco completo dei ~90 ruoli
+posseduti, e la nota sul gap Graph/directory role - nessun errore, nessuna informazione fuorviante.</div>
+
+<h4>Due bug reali trovati dall'utente subito dopo, corretti lo stesso giorno</h4>
+<ul>
+<li><strong>Intestazione sbagliata</strong>: il risultato apriva sempre con "Permessi reali
+dell'app registrata su questo tenant" - testo copiato dal ramo App-only, senza senso su un
+tenant Delegato (non esiste nessuna App Registration). Corretto rendendo l'intestazione
+condizionale in <code>CommandCatalog.ps1</code>.</li>
+<li><strong>Mancavano i ruoli DIRECTORY Entra ID</strong>: "mi aspettavo di vedere i miei ruoli,
+tipo Global Admin nel mio caso" - i ruoli RBAC Exchange sopra sono un sistema COMPLETAMENTE
+SEPARATO dai ruoli directory Entra ID che governano Intune/Entra ID/Teams/SharePoint via Graph
+(gia' segnalato come gap noto nella prima versione, ora colmato). Aggiunta una chiamata a
+<code>GET /me/transitiveMemberOf/microsoft.graph.directoryRole</code> usando lo stesso token
+Graph delegato gia' ottenuto con "Accedi a Microsoft Graph col mio utente" -
+<code>Invoke-M365OpsGraphRequest</code> sceglie gia' da solo il token giusto in base
+all'AuthMode, nessun codice di autenticazione nuovo necessario. Mappa i ruoli directory standard
+Microsoft (Global Administrator, Intune Administrator, User Administrator, Groups Administrator,
+Teams Administrator, SharePoint Administrator) su Intune/Entra ID/Teams/SharePoint, oltre a
+mostrare sempre l'elenco completo grezzo dei ruoli directory posseduti.</li>
+</ul>
 </section>
 
 <!-- ============================== 17.18 ============================== -->
@@ -2169,6 +2262,46 @@ ogni richiesta) - a differenza di un cambio a un file <code>.ps1</code> del modu
 comunque un riavvio per lo stesso motivo), un cambio SOLO a <code>index.html</code> puo' sembrare
 non applicarsi se si controlla senza riavviare: verificato dal vivo durante lo sviluppo di questa
 stessa funzione (un primo controllo subito dopo l'edit mostrava ancora la pagina vecchia).</div>
+</section>
+
+<!-- ============================== 17.19 ============================== -->
+<section class="page">
+<h2>17.19 Anti-spam, anti-phishing e filtro malware in scrittura</h2>
+<p>Aggiunto il 21/08/2026, richiesto esplicitamente dall'utente ("passiamo all'implementazione di
+Anti-spam/anti-phishing/malware in scrittura — ~98 cmdlet, oggi solo lettura"). Copre le tre aree
+con lo stesso schema "criterio + regola" gia' visto per Accepted Domain/Connettori: un CRITERIO
+(policy) definisce COSA succede (azioni, soglie), una REGOLA (rule) definisce A CHI si applica -
+un criterio senza una regola collegata non si applica a nessuno (tranne quelli predefiniti del
+sistema).</p>
+<table>
+<tr><th>Area</th><th>Cmdlet nativo</th><th>Wrapper M365Ops</th></tr>
+<tr><td>Anti-spam</td><td>HostedContentFilterPolicy / HostedContentFilterRule</td><td><code>Get-/New-/Set-/Remove-M365OpsAntiSpamPolicy</code>, <code>Get-/New-/Set-/Remove-M365OpsAntiSpamRule</code>, <code>Enable-/Disable-M365OpsAntiSpamRule</code></td></tr>
+<tr><td>Anti-phishing</td><td>AntiPhishPolicy / AntiPhishRule</td><td><code>Get-/New-/Set-/Remove-M365OpsAntiPhishPolicy</code>, <code>Get-/New-/Set-/Remove-M365OpsAntiPhishRule</code>, <code>Enable-/Disable-M365OpsAntiPhishRule</code></td></tr>
+<tr><td>Filtro malware</td><td>MalwareFilterPolicy / MalwareFilterRule</td><td><code>Get-/New-/Set-/Remove-M365OpsMalwareFilterPolicy</code>, <code>Get-/New-/Set-/Remove-M365OpsMalwareFilterRule</code>, <code>Enable-/Disable-M365OpsMalwareFilterRule</code></td></tr>
+</table>
+<div class="ok"><strong>Nessun nuovo ruolo RBAC richiesto</strong>: il ruolo Exchange "Transport
+Hygiene", gia' assegnato al service principal di questo progetto per altre funzionalita', copre
+gia' tutti e sei i cmdlet <code>New-</code>. Verificato dal vivo (non assunto dalla
+documentazione): tutti e 24 i wrapper testati in App-only con un ciclo completo
+create/verifica/modifica/verifica/rimuovi/verifica per ognuna delle tre aree - nessun errore di
+permesso, ambiente di test tornato pulito ad ogni ciclo.</div>
+<div class="warn"><strong>Bug reale trovato dal vivo durante il test, non dalla documentazione:</strong>
+NESSUNO dei tre <code>Set-*Rule</code> (<code>Set-HostedContentFilterRule</code>,
+<code>Set-AntiPhishRule</code>, <code>Set-MalwareFilterRule</code>) accetta un parametro
+<code>-Enabled</code>, nonostante alcune fonti (inclusi risultati di ricerca web) suggerissero il
+contrario - verificato leggendo la lista PARAMETRI REALE del cmdlet live con
+<code>Get-Command</code>, non la sola documentazione. Il tentativo iniziale
+(<code>Set-M365OpsAntiSpamRule -ExtraParams @&#123;Enabled=$false&#125;</code>) falliva con "A
+parameter cannot be found that matches parameter name 'Enabled'". Corretto aggiungendo 6 cmdlet
+dedicati <code>Enable-/Disable-M365OpsXRule</code> (che chiamano i veri
+<code>Enable-/Disable-HostedContentFilterRule</code> ecc., cmdlet nativi separati che ESISTONO e
+funzionano) - verificato dal vivo per tutti e tre i tipi.</div>
+<p>Sintassi di tutti i cmdlet <code>New-</code> verificata contro la documentazione ufficiale
+Microsoft prima di scrivere i wrapper (non a memoria): unico parametro davvero obbligatorio per
+un criterio e' <code>Name</code>; per una regola sono <code>Name</code> + il riferimento al
+criterio (<code>HostedContentFilterPolicy</code>/<code>AntiPhishPolicy</code>/<code>MalwareFilterPolicy</code>
+a seconda del tipo) - un criterio puo' essere collegato a UNA SOLA regola, Microsoft lo impedisce
+direttamente al momento della creazione se si tenta di riusarlo.</p>
 </section>
 
 <!-- ============================== 18 ============================== -->

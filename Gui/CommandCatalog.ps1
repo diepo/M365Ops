@@ -570,8 +570,14 @@ function Get-M365OpsCommandCatalog {
             Handler      = { Get-M365OpsAppPermissionsCheck }
             Formatter    = {
                 param($r)
-                $icon = @{ 'lettura+scrittura' = '✅'; 'lettura' = '🟡'; 'nessun accesso' = '❌' }
-                $lines = @("Permessi reali dell'app registrata su questo tenant (verificati ora su Microsoft Graph, non un elenco statico):", "")
+                $icon = @{ 'lettura+scrittura' = '✅'; 'lettura' = '🟡'; 'nessun accesso' = '❌'; 'informativo' = 'ℹ️' }
+                # Intestazione condizionale App-only vs Delegated (21/08/2026, bug reale
+                # segnalato dall'utente: su un tenant Delegato non esiste "l'app registrata" -
+                # e' l'UTENTE con cui si e' fatto login, stesso marcatore "RBAC Exchange di" gia'
+                # usato per il testo di chiusura sotto).
+                $isDelegatedResult = @($r | Where-Object { $_.Resource -like '*RBAC Exchange di*' -or $_.Resource -like '*directory Entra ID di*' -or $_.Resource -like '*directoryRole*' }).Count -gt 0
+                $headerText = if ($isDelegatedResult) { "Permessi reali del TUO utente su questo tenant (verificati ora, non un elenco statico):" } else { "Permessi reali dell'app registrata su questo tenant (verificati ora su Microsoft Graph, non un elenco statico):" }
+                $lines = @($headerText, "")
                 foreach ($area in $r) {
                     $lines += "$($icon[$area.Status]) $($area.Area) — $($area.Status)"
                     if ($area.MissingForWrite -and $area.MissingForWrite.Count -gt 0) {
@@ -583,7 +589,17 @@ function Get-M365OpsCommandCatalog {
                     if ($area.Note) { $lines += "    nota: $($area.Note)" }
                 }
                 $lines += ""
-                $lines += "Ogni permesso mancante si aggiunge da App Registration → API permissions → Add a permission, poi 'Grant admin consent' (sezioni 4.2/4.3/4.4 della guida) - le assegnazioni RBAC Exchange (sezione 6) restano un controllo separato, non verificabile da qui."
+                # Testo di chiusura diverso per App-only vs Delegated (21/08/2026, bug reale
+                # trovato dal vivo: il suggerimento "aggiungi da App Registration" non ha senso
+                # su un tenant Delegato, dove non esiste nessuna App Registration da modificare -
+                # rilevato controllando se un'area ha "RBAC Exchange di" nel Resource, marcatore
+                # esclusivo del ramo Delegated (Get-M365OpsDelegatedPermissionsCheck).
+                $isDelegated = @($r | Where-Object { $_.Resource -like '*RBAC Exchange di*' }).Count -gt 0
+                if ($isDelegated) {
+                    $lines += "Un ruolo Exchange mancante si assegna da Exchange admin center → Ruoli, oppure con Add-RoleGroupMember/New-ManagementRoleAssignment - le mappature area->ruolo sopra sono verificate solo in parte (vedi le note), non un catalogo esaustivo di tutti i ruoli Exchange."
+                } else {
+                    $lines += "Ogni permesso mancante si aggiunge da App Registration → API permissions → Add a permission, poi 'Grant admin consent' (sezioni 4.2/4.3/4.4 della guida) - le assegnazioni RBAC Exchange (sezione 6) restano un controllo separato, non verificabile da qui."
+                }
                 return ($lines -join "`n")
             }
         }

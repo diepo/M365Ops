@@ -31,17 +31,26 @@ function Connect-M365OpsTeams {
         if (-not $script:M365OpsContext.DelegatedUpn) {
             throw "Il profilo '$($script:M365OpsContext.Name)' e' in modalita' Delegated ma non ha un DelegatedUpn configurato. Usa Set-M365OpsTenant -DelegatedUpn per impostarlo."
         }
-        # -UseDeviceAuthentication stampa il codice e BLOCCA il thread finche' l'utente non
-        # completa il login - accettabile solo perche' arriva qui SOLO con -AllowInteractive
-        # esplicito, da un click dedicato in GUI (vedi /api/teams-test), stesso principio gia'
-        # usato per Intune e (dal 17/08/2026) per SharePoint. Bug reale evitato qui: la prima
-        # versione usava un client_id "Skype and Teams Tenant Admin API" indovinato a memoria
-        # per un flusso a codice dispositivo custom (Start-/Complete-M365OpsTeamsDelegatedLogin,
-        # ora rimossi) - lo stesso errore (client_id indovinato) e' risultato REALE e verificato
-        # su SharePoint (AADSTS700016), quindi rimosso anche qui prima di scoprirlo nello stesso
-        # modo: -UseDeviceAuthentication lascia scegliere al modulo MicrosoftTeams il proprio
-        # client interno corretto, invece di indovinarlo.
-        Connect-MicrosoftTeams -TenantId $script:M365OpsContext.TenantId -UseDeviceAuthentication -ErrorAction Stop
+        # BUG STRUTTURALE trovato dal vivo il 21/08/2026, segnalato dall'utente (successo DUE
+        # volte): -UseDeviceAuthentication stampa il codice dispositivo con Write-Host sulla
+        # CONSOLE DEL PROCESSO SERVER, non nella GUI - invisibile e irrecuperabile nell'uso
+        # normale dell'app (il launcher avvia il server con finestra nascosta, sezione 17.14/
+        # Launch-M365Ops.ps1). L'utente vedeva solo "login in corso" bloccato per sempre, senza
+        # nessun popup ne' codice da nessuna parte (comportamento CORRETTO per un device-code
+        # flow, che non apre mai un browser da solo - il problema e' che il codice stesso non
+        # arrivava mai all'utente). A differenza di Exchange/Graph (sezioni 6.5/10, che hanno un
+        # vero flusso non bloccante start/poll con codice mostrato in GUI), il modulo
+        # MicrosoftTeams non espone cmdlet separati per "inizia" e "completa" un device code -
+        # Connect-MicrosoftTeams -UseDeviceAuthentication e' un'unica chiamata atomica bloccante,
+        # non costruibile come start/poll senza intercettare la sua console (fragile). Corretto
+        # rimuovendo -UseDeviceAuthentication: senza, il modulo usa il proprio flusso interattivo
+        # di default (popup browser reale, come gia' visto funzionare per SharePoint via
+        # Connect-PnPOnline -Interactive) - il motivo per cui -UseDeviceAuthentication era stato
+        # scelto in origine (lasciare al modulo la scelta del proprio client_id interno corretto,
+        # per evitare un client_id indovinato a memoria, bug reale gia' visto su SharePoint) resta
+        # valido: e' una proprieta' del modulo stesso, non del parametro -UseDeviceAuthentication
+        # specificamente - il modulo sceglie il client corretto in ENTRAMBI i flussi.
+        Connect-MicrosoftTeams -TenantId $script:M365OpsContext.TenantId -ErrorAction Stop
         $script:M365OpsTeamsConnected = $true
         return
     }
