@@ -173,8 +173,27 @@ function Install-M365OpsPrerequisites {
     # connessione: PowerShell tiene versioni diverse dello stesso modulo in cartelle separate,
     # ma Import-Module senza -RequiredVersion sceglie sempre la piu' recente installata - avere
     # SOLO 3.10.x su disco avrebbe reso quel pin inutile (nessuna 3.9.0 da caricare).
+    # ExchangeOnlineManagement gestita a parte, PRIMA del ciclo generico sotto (23/08/2026,
+    # richiesto esplicitamente dall'utente: "se e' installata la 3.10 allora la disinstalla e
+    # mette la 3.9") - Assert-M365OpsExoSafeVersion non si limita a controllare/installare come
+    # il ciclo generico, disinstalla ATTIVAMENTE anche una eventuale versione >= 3.10.0 gia'
+    # presente sul disco (nota per andare in conflitto con MicrosoftTeams, vedi
+    # Connect-M365OpsExchange.ps1 e guida sezione 6.6).
+    $exoResult = Assert-M365OpsExoSafeVersion
+    if ($exoResult.RemovedVersions.Count -gt 0) { $installedSomething = $true }
+    if ($exoResult.Installed) { $installedSomething = $true }
+    $exoNowPresent = [bool](Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object Version -eq '3.9.0')
+    $exoDetailParts = @()
+    if ($exoResult.RemovedVersions.Count -gt 0) { $exoDetailParts += "Versione/i in conflitto rimossa/e: $($exoResult.RemovedVersions -join ', ')." }
+    $exoDetailParts += if ($exoNowPresent) { 'Versione 3.9.0 presente (fissata, vedi guida sezione 6.6).' } else { 'Versione 3.9.0 non rilevata dopo il tentativo di installazione - riprova o installa manualmente.' }
+    $results += [pscustomobject]@{
+        Name   = 'Modulo ExchangeOnlineManagement (connessione Exchange Online)'
+        Status = if ($exoNowPresent) { 'OK' } else { 'Failed' }
+        Action = if ($exoResult.RemovedVersions.Count -gt 0 -or $exoResult.Installed) { 'Installazione/pulizia tentata (Assert-M365OpsExoSafeVersion).' } else { 'Gia'' presente nella versione corretta, nessuna azione necessaria.' }
+        Detail = $exoDetailParts -join ' '
+    }
+
     $moduleChecks = @(
-        @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'Modulo ExchangeOnlineManagement (connessione Exchange Online)'; RequiredVersion = '3.9.0' }
         @{ Name = 'ImportExcel'; FriendlyName = 'Modulo ImportExcel (export report .xlsx)' }
         @{ Name = 'IntuneWin32App'; FriendlyName = 'Modulo IntuneWin32App (packaging app Win32 per Intune)' }
         @{ Name = 'MicrosoftTeams'; FriendlyName = 'Modulo MicrosoftTeams (connessione Teams)' }

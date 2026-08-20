@@ -191,6 +191,18 @@ foreach (`$spec in ('$specsJoined' -split ';')) {
     `$name = `$parts[0]
     `$ver = if (`$parts.Count -gt 1 -and `$parts[1]) { `$parts[1] } else { `$null }
     try {
+        # ExchangeOnlineManagement: disinstalla ATTIVAMENTE ogni versione >= 3.10.0 gia'
+        # presente sul disco prima di installare quella fissata (23/08/2026, richiesto
+        # esplicitamente dall'utente: "se e' installata la 3.10 allora la disinstalla e mette
+        # la 3.9" - nota per andare in conflitto con MicrosoftTeams, vedi
+        # Connect-M365OpsExchange.ps1 e guida sezione 6.6. Stessa logica di
+        # Assert-M365OpsExoSafeVersion (Private, modulo M365Ops) - duplicata qui perche' questo
+        # script gira in un processo pwsh.exe figlio PRIMA che il modulo M365Ops sia importato).
+        if (`$name -eq 'ExchangeOnlineManagement') {
+            Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object { `$_.Version -ge [version]'3.10.0' } | ForEach-Object {
+                try { Uninstall-Module -Name ExchangeOnlineManagement -RequiredVersion `$_.Version -Force -ErrorAction Stop } catch {}
+            }
+        }
         `$installParams = @{ Name = `$name; Scope = 'CurrentUser'; Force = `$true; AllowClobber = `$true; SkipPublisherCheck = `$true; ErrorAction = 'Stop' }
         if (`$ver) { `$installParams.RequiredVersion = `$ver }
         Install-Module @installParams
@@ -347,8 +359,13 @@ $form.Add_Shown({
             # meno processi separati che toccano PackageManagement/PowerShellGet in sequenza
             # ravvicinata, meno rischio di collisione sugli stessi file. "Nome=Versione" per
             # verificare la versione ESATTA quando e' fissata, non solo "e' presente qualcosa".
+            # ExchangeOnlineManagement: "presente" richiede la 3.9.0 esatta E nessuna versione
+            # >= 3.10.0 in conflitto affiancata (23/08/2026) - se una 3.10.x e' comunque
+            # presente accanto alla 3.9.0 (es. installata a mano dopo questo fix), va comunque
+            # trattata come "MISSING" cosi' finisce nel percorso di installazione qui sotto, che
+            # la disinstalla attivamente invece di lasciarla li'.
             $specsForCheck = ($moduleChecks | ForEach-Object { "$($_.Name)=$($_.RequiredVersion)" }) -join ';'
-            $checkCmd = "foreach (`$spec in ('$specsForCheck' -split ';')) { `$p = `$spec -split '=',2; `$n = `$p[0]; `$v = if (`$p.Count -gt 1 -and `$p[1]) { `$p[1] } else { `$null }; `$found = if (`$v) { [bool](Get-Module -ListAvailable -Name `$n | Where-Object Version -eq `$v) } else { [bool](Get-Module -ListAvailable -Name `$n) }; if (`$found) { Write-Output ('PRESENT:' + `$n) } else { Write-Output ('MISSING:' + `$n) } }"
+            $checkCmd = "foreach (`$spec in ('$specsForCheck' -split ';')) { `$p = `$spec -split '=',2; `$n = `$p[0]; `$v = if (`$p.Count -gt 1 -and `$p[1]) { `$p[1] } else { `$null }; `$found = if (`$v) { [bool](Get-Module -ListAvailable -Name `$n | Where-Object Version -eq `$v) } else { [bool](Get-Module -ListAvailable -Name `$n) }; if (`$n -eq 'ExchangeOnlineManagement' -and (Get-Module -ListAvailable -Name `$n | Where-Object { `$_.Version -ge [version]'3.10.0' })) { `$found = `$false }; if (`$found) { Write-Output ('PRESENT:' + `$n) } else { Write-Output ('MISSING:' + `$n) } }"
             $checkOutput = (& $pwshPath -NoProfile -Command $checkCmd 2>$null | Out-String)
             $missingModules = @()
             foreach ($m in $moduleChecks) {

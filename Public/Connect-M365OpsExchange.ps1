@@ -55,23 +55,16 @@ function Connect-M365OpsExchange {
     # verificato) e -AccessToken (login delegato, verificato) sono entrambi presenti. Un
     # aggiornamento futuro a una versione piu' recente e conflict-free andrebbe verificato allo
     # stesso modo prima di cambiare questo numero, mai per assunzione.
+    #
+    # Assert-M365OpsExoSafeVersion (Private, aggiunta il 23/08/2026 su richiesta esplicita
+    # dell'utente dopo il primo giro di questo fix: "se e' installata la 3.10 allora la
+    # disinstalla e mette la 3.9") non si limita a installare la 3.9.0 se manca - disinstalla
+    # ATTIVAMENTE qualunque versione >= 3.10.0 gia' presente sul disco, invece di lasciarla li'
+    # accanto. Il pin -RequiredVersion qui sotto protegge gia' QUESTO progetto da solo, ma una
+    # versione in conflitto lasciata sul disco resta un rischio per qualunque altro
+    # script/Import-Module senza pin esplicito.
     $script:M365OpsExoSafeVersion = '3.9.0'
-    if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object Version -eq $script:M365OpsExoSafeVersion)) {
-        # TLS1.2/provider NuGet/-SkipPublisherCheck (22/08/2026): stesso irrobustimento
-        # applicato a Connect-M365OpsTeams.ps1 dopo un blocco reale trovato dal vivo - senza,
-        # Install-Module puo' restare in attesa per sempre di un prompt di conferma mai
-        # mostrato in un processo server senza finestra visibile (vedi quel file per il
-        # dettaglio completo). Install-Module con -RequiredVersion NON tocca ne' rimuove altre
-        # versioni gia' presenti (es. una piu' recente installata prima di questo fix) - le
-        # affianca semplicemente nella propria cartella di versione, PowerShell le tiene
-        # perfettamente separate su disco.
-        Write-Host "Modulo ExchangeOnlineManagement $script:M365OpsExoSafeVersion non trovato, lo installo..." -ForegroundColor Yellow
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
-        if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
-            try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch {}
-        }
-        Install-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
-    }
+    Assert-M365OpsExoSafeVersion
     Import-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -ErrorAction Stop
     $script:M365OpsExchangeModuleImported = $true
 
