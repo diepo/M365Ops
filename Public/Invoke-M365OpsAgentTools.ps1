@@ -305,7 +305,7 @@ Esegue una query di SOLA LETTURA su Exchange Online (dati non disponibili via Gr
 - Get-M365OpsQuarantinePolicy {Identity?} - cosa puo' fare un utente su un messaggio in quarantena (rilasciare/richiedere rilascio/vedere header) - diverso da Get-M365OpsQuarantineMessages, che elenca i MESSAGGI
 - Get-M365OpsQuarantineMessageHeader {Identity} - header SMTP grezzo di un messaggio in quarantena senza rilasciarlo, per analisi SPF/DKIM/DMARC prima di decidere
 - Get-M365OpsTransportConfig {} - impostazioni di trasporto globali del tenant (non di un singolo connettore/regola)
-- Get-M365OpsReceiveConnector {Identity?} / Get-M365OpsSendConnector {Identity?} - connettori Receive/Send (integrazioni gateway di sicurezza terze parti o scenari ibridi, raro su un tenant cloud-only semplice)
+- Get-M365OpsInboundConnector {Identity?} / Get-M365OpsOutboundConnector {Identity?} - connettori Inbound/Outbound (integrazioni gateway di sicurezza terze parti o scenari ibridi, raro su un tenant cloud-only semplice) - NON chiamarli mai "Receive/Send Connector" in una scrittura proposta: quei cmdlet sono esclusivi di Exchange on-premises e non esistono in Exchange Online (bug reale corretto il 21/08/2026)
 - Get-M365OpsRemoteDomain {Identity?} - impostazioni per dominio remoto (auto-forward/auto-reply consentiti verso un dominio esterno specifico)
 - Get-M365OpsMailDetailTransportRuleReport {StartDate?, EndDate?, SenderAddress?, RecipientAddress?} - quali messaggi hanno attivato quali regole di trasporto nella pratica, non solo la configurazione
 "@
@@ -350,8 +350,8 @@ Proponi un'azione di SCRITTURA su Exchange Online. NON viene mai eseguita qui: l
 - Set-M365OpsTenantAllowBlockListItem {Ids, ListType, ExpirationDate?, NoExpiration?, Notes?} - modifica una voce ESISTENTE (es. estende la scadenza), non ne crea una nuova
 - New-M365OpsQuarantinePolicy {Name, AllowRelease?, AllowRequestRelease?, AllowDelete?, AllowPreview?, AllowDownload?, AllowViewHeader?, AllowAllowSender?, AllowBlockSender?, ExtraParams?} (tutti i permessi sono switch, default false se omessi) / Set-M365OpsQuarantinePolicy {Identity, ExtraParams} / Remove-M365OpsQuarantinePolicy {Identity} - non funziona sulle 2 policy predefinite del sistema
 - Set-M365OpsTransportConfig {ExtraParams} - impostazioni GLOBALI del tenant, non di un singolo connettore/regola
-- New-M365OpsReceiveConnector {Name, Bindings, RemoteIPRanges, ExtraParams?} / Set-M365OpsReceiveConnector {Identity, ExtraParams} / Remove-M365OpsReceiveConnector {Identity}
-- New-M365OpsSendConnector {Name, AddressSpaces, ExtraParams?} / Set-M365OpsSendConnector {Identity, ExtraParams} / Remove-M365OpsSendConnector {Identity}
+- New-M365OpsInboundConnector {Name, SenderDomains, ConnectorType? (Partner|OnPremises, default Partner), ExtraParams?} / Set-M365OpsInboundConnector {Identity, ExtraParams} / Remove-M365OpsInboundConnector {Identity}
+- New-M365OpsOutboundConnector {Name, RecipientDomains?, SmartHosts?, ExtraParams?} / Set-M365OpsOutboundConnector {Identity, ExtraParams} / Remove-M365OpsOutboundConnector {Identity}
 - New-M365OpsRemoteDomain {Name, DomainName} / Set-M365OpsRemoteDomain {Identity, ExtraParams} / Remove-M365OpsRemoteDomain {Identity} - non funziona su "Default"
 - New-M365OpsAcceptedDomain {Name, DomainName, DomainType?} - il dominio deve avere GIA' il record TXT di verifica pubblicato su Entra ID, questa cmdlet non lo verifica / Set-M365OpsAcceptedDomain {Identity, ExtraParams} / Remove-M365OpsAcceptedDomain {Identity} - AZIONE AD ALTO IMPATTO, tutte le mailbox su quel dominio perdono la posta
 IMPORTANTE: se non conosci gia' l'indirizzo/identity esatto di un oggetto, usa PRIMA exo_query per cercarlo - non indovinare mai un indirizzo email o un nome di endpoint.
@@ -576,7 +576,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
         # della guida per l'elenco completo di cosa resta comunque fuori scope).
         'Get-M365OpsDynamicDistributionGroupMember', 'Get-M365OpsTenantAllowBlockListSpoofItems',
         'Get-M365OpsQuarantinePolicy', 'Get-M365OpsQuarantineMessageHeader',
-        'Get-M365OpsTransportConfig', 'Get-M365OpsReceiveConnector', 'Get-M365OpsSendConnector',
+        'Get-M365OpsTransportConfig', 'Get-M365OpsInboundConnector', 'Get-M365OpsOutboundConnector',
         'Get-M365OpsRemoteDomain', 'Get-M365OpsMailDetailTransportRuleReport'
     )
     $exoWriteAllowlist = @(
@@ -595,8 +595,8 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
         'Enable-M365OpsDistributionGroup', 'Disable-M365OpsDistributionGroup', 'Update-M365OpsDistributionGroupMember',
         'New-M365OpsTenantAllowBlockListSpoofItem', 'Remove-M365OpsTenantAllowBlockListSpoofItem', 'Set-M365OpsTenantAllowBlockListItem',
         'New-M365OpsQuarantinePolicy', 'Set-M365OpsQuarantinePolicy', 'Remove-M365OpsQuarantinePolicy',
-        'Set-M365OpsTransportConfig', 'New-M365OpsReceiveConnector', 'Set-M365OpsReceiveConnector', 'Remove-M365OpsReceiveConnector',
-        'New-M365OpsSendConnector', 'Set-M365OpsSendConnector', 'Remove-M365OpsSendConnector',
+        'Set-M365OpsTransportConfig', 'New-M365OpsInboundConnector', 'Set-M365OpsInboundConnector', 'Remove-M365OpsInboundConnector',
+        'New-M365OpsOutboundConnector', 'Set-M365OpsOutboundConnector', 'Remove-M365OpsOutboundConnector',
         'New-M365OpsRemoteDomain', 'Set-M365OpsRemoteDomain', 'Remove-M365OpsRemoteDomain',
         'New-M365OpsAcceptedDomain', 'Set-M365OpsAcceptedDomain', 'Remove-M365OpsAcceptedDomain'
     )

@@ -42,7 +42,7 @@ function Invoke-M365OpsErrorTriage {
     # Knowledge Base del progetto (20/08/2026, richiesto esplicitamente dall'utente): oltre a
     # Microsoft Learn (generico), consulta anche la KB globale (guida di configurazione
     # dell'app) e quella del tenant attivo - per un errore specifico di QUESTO progetto (es. il
-    # limite RBAC app-only su Receive/SendConnector/Accepted Domain, documentato in sezione 6.4
+    # limite RBAC app-only su Accepted Domain, documentato in sezione 6.4
     # della guida) sono una fonte piu' precisa di qualunque documentazione Microsoft generica.
     # Match per parola chiave semplice (nessuna chiamata AI aggiuntiva: i cataloghi sono piccoli,
     # non serve altro) - se un Topic o una parola del Title del documento compare nell'errore/

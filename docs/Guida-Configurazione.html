@@ -517,6 +517,16 @@ restituisce righe, basta attendere e riprovare — non serve rifare i passi prec
 </div>
 
 <h3>6.4 Alcuni cmdlet restano "term not recognized" anche con Organization Management (scoperto dal vivo il 20/08/2026)</h3>
+<div class="warn"><strong>Aggiornamento importante (21/08/2026): questa indagine si e' rivelata
+in parte una pista sbagliata.</strong> Il caso <code>Receive-/SendConnector</code> descritto qui
+sotto NON era affatto un problema di RBAC - erano semplicemente i cmdlet SBAGLIATI, esclusivi di
+Exchange on-premises e mai esistiti in Exchange Online (vedi il riquadro dedicato piu' sotto e la
+sezione 17.15). Il caso <code>New-M365OpsAcceptedDomain</code> invece resta un genuino limite
+RBAC/modalita' di autenticazione, ora CONFERMATO (non piu' un'ipotesi): funziona in modalita'
+Delegated, non in App-only. I due cmdlet producevano lo stesso identico messaggio di errore
+testuale ("term not recognized") per due cause completamente diverse - la lezione utile qui e'
+che un messaggio di errore identico non garantisce una causa comune, verificare sempre ogni
+caso separatamente prima di generalizzare una diagnosi.</div>
 <p>Bug reale riscontrato testando <code>New-M365OpsAcceptedDomain</code> e le cmdlet
 <code>Receive-/SendConnector</code>: il service principal era già membro del role group
 <strong>"Organization Management"</strong> (sezione 6.2, opzione A) - eppure questi cmdlet
@@ -580,21 +590,37 @@ ruolo <strong>"Remote and Accepted Domains"</strong> (che dovrebbe coprire propr
 </ul>
 Quindi: sia il ruolo directory Entra ID sia il ruolo RBAC Exchange specifico risultano
 correttamente assegnati all'app giusta, eppure il cmdlet resta non esposto nella sessione
-app-only/certificato. Ipotesi non ancora verificata: le sessioni Exchange Online PowerShell V3
-in modalità app-only/CBA (certificate-based auth) potrebbero esporre solo un sottoinsieme
-curato di cmdlet legato a ruoli RBAC con voci "Application" dedicate (es. "Application
-Mail.ReadWrite", "ApplicationImpersonation" - visibili nell'elenco ruoli di questo service
-principal), mentre i cmdlet di configurazione a livello di intera organizzazione (accepted
-domain, connector) potrebbero non essere mai esposti ad app-only indipendentemente dall'RBAC,
-richiedendo invece una sessione <strong>Delegated</strong> (utente reale con MFA). Non ancora
-confermato su documentazione Microsoft ufficiale in modo esplicito per questo caso specifico -
-da approfondire con il supporto Microsoft o un test diretto in modalità Delegated su questo
-stesso tenant prima di considerare la sezione 6.2/6.4 conclusiva per queste due cmdlet. Un
-secondo retry lo stesso giorno, sempre entro circa un'ora dall'assegnazione, ha dato lo stesso
-risultato ("term not recognized" su entrambe) - non risolutivo (l'orizzonte resta troppo breve
-per escludere la sola propagazione con certezza), ma coerente con l'ipotesi sopra. Prossimo
-passo utile: un retry a distanza di ore REALI (con timestamp verificato, non assunto) prima di
-provare la strada Delegated.</div>
+app-only/certificato.</p>
+<div class="ok"><strong>CONFERMATO dal vivo il 21/08/2026 (utente: "puoi fare test in modalita'
+delegata?"):</strong> login interattivo reale completato con <code>diego@vnsys.it</code> (membro
+di "Organization Management", verificato con <code>Get-ManagementRoleAssignment</code> - decine
+di ruoli, incluso "Remote and Accepted Domains") - <code>Get-AcceptedDomain</code> funziona
+immediatamente in modalita' <strong>Delegated</strong>, restituendo i 5 domini reali del tenant.
+L'ipotesi delle sessioni app-only/CBA limitate a un sottoinsieme curato di cmdlet, indipendente
+dall'RBAC assegnato, e' quindi confermata per <code>New-/Set-/Remove-/Get-AcceptedDomain</code>:
+questi cmdlet richiedono una sessione Delegated, non sono raggiungibili in App-only
+indipendentemente da quanti ruoli si assegnano al service principal. <strong>Stato finale</strong>:
+in App-only resta bloccato (limite della piattaforma, non un bug di questo progetto); in
+Delegated funziona. Chi ha bisogno di gestire Accepted Domain da M365Ops deve usare un profilo
+tenant in modalita' Delegated (sezione 10) invece di App-only.</div>
+<div class="warn"><strong>Il caso Receive-/SendConnector era tutt'altro: un cmdlet sbagliato, non
+un limite RBAC.</strong> Verificato dal vivo lo stesso giorno: lo stesso "term not recognized" su
+<code>Get-ReceiveConnector</code> compare ANCHE in modalita' Delegated con
+<code>diego@vnsys.it</code> (membro completo di Organization Management) - se fosse stato un
+limite RBAC o di sessione app-only, un utente con quel livello di privilegio avrebbe dovuto
+riuscire. Causa reale, confermata su documentazione ufficiale Microsoft (non a memoria):
+<code>Get-/New-/Set-/Remove-ReceiveConnector</code> e <code>...SendConnector</code> sono cmdlet
+<strong>esclusivi di Exchange on-premises</strong>, non sono MAI esistiti in Exchange Online -
+"this cmdlet is available only in on-premises Exchange" (<a
+href="https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/get-receiveconnector">Get-ReceiveConnector,
+Microsoft Learn</a>). Il vero equivalente Exchange Online e' <code>Get-/New-/Set-/Remove-InboundConnector</code>
+e <code>...OutboundConnector</code> - nomi diversi, non alias, con parametri diversi (es.
+<code>SenderDomains</code> invece di <code>Bindings</code>/<code>RemoteIPRanges</code>, che sono
+concetti legati a un server fisico che non esiste in cloud). Corretto sostituendo tutti gli 8
+wrapper del modulo (<code>Get-/New-/Set-/Remove-M365OpsInboundConnector</code> e
+<code>...OutboundConnector</code>, sezione 17.15) - testato dal vivo con un ciclo completo
+create/verifica/modifica/verifica/rimuovi/verifica per entrambi, IN APP-ONLY (nessun limite di
+sessione per questi, a differenza di Accepted Domain sopra): funzionano perfettamente.</div>
 </section>
 
 <!-- ============================== 7 ============================== -->
@@ -1405,6 +1431,7 @@ invece di limitarsi a spiegarti come farlo a mano — vedi sezione 17.6 per i de
 <tr><td>Tema chiaro/scuro, pannello Upload a scomparsa, pulsanti header unificati (v0.9.19, 21/08/2026)</td><td><span class="badge done">corretto</span></td><td>Richiesto esplicitamente dall'utente, in due parti. Tema scuro: pulsante nell'header, scelta persistita in localStorage (mai dedotta dal tema di sistema), applicata prima del rendering per evitare un lampo del tema sbagliato - fattibile con una sola nuova regola CSS perche' tutta la GUI usava gia' variabili CSS per i colori, nessuna riscrittura dei singoli stili. Pannello Upload: i 3 pulsanti di caricamento, prima sempre visibili sopra la casella di testo, ora dentro un pannello a scomparsa (pulsante "📎 Upload" nell'header), stesso pattern toggle del pannello Impostazioni. Osservazione dell'utente corretta nello stesso giro: "Impostazioni tenant" e "Stato permessi" avevano due grafiche diverse (il secondo, aggiunto in v0.9.18, non aveva nessuna regola CSS dedicata) - unificati sotto una sola classe condivisa (<code>.header-btn</code>), applicata anche ai due nuovi pulsanti. Bug di processo trovato e corretto durante lo sviluppo: <code>Gui\index.html</code> viene tenuto in memoria dal server all'avvio (mai riletto ad ogni richiesta, a differenza di quanto assunto inizialmente) - un primo controllo via <code>curl</code> subito dopo l'edit mostrava ancora la pagina vecchia, risolto con un riavvio del server, poi verificato dal vivo nel browser (toggle upload, toggle tema con persistenza dopo reload, nessun colore rimasto sbagliato in nessun pannello)</td></tr>
 <tr><td>Testato dal vivo: Set-M365OpsRemoteDomain e ciclo completo gruppi dinamici; corretta un'informazione sbagliata sulla sezione 6.4 (21/08/2026)</td><td><span class="badge done">corretto</span></td><td>Ripreso il compito rimasto sospeso dall'inizio della sessione ("copriamo cio' che e' implementato ma non testato"). <code>Set-M365OpsRemoteDomain</code> verificato con un toggle reale (<code>AutoForwardEnabled</code> sulla voce "Default"), letto indipendentemente, ripristinato al valore originale. <code>New-/Set-/Remove-M365OpsDynamicDistributionGroup</code> verificato con un ciclo completo: gruppo dinamico di test creato con un filtro OPATH reale, rinominato, rimosso - ogni passaggio confermato con una lettura indipendente, ambiente di test tornato pulito. <code>New-/Set-/Remove-M365OpsAcceptedDomain</code> resta deliberatamente non provato (azione ad alto impatto, bloccata comunque dallo stesso limite RBAC di Receive/SendConnector). Corretta anche un'informazione sbagliata scritta in questa stessa guida poche ore prima: la sezione 6.4 affermava "verificato oltre 12 ore dopo l'assegnazione del ruolo Exchange Administrator" - un tempo trascorso MAI verificato in modo indipendente, solo assunto in modo sbagliato dal contesto della conversazione, segnalato e corretto dall'utente ("il ruolo e' stato aggiunto circa un'ora fa non 12 ore"). Retestato a ~1 ora reale dall'assegnazione: New-AcceptedDomain/Get-ReceiveConnector falliscono ancora, ma a quell'orizzonte la propagazione resta un'ipotesi plausibile non ancora esclusa con la stessa certezza - la sezione 6.4 e' stata riscritta per riflettere onestamente questa incertezza invece di un tempo trascorso inventato</td></tr>
 <tr><td>BUG: check permessi non riconosceva un permesso Graph piu' ampio come sufficiente per uno piu' stretto (v0.9.21, 21/08/2026)</td><td><span class="badge done">corretto</span></td><td>Trovato dal vivo dall'utente, non durante lo sviluppo: "l'app ha Sites.FullControl.All che dovrebbe essere oltre Read.All ma non se ne rende conto" - confermato, il confronto in <code>Get-M365OpsAppPermissionsCheck.ps1</code> era per stringa esatta, quindi <code>Sites.FullControl.All</code> concesso non soddisfaceva un requisito di <code>Sites.Read.All</code>. Corretto riconoscendo la gerarchia standard Microsoft Graph (<code>Read.All &lt; ReadWrite.All &lt; Manage.All &lt; FullControl.All</code>, stesso prefisso): un permesso piu' ampio ora soddisfa automaticamente un requisito piu' stretto, sia nello stato lettura/scrittura sia nell'elenco "cosa manca". Verificato dal vivo via chat dopo il fix: l'area SharePoint via Graph e' passata da "nessun accesso" a "lettura". Chiarito in parallelo (stessa conversazione) il caso Intune, che l'utente aveva segnalato come apparentemente simile ma non lo era: i 3 permessi (DeviceManagementScripts/ServiceConfig/RBAC.ReadWrite.All) risultavano ancora genuinamente assenti dalle assegnazioni reali anche dopo averli "aggiunti" in Entra ID - comportamento corretto del check, non un bug: aggiungere un permesso nella lista "API permissions" non crea un'assegnazione finche' non si preme esplicitamente "Grant admin consent", verificato leggendo le assegnazioni grezze live prima di concludere</td></tr>
+<tr><td>BUG STRUTTURALE: Receive-/SendConnector erano cmdlet on-premises-only, mai esistiti in Exchange Online - risolto con InboundConnector/OutboundConnector (v0.9.22, 21/08/2026)</td><td><span class="badge done">corretto</span></td><td>Richiesto esplicitamente dall'utente: "puoi fare test in modalita' delegata?" sul limite RBAC apparente della sezione 6.4. Login Delegated reale completato con un utente membro completo di "Organization Management" (verificato con Get-ManagementRoleAssignment): <code>Get-AcceptedDomain</code> ha funzionato subito (5 domini reali) - CONFERMANDO che Accepted Domain e' un genuino limite App-only/Delegated, ora risolto documentandolo (sezione 6.4). Ma <code>Get-ReceiveConnector</code> ha dato lo STESSO "term not recognized" anche con quell'utente pienamente privilegiato - impossibile se fosse stato RBAC. Causa vera trovata verificando la documentazione ufficiale Microsoft (non a memoria): <code>Get-/New-/Set-/Remove-ReceiveConnector</code> e <code>...SendConnector</code> sono cmdlet ESCLUSIVI di Exchange on-premises, mai esistiti in Exchange Online - "this cmdlet is available only in on-premises Exchange". Un mese di indagine RBAC (sezione 6.4) era in parte una pista sbagliata per questo caso specifico: stesso messaggio di errore testuale, due cause completamente diverse. Sostituiti tutti gli 8 wrapper (Get-/New-/Set-/Remove-M365OpsReceiveConnector/SendConnector rimossi, sostituiti da .../InboundConnector/OutboundConnector) con parametri veri verificati su Microsoft Learn (SenderDomains/ConnectorType per Inbound, RecipientDomains/SmartHosts per Outbound - diversi da Bindings/RemoteIPRanges/AddressSpaces dei vecchi wrapper, concetti on-premises che non esistono in cloud). Aggiornati anche i riferimenti nel system prompt AI e nelle allowlist exo_query/propose_exo_write (Invoke-M365OpsAgentTools.ps1). Verificato dal vivo con un ciclo completo create/verifica/modifica/verifica/rimuovi/verifica per ENTRAMBI i connettori, in App-only: funzionano perfettamente, zero problemi di permessi - conferma che non era mai stato un limite RBAC per questi due cmdlet</td></tr>
 </table>
 </section>
 
@@ -1939,7 +1966,8 @@ bene le aree di amministrazione M365 cloud-only quotidiane.</p>
 <li><strong>Tenant Allow/Block List - spoof</strong>: <code>Get-/New-/Remove-M365OpsTenantAllowBlockListSpoofItem(s)</code>,
 <code>Set-M365OpsTenantAllowBlockListItem</code> - sotto-lista separata dalle voci normali per mittente/URL/hash/IP</li>
 <li><strong>Mail flow / connettori</strong>: <code>Get-/Set-M365OpsTransportConfig</code> (impostazioni globali),
-<code>Get-/New-/Set-/Remove-M365OpsReceiveConnector</code> e <code>...SendConnector</code>,
+<code>Get-/New-/Set-/Remove-M365OpsInboundConnector</code> e <code>...OutboundConnector</code>
+(rinominati il 21/08/2026 da ...ReceiveConnector/...SendConnector - vedi riquadro sotto),
 <code>Get-/New-/Set-/Remove-M365OpsRemoteDomain</code>, <code>New-/Set-/Remove-M365OpsAcceptedDomain</code>,
 <code>Get-M365OpsMailDetailTransportRuleReport</code></li>
 <li><strong>Quarantena (policy)</strong>: <code>Get-/New-/Set-/Remove-M365OpsQuarantinePolicy</code>,
@@ -1955,22 +1983,35 @@ verificate dal vivo con dati reali del tenant. Aggiunto il 21/08/2026: <code>Set
 indipendente e ripristinato al valore originale) e il ciclo completo
 <code>New-/Set-/Remove-M365OpsDynamicDistributionGroup</code> (gruppo dinamico di test creato con
 un filtro OPATH reale, rinominato, poi rimosso - ogni passaggio verificato con una lettura
-indipendente, ambiente di test tornato pulito).</div>
+indipendente, ambiente di test tornato pulito).
+<strong>Aggiunto il 21/08/2026:</strong> ciclo completo create/verifica/modifica/verifica/rimuovi/
+verifica per <code>New-/Set-/Remove-M365OpsInboundConnector</code> e
+<code>...OutboundConnector</code>, IN APP-ONLY - funzionano perfettamente, nessun limite RBAC
+reale (vedi il riquadro sotto per la storia completa).</div>
 
-<div class="warn"><strong>Limite ambientale reale scoperto durante il test</strong>: <code>Get-/New-/
-Set-/Remove-ReceiveConnector</code> e <code>...SendConnector</code> falliscono con "term not
-recognized" sul tenant di test - stesso schema gia' documentato per Teams Policies/Purview
-(<code>Connect-ExchangeOnline</code> espone solo i cmdlet coperti dal ruolo RBAC assegnato al
-service principal, non un errore di permesso esplicito). Non e' un bug: il wrapper e' corretto.
-Approfondito il 21/08/2026 (sezione 6.4): anche dopo aver assegnato il ruolo directory Exchange
-Administrator all'app, il problema persiste - non piu' un semplice "manca un ruolo", vedi la
-sezione 6.4 per l'indagine completa.</div>
+<div class="warn"><strong>BUG STRUTTURALE trovato e corretto il 21/08/2026 (non un limite
+RBAC come ipotizzato inizialmente):</strong> <code>Get-/New-/Set-/Remove-ReceiveConnector</code> e
+<code>...SendConnector</code> fallivano con "term not recognized" sul tenant di test - scambiato
+in un primo momento per lo stesso schema RBAC gia' documentato per Teams Policies/Purview
+(sezione 6.4). Approfondendo su richiesta esplicita dell'utente ("puoi fare test in modalita'
+delegata?"), un login Delegated reale con un utente membro completo di "Organization Management"
+ha dato lo STESSO errore - impossibile se fosse stato RBAC. Causa vera, confermata su
+documentazione ufficiale Microsoft: questi cmdlet sono <strong>esclusivi di Exchange
+on-premises</strong>, mai esistiti in Exchange Online. Sostituiti gli 8 wrapper con i veri
+equivalenti Exchange Online, <code>Get-/New-/Set-/Remove-InboundConnector</code> e
+<code>...OutboundConnector</code> (parametri diversi: <code>SenderDomains</code> invece di
+<code>Bindings</code>/<code>RemoteIPRanges</code>, concetti legati a un server fisico che non
+esiste in cloud) - testato dal vivo con un ciclo completo per entrambi, funzionano subito in
+App-only, zero problemi di permessi. Vedi sezione 6.4 per la cronologia completa dell'indagine.</div>
 
-<div class="note"><code>New-/Set-/Remove-M365OpsAcceptedDomain</code> ha la sintassi verificata
-contro la documentazione ufficiale Microsoft (non a memoria) ma resta NON testato dal vivo con
-una scrittura reale, deliberatamente: e' un'azione ad alto impatto (puo' interrompere la posta su
-un intero dominio), e comunque bloccata dallo stesso limite RBAC di Receive/SendConnector sopra
-(sezione 6.4) - non ha senso provarla finche' quel limite non e' risolto.</div>
+<div class="ok"><code>New-/Set-/Remove-M365OpsAcceptedDomain</code> ha la sintassi verificata
+contro la documentazione ufficiale Microsoft. Resta NON testato con una scrittura reale,
+deliberatamente (azione ad alto impatto, puo' interrompere la posta su un intero dominio) - ma il
+limite RBAC che lo bloccava e' ora CONFERMATO e circoscritto (sezione 6.4, 21/08/2026): funziona
+in modalita' Delegated (<code>Get-AcceptedDomain</code> verificato dal vivo con 5 domini reali),
+resta bloccato in App-only indipendentemente da quanti ruoli RBAC si assegnano al service
+principal - un limite della piattaforma per questo specifico cmdlet, non un bug di questo
+progetto. Chi ha bisogno di gestirlo da M365Ops deve usare un profilo tenant Delegated.</div>
 
 <h3>Cosa resta fuori scope (per scelta, non dimenticanza)</h3>
 <p>Il censimento ha anche quantificato aree grandi lasciate deliberatamente fuori per ora:
