@@ -23,7 +23,16 @@ function Add-M365OpsKnowledgeDocument {
     $safeName = $TenantName -replace '[^\w\-]', '_'
     $kbDir = Join-Path $script:M365OpsModuleRoot "Uploads\kb\$safeName"
     New-Item -ItemType Directory -Force -Path $kbDir | Out-Null
-    $catalogPath = Join-Path $script:M365OpsModuleRoot "Config\KnowledgeBase-$safeName.json"
+    # Bug reale trovato dal vivo il 20/08/2026 (log server: "Could not find a part of the path
+    # ...\Config\KnowledgeBase-_global.json"), scatenato dall'auto-sync della guida in Server.ps1
+    # che chiama questa funzione all'AVVIO del server - su un'installazione dove Config\ non e'
+    # ancora mai stata creata (nessun tenant salvato, nessuna porta/canale mai cambiati - le uniche
+    # altre funzioni che creano quella cartella), Set-Content sotto falliva perche' la cartella
+    # destinazione non esiste ancora. A differenza di Uploads\kb\<tenant> sopra, Config\ non veniva
+    # mai creata esplicitamente qui.
+    $configDir = Join-Path $script:M365OpsModuleRoot 'Config'
+    New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    $catalogPath = Join-Path $configDir "KnowledgeBase-$safeName.json"
 
     $safeFileName = Split-Path -Leaf $OriginalFileName
     $destPath = Join-Path $kbDir $safeFileName

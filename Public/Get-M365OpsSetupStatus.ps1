@@ -17,12 +17,24 @@ function Get-M365OpsSetupStatus {
     $authMode = if ($ctx.AuthMode) { $ctx.AuthMode } else { 'AppOnly' }
 
     if ($authMode -eq 'AppOnly') {
-        $secret = Get-M365OpsSecret -Name $ctx.SecretEnvVar
-        $items += [pscustomobject]@{
-            Name = "Client secret ($($ctx.SecretEnvVar))"
-            Status = if ($secret) { 'OK' } else { 'Missing' }
-            Detail = if ($secret) { 'Impostato.' } else { "Variabile d'ambiente '$($ctx.SecretEnvVar)' non trovata su questo PC." }
-            Fix = 'Tab Tenant -> campo "Valore client secret" -> Salva profilo (oppure setx e riavvia il terminale).'
+        # Bug reale trovato dal vivo il 20/08/2026 su un PC di test: "Cannot bind argument to
+        # parameter 'Name' because it is an empty string." - un tenant AppOnly puo' legittimamente
+        # avere SOLO il certificato configurato (Set-M365OpsTenant accetta SecretEnvVar O
+        # ExchangeCertThumbprint, non richiede entrambi - vedi quella funzione), quindi
+        # $ctx.SecretEnvVar puo' essere una stringa vuota per design, non un errore di dati.
+        # Get-M365OpsSecret ha -Name Mandatory: PowerShell tratta una stringa vuota passata a un
+        # parametro Mandatory come "nessun valore" e in un host non interattivo (questo processo
+        # server, senza console) lancia quell'eccezione invece di chiedere input - stesso motivo
+        # per cui Get-M365OpsToken.ps1 e Connect-M365OpsIntune.ps1 gia' proteggono la stessa
+        # chiamata con un controllo "if ($ctx.SecretEnvVar)" a monte. Qui il controllo mancava.
+        if ($ctx.SecretEnvVar) {
+            $secret = Get-M365OpsSecret -Name $ctx.SecretEnvVar
+            $items += [pscustomobject]@{
+                Name = "Client secret ($($ctx.SecretEnvVar))"
+                Status = if ($secret) { 'OK' } else { 'Missing' }
+                Detail = if ($secret) { 'Impostato.' } else { "Variabile d'ambiente '$($ctx.SecretEnvVar)' non trovata su questo PC." }
+                Fix = 'Tab Tenant -> campo "Valore client secret" -> Salva profilo (oppure setx e riavvia il terminale).'
+            }
         }
         if ($ctx.ExchangeCertThumbprint) {
             $certPresent = Test-Path "Cert:\CurrentUser\My\$($ctx.ExchangeCertThumbprint)"
