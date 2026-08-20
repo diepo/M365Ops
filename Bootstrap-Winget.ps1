@@ -49,7 +49,9 @@ try {
         Install-Module Microsoft.WinGet.Client -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop
     }
     Import-Module Microsoft.WinGet.Client -ErrorAction Stop
+    Write-Host "Modulo importato, avvio Repair-WinGetPackageManager (il passaggio piu' lento - scarica/verifica le dipendenze VCLibs/UI.Xaml, puo' richiedere fino a un minuto)..."
     Repair-WinGetPackageManager -ErrorAction Stop
+    Write-Host "Repair-WinGetPackageManager completato."
 }
 catch {
     Write-Host "Bootstrap di winget fallito: $($_.Exception.Message)"

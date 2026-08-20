@@ -75,12 +75,52 @@ function Write-InstallerLog {
     [System.Windows.Forms.Application]::DoEvents()
 }
 
-function Wait-ProcessResponsive {
-    param([System.Diagnostics.Process]$Process)
+function Wait-ProcessWithLiveOutput {
+    <#
+        Bug reale segnalato dal vivo il 22/08/2026 durante il primo test su un PC pulito
+        (screenshot dell'utente: finestra ferma su "tento il bootstrap automatico..." per
+        oltre un minuto senza nessuna nuova riga, "sembra stuck... le persone si rompono").
+        Causa: Wait-ProcessResponsive (rimossa) aspettava la fine dell'intero processo
+        figlio PRIMA di leggere il suo output (StandardOutput.ReadToEnd() e' bloccante fino
+        all'uscita) - durante Install-Module/Repair-WinGetPackageManager, che puo' durare
+        1-2 minuti su un PC vergine, la finestra non aveva NESSUN modo di mostrare
+        progresso nel frattempo. Corretto: il processo figlio scrive il suo output su un
+        file temporaneo (RedirectStandardOutput), e questa funzione lo "tail-a" ad ogni
+        giro del polling gia' esistente, mostrando le righe non appena compaiono - piu' un
+        contatore di secondi nella status label, cosi' anche nei tratti senza nuove righe
+        di log la finestra mostra comunque segni di vita continui, non solo alla fine.
+    #>
+    param(
+        [System.Diagnostics.Process]$Process,
+        [string]$OutputFile,
+        [string]$BaseStatusText
+    )
+    $lastLength = 0
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
     while (-not $Process.HasExited) {
+        if ($OutputFile -and (Test-Path $OutputFile)) {
+            try {
+                $content = Get-Content -Path $OutputFile -Raw -ErrorAction SilentlyContinue
+                if ($content -and $content.Length -gt $lastLength) {
+                    $newText = $content.Substring($lastLength)
+                    $lastLength = $content.Length
+                    foreach ($line in ($newText -split "`r?`n")) { if ($line.Trim()) { Write-InstallerLog "  $line" } }
+                }
+            } catch {}
+        }
+        if ($BaseStatusText) { $statusLabel.Text = "$BaseStatusText ($([int]$sw.Elapsed.TotalSeconds)s)" }
         [System.Windows.Forms.Application]::DoEvents()
-        Start-Sleep -Milliseconds 150
+        Start-Sleep -Milliseconds 200
     }
+    if ($OutputFile -and (Test-Path $OutputFile)) {
+        try {
+            $content = Get-Content -Path $OutputFile -Raw -ErrorAction SilentlyContinue
+            if ($content -and $content.Length -gt $lastLength) {
+                foreach ($line in ($content.Substring($lastLength) -split "`r?`n")) { if ($line.Trim()) { Write-InstallerLog "  $line" } }
+            }
+        } catch {}
+    }
+    if ($BaseStatusText) { $statusLabel.Text = $BaseStatusText }
 }
 
 function Test-M365OpsPwshPresent {
@@ -104,16 +144,22 @@ function Get-M365OpsWingetPath {
 function Invoke-M365OpsWingetInstall {
     param([string]$WingetPath, [string]$PackageId, [string]$FriendlyName)
     Write-InstallerLog "  winget install $PackageId in corso..."
+    $tmpOut = [System.IO.Path]::GetTempFileName()
     $args = @('install', '--id', $PackageId, '-e', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements')
-    $proc = Start-Process -FilePath $WingetPath -ArgumentList $args -PassThru -WindowStyle Hidden
-    Wait-ProcessResponsive -Process $proc
+    try {
+        $proc = Start-Process -FilePath $WingetPath -ArgumentList $args -PassThru -WindowStyle Hidden -RedirectStandardOutput $tmpOut
+        Wait-ProcessWithLiveOutput -Process $proc -OutputFile $tmpOut -BaseStatusText $statusLabel.Text
+        $exitCode = $proc.ExitCode
+    } finally {
+        Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue
+    }
     $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
-    if ($proc.ExitCode -eq 0) {
+    if ($exitCode -eq 0) {
         Write-InstallerLog "  $FriendlyName installato."
     } else {
-        Write-InstallerLog "  ${FriendlyName}: winget ha restituito il codice $($proc.ExitCode) - potrebbe essere gia' installato o richiedere un intervento manuale."
+        Write-InstallerLog "  ${FriendlyName}: winget ha restituito il codice $exitCode - potrebbe essere gia' installato o richiedere un intervento manuale."
     }
-    return $proc.ExitCode
+    return $exitCode
 }
 
 $form.Add_Shown({
@@ -126,17 +172,15 @@ $form.Add_Shown({
             $statusLabel.Text = 'Bootstrap di winget (necessario per installare PowerShell 7)...'
             Write-InstallerLog "=== winget ==="
             Write-InstallerLog "  Non disponibile - tento il bootstrap automatico (Microsoft.WinGet.Client)..."
+            Write-InstallerLog "  (puo' richiedere 1-2 minuti su un PC nuovo - provider NuGet, poi il modulo, poi il repair vero e proprio)"
             $bootstrapScript = Join-Path $root 'Bootstrap-Winget.ps1'
-            $psi = New-Object System.Diagnostics.ProcessStartInfo
-            $psi.FileName = 'powershell.exe'
-            $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$bootstrapScript`""
-            $psi.UseShellExecute = $false
-            $psi.RedirectStandardOutput = $true
-            $psi.CreateNoWindow = $true
-            $bootstrapProc = [System.Diagnostics.Process]::Start($psi)
-            Wait-ProcessResponsive -Process $bootstrapProc
-            $bootstrapOutput = $bootstrapProc.StandardOutput.ReadToEnd()
-            foreach ($line in ($bootstrapOutput -split "`r?`n")) { if ($line) { Write-InstallerLog "  $line" } }
+            $tmpBootstrapOut = [System.IO.Path]::GetTempFileName()
+            try {
+                $bootstrapProc = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$bootstrapScript`"") -PassThru -WindowStyle Hidden -RedirectStandardOutput $tmpBootstrapOut
+                Wait-ProcessWithLiveOutput -Process $bootstrapProc -OutputFile $tmpBootstrapOut -BaseStatusText 'Bootstrap di winget (necessario per installare PowerShell 7)...'
+            } finally {
+                Remove-Item $tmpBootstrapOut -Force -ErrorAction SilentlyContinue
+            }
             $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
         }
 
