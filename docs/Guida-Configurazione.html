@@ -551,13 +551,19 @@ dal <code>DisplayName</code> con cui è registrata dentro Exchange via
 <code>New-ServicePrincipal</code>, sezione 6.1).</li>
 <li>Conferma, poi attendi la propagazione (stessa finestra fino a 60 minuti di sopra).</li>
 </ol>
-<div class="warn"><span class="badge todo">ancora irrisolto</span> Assegnato sul tenant di test il
-20/08/2026 (app registrata come "intune-ai-interface", ruolo directory Exchange Administrator).
-Verificato dal vivo il giorno dopo (a distanza di oltre 12 ore, ben oltre la finestra di
-propagazione di 60 minuti documentata sopra) che <code>New-AcceptedDomain</code> e
-<code>Get-ReceiveConnector</code> restituiscono ancora <code>"term not recognized"</code> -
-quindi NON è (solo) un problema di propagazione. Due controlli fatti per escludere ipotesi più
-semplici, entrambi con esito positivo (quindi non è la causa):
+<div class="warn"><span class="badge todo">ancora irrisolto</span> Assegnato sul tenant di test
+(app registrata come "intune-ai-interface", ruolo directory Exchange Administrator). Nota
+onesta su un errore di questa stessa guida: una versione precedente di questa sezione
+affermava "verificato oltre 12 ore dopo l'assegnazione" - un tempo trascorso MAI verificato
+in modo indipendente (nessun log/timestamp consultato per calcolarlo), solo assunto in modo
+sbagliato leggendo il contesto della conversazione. Corretto dopo una segnalazione esplicita
+dell'utente ("il ruolo è stato aggiunto circa un'ora fa non 12 ore"): riprovato a ~1 ora
+dall'assegnazione reale (quindi entro o appena oltre la finestra di 60 minuti documentata
+sopra, non ben oltre come scritto prima) - <code>New-AcceptedDomain</code> e
+<code>Get-ReceiveConnector</code> restituiscono ancora <code>"term not recognized"</code>.
+A quell'orizzonte temporale la sola propagazione resta un'ipotesi plausibile (non ancora
+esclusa con certezza come lo sarebbe stata a 12 ore reali) - i due controlli sotto restano
+comunque validi ed erano gia' stati fatti indipendentemente dal tempo trascorso:
 <ul>
 <li>Verificato via Graph (<code>GET /servicePrincipals/{id}/</code> e
 <code>roleManagement/directory/roleAssignments</code>) che il ruolo directory "Exchange
@@ -583,7 +589,12 @@ domain, connector) potrebbero non essere mai esposti ad app-only indipendentemen
 richiedendo invece una sessione <strong>Delegated</strong> (utente reale con MFA). Non ancora
 confermato su documentazione Microsoft ufficiale in modo esplicito per questo caso specifico -
 da approfondire con il supporto Microsoft o un test diretto in modalità Delegated su questo
-stesso tenant prima di considerare la sezione 6.2/6.4 conclusiva per queste due cmdlet.</div>
+stesso tenant prima di considerare la sezione 6.2/6.4 conclusiva per queste due cmdlet. Un
+secondo retry lo stesso giorno, sempre entro circa un'ora dall'assegnazione, ha dato lo stesso
+risultato ("term not recognized" su entrambe) - non risolutivo (l'orizzonte resta troppo breve
+per escludere la sola propagazione con certezza), ma coerente con l'ipotesi sopra. Prossimo
+passo utile: un retry a distanza di ore REALI (con timestamp verificato, non assunto) prima di
+provare la strada Delegated.</div>
 </section>
 
 <!-- ============================== 7 ============================== -->
@@ -1392,6 +1403,7 @@ invece di limitarsi a spiegarti come farlo a mano — vedi sezione 17.6 per i de
 <tr><td>Nuovo: autenticazione Graph via certificato (senza secret) + messaggio di onboarding al primo avvio (v0.9.17, 21/08/2026)</td><td><span class="badge done">corretto</span></td><td>Richiesto esplicitamente dall'utente. Prima domanda: "possiamo usare il certificato anziche' il secret?" - risposta verificata dal vivo, non a memoria: si', Microsoft Entra ID supporta client credentials con un JWT "client assertion" firmato dal certificato al posto del client secret (RFC 7523), stesso meccanismo gia' usato da <code>Connect-ExchangeOnline -CertificateThumbprint</code> per Exchange. Nuova funzione <code>New-M365OpsCertificateAssertion.ps1</code> (cerca il certificato in Cert:\CurrentUser\My poi Cert:\LocalMachine\My, come fa gia' Connect-ExchangeOnline) e <code>Get-M365OpsToken.ps1</code> aggiornata: usa il secret se disponibile (default, nessun cambiamento per installazioni esistenti), altrimenti il certificato se configurato - mai una sostituzione silenziosa di un secret gia' funzionante. Verificato dal vivo dentro lo scope del modulo (secret sostituito con una variabile inesistente, cache token svuotata): token Graph ottenuto e usato con successo per una chiamata reale a <code>/organization</code>. Rinominato di conseguenza il campo "Thumbprint certificato Exchange" in "Thumbprint certificato (per Registered App / Exchange, facoltativo)" - non e' piu' specifico di Exchange - e aggiunta una nota che i due campi (secret/certificato) sono alternativi. Seconda richiesta: messaggio di onboarding al primo avvio (nessun profilo tenant salvato) che indirizza al tab Tenant e riassume le due modalita' di autenticazione con una panoramica dei permessi per App Registration - nuovo campo <code>firstRun</code> in <code>GET /api/status</code> (<code>@(Get-M365OpsTenantList).Count -eq 0</code>), mostrato al posto del messaggio di benvenuto normale finche' non si salva il primo profilo. Verificato dal vivo con un test di backup/ripristino sicuro di <code>Config\tenants.json</code> (mai perso il contenuto reale): <code>firstRun</code> passa correttamente da true a false</td></tr>
 <tr><td>Nuovo: check permessi app in tempo reale, pulsante "🔐 Stato permessi" (v0.9.18, 21/08/2026)</td><td><span class="badge done">corretto</span></td><td>Richiesto esplicitamente dall'utente: "vorrei fare una sezione check permessi app dove... l'interfaccia scrive all'utente se puo' usare Teams, SharePoint, Exchange etc, in lettura o anche in scrittura". Discusso con l'utente dove farlo vivere (sotto-sezione statica nel tab Tenant vs pulsante in chat) - scelto il pulsante in chat, coerente con come ogni altro insight di questa app viene presentato. Nuova funzione <code>Get-M365OpsAppPermissionsCheck.ps1</code>: legge le assegnazioni REALI del service principal (<code>GET /servicePrincipals/{id}/appRoleAssignments</code>), le risolve in nomi di permesso leggibili, e le confronta con una tabella area->permessi radicata nella sezione 4.2/4.3/4.4/6 della guida (mai a memoria) per dare uno stato lettura/scrittura per Intune, Entra ID, Report, MFA, Sicurezza, Teams (due percorsi distinti: base via certificato, policy via API separata), SharePoint (due percorsi distinti: Graph diretto, PnP) ed Exchange Online. Scoperta scritta in codice DURANTE lo sviluppo, prima di consegnare: il nome risorsa Graph per SharePoint e' "Office 365 SharePoint Online", non "SharePoint Online" come si potrebbe supporre - un primo tentativo con quel nome produceva sempre "nessun accesso" anche a permesso presente, corretto confrontando l'output con le assegnazioni grezze reali di vnsys-test. Nuova voce nel catalogo comandi locali (<code>CommandCatalog.ps1</code>, <code>RequiresAI=$false</code> - dati gia' precisi, un riassunto AI aggiungerebbe solo rischio) e nuovo pulsante "🔐 Stato permessi" nell'header della chat. Verificato dal vivo via chat API e via click reale del pulsante nel browser: risultato consistente con le assegnazioni grezze verificate a mano (3 permessi Intune scrittura mancanti su vnsys-test, coerente con quanto gia' documentato in sezione 17.16)</td></tr>
 <tr><td>Tema chiaro/scuro, pannello Upload a scomparsa, pulsanti header unificati (v0.9.19, 21/08/2026)</td><td><span class="badge done">corretto</span></td><td>Richiesto esplicitamente dall'utente, in due parti. Tema scuro: pulsante nell'header, scelta persistita in localStorage (mai dedotta dal tema di sistema), applicata prima del rendering per evitare un lampo del tema sbagliato - fattibile con una sola nuova regola CSS perche' tutta la GUI usava gia' variabili CSS per i colori, nessuna riscrittura dei singoli stili. Pannello Upload: i 3 pulsanti di caricamento, prima sempre visibili sopra la casella di testo, ora dentro un pannello a scomparsa (pulsante "📎 Upload" nell'header), stesso pattern toggle del pannello Impostazioni. Osservazione dell'utente corretta nello stesso giro: "Impostazioni tenant" e "Stato permessi" avevano due grafiche diverse (il secondo, aggiunto in v0.9.18, non aveva nessuna regola CSS dedicata) - unificati sotto una sola classe condivisa (<code>.header-btn</code>), applicata anche ai due nuovi pulsanti. Bug di processo trovato e corretto durante lo sviluppo: <code>Gui\index.html</code> viene tenuto in memoria dal server all'avvio (mai riletto ad ogni richiesta, a differenza di quanto assunto inizialmente) - un primo controllo via <code>curl</code> subito dopo l'edit mostrava ancora la pagina vecchia, risolto con un riavvio del server, poi verificato dal vivo nel browser (toggle upload, toggle tema con persistenza dopo reload, nessun colore rimasto sbagliato in nessun pannello)</td></tr>
+<tr><td>Testato dal vivo: Set-M365OpsRemoteDomain e ciclo completo gruppi dinamici; corretta un'informazione sbagliata sulla sezione 6.4 (21/08/2026)</td><td><span class="badge done">corretto</span></td><td>Ripreso il compito rimasto sospeso dall'inizio della sessione ("copriamo cio' che e' implementato ma non testato"). <code>Set-M365OpsRemoteDomain</code> verificato con un toggle reale (<code>AutoForwardEnabled</code> sulla voce "Default"), letto indipendentemente, ripristinato al valore originale. <code>New-/Set-/Remove-M365OpsDynamicDistributionGroup</code> verificato con un ciclo completo: gruppo dinamico di test creato con un filtro OPATH reale, rinominato, rimosso - ogni passaggio confermato con una lettura indipendente, ambiente di test tornato pulito. <code>New-/Set-/Remove-M365OpsAcceptedDomain</code> resta deliberatamente non provato (azione ad alto impatto, bloccata comunque dallo stesso limite RBAC di Receive/SendConnector). Corretta anche un'informazione sbagliata scritta in questa stessa guida poche ore prima: la sezione 6.4 affermava "verificato oltre 12 ore dopo l'assegnazione del ruolo Exchange Administrator" - un tempo trascorso MAI verificato in modo indipendente, solo assunto in modo sbagliato dal contesto della conversazione, segnalato e corretto dall'utente ("il ruolo e' stato aggiunto circa un'ora fa non 12 ore"). Retestato a ~1 ora reale dall'assegnazione: New-AcceptedDomain/Get-ReceiveConnector falliscono ancora, ma a quell'orizzonte la propagazione resta un'ipotesi plausibile non ancora esclusa con la stessa certezza - la sezione 6.4 e' stata riscritta per riflettere onestamente questa incertezza invece di un tempo trascorso inventato</td></tr>
 </table>
 </section>
 
@@ -1937,22 +1949,27 @@ bene le aree di amministrazione M365 cloud-only quotidiane.</p>
 vnsys-test): <code>Set-M365OpsDistributionGroup</code> (nascondi/mostra in rubrica),
 <code>New-/Remove-M365OpsQuarantinePolicy</code> (ciclo completo). Le letture
 <code>Get-M365OpsTransportConfig</code>/<code>RemoteDomain</code>/<code>QuarantinePolicy</code> sono
-verificate dal vivo con dati reali del tenant.</div>
+verificate dal vivo con dati reali del tenant. Aggiunto il 21/08/2026: <code>Set-M365OpsRemoteDomain</code>
+(toggle di <code>AutoForwardEnabled</code> sulla voce "Default", verificato con lettura
+indipendente e ripristinato al valore originale) e il ciclo completo
+<code>New-/Set-/Remove-M365OpsDynamicDistributionGroup</code> (gruppo dinamico di test creato con
+un filtro OPATH reale, rinominato, poi rimosso - ogni passaggio verificato con una lettura
+indipendente, ambiente di test tornato pulito).</div>
 
 <div class="warn"><strong>Limite ambientale reale scoperto durante il test</strong>: <code>Get-/New-/
 Set-/Remove-ReceiveConnector</code> e <code>...SendConnector</code> falliscono con "term not
 recognized" sul tenant di test - stesso schema gia' documentato per Teams Policies/Purview
 (<code>Connect-ExchangeOnline</code> espone solo i cmdlet coperti dal ruolo RBAC assegnato al
-service principal, non un errore di permesso esplicito). Non e' un bug: il wrapper e' corretto,
-serve solo un ruolo RBAC Exchange non ancora assegnato su questo tenant per verificarne la
-scrittura dal vivo.</div>
+service principal, non un errore di permesso esplicito). Non e' un bug: il wrapper e' corretto.
+Approfondito il 21/08/2026 (sezione 6.4): anche dopo aver assegnato il ruolo directory Exchange
+Administrator all'app, il problema persiste - non piu' un semplice "manca un ruolo", vedi la
+sezione 6.4 per l'indagine completa.</div>
 
-<div class="note">Gli altri cmdlet di questa estensione (Accepted Domain, Remote Domain in
-scrittura, Enable/Disable/Remove gruppi dinamici) hanno la sintassi verificata contro la
-documentazione ufficiale Microsoft (non a memoria) ma NON ancora testati dal vivo con una
-scrittura reale - <code>New-/Set-/Remove-M365OpsAcceptedDomain</code> in particolare e'
-un'azione ad alto impatto (puo' interrompere la posta su un intero dominio) e non e' stata
-provata deliberatamente su un dominio reale del tenant di test.</div>
+<div class="note"><code>New-/Set-/Remove-M365OpsAcceptedDomain</code> ha la sintassi verificata
+contro la documentazione ufficiale Microsoft (non a memoria) ma resta NON testato dal vivo con
+una scrittura reale, deliberatamente: e' un'azione ad alto impatto (puo' interrompere la posta su
+un intero dominio), e comunque bloccata dallo stesso limite RBAC di Receive/SendConnector sopra
+(sezione 6.4) - non ha senso provarla finche' quel limite non e' risolto.</div>
 
 <h3>Cosa resta fuori scope (per scelta, non dimenticanza)</h3>
 <p>Il censimento ha anche quantificato aree grandi lasciate deliberatamente fuori per ora:
