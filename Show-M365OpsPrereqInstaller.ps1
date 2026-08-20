@@ -277,14 +277,21 @@ $form.Add_Shown({
     # Install-M365OpsPrerequisites (che gira dopo, senza finestra, dentro Launch-M365Ops.ps1) -
     # cosi' un'attesa di decine di secondi per modulo non sembra piu' un buco silenzioso tra
     # la chiusura di questa finestra e l'apertura del browser.
-    Write-InstallerLog "=== Moduli PowerShell (Exchange/Excel/Intune) ==="
+    Write-InstallerLog "=== Moduli PowerShell (Exchange/Teams/SharePoint/Excel/Intune/PDF) ==="
     if (Test-M365OpsPwshPresent) {
         $pwshPath = Get-M365OpsPwshPath
         if ($pwshPath) {
+            # Elenco completo (22/08/2026, secondo giro dopo "ma i moduli teams sharepoint
+            # graph etc ci sono????" - vedi lo stesso elenco/commento in
+            # Install-M365OpsPrerequisites.ps1 per il dettaglio del perche' Graph non serve un
+            # modulo qui).
             $moduleChecks = @(
                 @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'ExchangeOnlineManagement' }
                 @{ Name = 'ImportExcel'; FriendlyName = 'ImportExcel' }
                 @{ Name = 'IntuneWin32App'; FriendlyName = 'IntuneWin32App' }
+                @{ Name = 'MicrosoftTeams'; FriendlyName = 'MicrosoftTeams' }
+                @{ Name = 'PnP.PowerShell'; FriendlyName = 'PnP.PowerShell (SharePoint)' }
+                @{ Name = 'PdfLexer'; FriendlyName = 'PdfLexer (estrazione testo PDF)' }
             )
             foreach ($m in $moduleChecks) {
                 $checkCmd = "if (Get-Module -ListAvailable -Name $($m.Name)) { 'PRESENT' } else { 'MISSING' }"

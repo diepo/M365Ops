@@ -160,10 +160,17 @@ function Install-M365OpsPrerequisites {
     # reale: Complete-M365OpsExchangeDelegatedLogin.ps1 non aveva nessun fallback per
     # ExchangeOnlineManagement, a differenza di Connect-M365OpsExchange.ps1 - lo stesso
     # modulo, due percorsi diversi, uno solo dei due gestiva l'assenza).
+    # Elenco completo (22/08/2026, secondo giro dopo che l'utente ha chiesto esplicitamente
+    # "ma i moduli teams sharepoint graph etc ci sono????" - Graph non serve un modulo, questo
+    # progetto lo chiama sempre via REST puro (Invoke-M365OpsGraphRequest), ma Teams/SharePoint/
+    # PDF si', trovati con lo stesso grep sistematico gia' usato per Exchange/Excel/Intune):
     $moduleChecks = @(
         @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'Modulo ExchangeOnlineManagement (connessione Exchange Online)' }
         @{ Name = 'ImportExcel'; FriendlyName = 'Modulo ImportExcel (export report .xlsx)' }
         @{ Name = 'IntuneWin32App'; FriendlyName = 'Modulo IntuneWin32App (packaging app Win32 per Intune)' }
+        @{ Name = 'MicrosoftTeams'; FriendlyName = 'Modulo MicrosoftTeams (connessione Teams)' }
+        @{ Name = 'PnP.PowerShell'; FriendlyName = 'Modulo PnP.PowerShell (connessione SharePoint)' }
+        @{ Name = 'PdfLexer'; FriendlyName = 'Modulo PdfLexer (estrazione testo da PDF caricati nella Knowledge Base)' }
     )
     foreach ($m in $moduleChecks) {
         if (Get-Module -ListAvailable -Name $m.Name) {
