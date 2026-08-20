@@ -25,7 +25,15 @@ function Connect-M365OpsTeams {
         Write-Host "Modulo MicrosoftTeams non trovato, lo installo..." -ForegroundColor Yellow
         Install-Module MicrosoftTeams -Scope CurrentUser -Force -AllowClobber
     }
+    # Log PRIMA dell'import (22/08/2026): un blocco segnalato dal vivo non aveva scritto
+    # NEMMENO la riga di diagnostica messa subito prima di Connect-MicrosoftTeams (vedi sotto)
+    # - possibile che il blocco vero scattasse gia' qui, dentro Import-Module stesso (il
+    # modulo MicrosoftTeams puo' inizializzare componenti nativi del broker WAM all'import,
+    # non solo alla connessione). Questa riga isola quale dei due e' il vero punto di blocco,
+    # la prossima volta che ricapita.
+    Write-M365OpsLog "Import-Module MicrosoftTeams avviato..."
     Import-Module MicrosoftTeams -ErrorAction Stop
+    Write-M365OpsLog "Import-Module MicrosoftTeams completato."
 
     if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
         if (-not $script:M365OpsContext.DelegatedUpn) {
@@ -50,17 +58,38 @@ function Connect-M365OpsTeams {
         # per evitare un client_id indovinato a memoria, bug reale gia' visto su SharePoint) resta
         # valido: e' una proprieta' del modulo stesso, non del parametro -UseDeviceAuthentication
         # specificamente - il modulo sceglie il client corretto in ENTRAMBI i flussi.
-        # Diagnostica prima/dopo (22/08/2026, richiesta esplicitamente dall'utente dopo un
-        # login Teams delegato apparentemente bloccato su Windows Sandbox - popup completato
-        # ma l'app restava ferma, senza modo di distinguere "bloccato per sempre" da "lento").
-        # Write-M365OpsLog scrive su Logs\m365ops-YYYYMMDD.log (persistente, recuperabile anche
-        # a processo terminato) - a differenza di Write-Host, che finisce solo sulla console
-        # nascosta del server e nel caso di un vero blocco non e' mai stato utile a diagnosticare
-        # nulla in questa sessione (vedi il bug del device-code, sezione 17.14).
-        Write-M365OpsLog "Connect-MicrosoftTeams (delegato, interattivo) avviato - in attesa del popup di login..."
+        # BUG STRUTTURALE reale, causa vera trovata il 22/08/2026 dopo che l'utente ha
+        # confermato dal vivo il blocco completo (persino il tab Log smetteva di rispondere,
+        # confermando un vero blocco a thread singolo, non solo un rallentamento) e ha
+        # suggerito di confrontare con Intune, che funziona: dal modulo MicrosoftTeams
+        # v7.8.1-preview (giugno 2026), Connect-MicrosoftTeams usa di DEFAULT Web Account
+        # Manager (WAM) come broker di autenticazione su Windows per il login interattivo -
+        # verificato su Microsoft Learn, non a memoria. WAM richiede una sessione Windows
+        # interattiva con una UI reale a cui agganciarsi; in un contesto "RunAs"/senza
+        # finestra visibile come questo server (avviato con -WindowStyle Hidden da
+        # Launch-M365Ops.ps1), WAM non ha dove mostrare la propria interfaccia e la chiamata
+        # resta bloccata per sempre in attesa di una risposta che non arrivera' mai - stessa
+        # classe di bug del device-code (sezione 17.14), causa diversa e piu' recente (WAM e'
+        # diventato default DOPO che quel primo fix era stato scritto, il modulo si e'
+        # aggiornato sotto silenzio). Corretto con -DisableWAM (switch ufficiale del modulo,
+        # introdotto proprio in v7.8.1-preview "per scenari come contesti RunAs dove WAM non
+        # e' supportato" - la descrizione ufficiale Microsoft corrisponde esattamente a questo
+        # caso) - forza il modulo a tornare al flusso browser+redirect precedente, lo stesso
+        # gia' funzionante per SharePoint/PnP.
+        #
+        # -DisableWAM esiste SOLO da 7.8.1-preview in poi (verificato: su questa stessa
+        # macchina di sviluppo il modulo installato e' ancora 7.3.1, dove quel parametro non
+        # esiste affatto - passarlo comunque avrebbe rotto QUEL caso con un errore di
+        # parameter binding, un bug diverso ma reale che avrei introdotto io stesso).
+        # Controllato dinamicamente invece di assumere una versione minima.
+        $teamsModuleVersion = (Get-Module -Name MicrosoftTeams).Version
+        $connectTeamsParams = @{ TenantId = $script:M365OpsContext.TenantId; ErrorAction = 'Stop' }
+        $supportsDisableWam = $teamsModuleVersion -and $teamsModuleVersion -ge [version]'7.8.1'
+        if ($supportsDisableWam) { $connectTeamsParams.DisableWAM = $true }
+        Write-M365OpsLog "Connect-MicrosoftTeams (delegato, interattivo, modulo v$teamsModuleVersion, DisableWAM=$supportsDisableWam) avviato - in attesa del popup di login..."
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
-            Connect-MicrosoftTeams -TenantId $script:M365OpsContext.TenantId -ErrorAction Stop
+            Connect-MicrosoftTeams @connectTeamsParams
         } catch {
             Write-M365OpsLog "Connect-MicrosoftTeams (delegato) FALLITO dopo $([int]$sw.Elapsed.TotalSeconds)s: $($_.Exception.Message)" -Level Error
             throw
