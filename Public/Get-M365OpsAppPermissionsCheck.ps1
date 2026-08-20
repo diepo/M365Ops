@@ -71,10 +71,35 @@ function Get-M365OpsAppPermissionsCheck {
         $grantedByResource[$resourceNames[$resourceId]] = @($grantedIds | ForEach-Object { $roleMap[$_] } | Where-Object { $_ })
     }
 
+    # Bug reale trovato dal vivo il 21/08/2026, segnalato dall'utente: l'app aveva
+    # Sites.FullControl.All concesso, ma il check segnalava comunque "manca Sites.Read.All" -
+    # tecnicamente vero per confronto di stringa esatto, ma fuorviante nella sostanza (chi ha
+    # FullControl.All puo' anche solo leggere). Un permesso Microsoft Graph piu' ampio con lo
+    # STESSO prefisso comprende sempre l'accesso di uno piu' stretto - gerarchia standard
+    # Read.All < ReadWrite.All < Manage.All < FullControl.All (non tutti i prefissi hanno
+    # tutti e 4 i livelli, ma quando esistono seguono sempre quest'ordine).
+    function Test-M365OpsPermSatisfiedByBroader {
+        param([string]$Permission, $Granted)
+        $tiers = @('.Read.All', '.ReadWrite.All', '.Manage.All', '.FullControl.All')
+        $matchedTier = -1
+        for ($i = 0; $i -lt $tiers.Count; $i++) {
+            if ($Permission.EndsWith($tiers[$i])) { $matchedTier = $i; break }
+        }
+        if ($matchedTier -lt 0) { return $false }
+        $prefix = $Permission.Substring(0, $Permission.Length - $tiers[$matchedTier].Length)
+        for ($i = $matchedTier + 1; $i -lt $tiers.Count; $i++) {
+            if ($Granted -contains "$prefix$($tiers[$i])") { return $true }
+        }
+        return $false
+    }
+
     function Test-M365OpsPermSubset {
         param($Required, $Granted)
         if (-not $Required -or $Required.Count -eq 0) { return $true }
-        foreach ($r in $Required) { if ($Granted -notcontains $r) { return $false } }
+        foreach ($r in $Required) {
+            if ($Granted -contains $r) { continue }
+            if (-not (Test-M365OpsPermSatisfiedByBroader -Permission $r -Granted $Granted)) { return $false }
+        }
         return $true
     }
 
@@ -140,8 +165,8 @@ function Get-M365OpsAppPermissionsCheck {
             Area            = $def.Area
             Resource        = $def.Resource
             Status          = $status
-            MissingForRead  = @($def.Read | Where-Object { $granted -notcontains $_ })
-            MissingForWrite = @($def.Write | Where-Object { $granted -notcontains $_ })
+            MissingForRead  = @($def.Read | Where-Object { $granted -notcontains $_ -and -not (Test-M365OpsPermSatisfiedByBroader -Permission $_ -Granted $granted) })
+            MissingForWrite = @($def.Write | Where-Object { $granted -notcontains $_ -and -not (Test-M365OpsPermSatisfiedByBroader -Permission $_ -Granted $granted) })
             Note            = $def.Note
         }
     }
