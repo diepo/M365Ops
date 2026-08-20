@@ -13,25 +13,32 @@ if %errorlevel% equ 0 (
     set "PWSH=%ProgramFiles%\PowerShell\7\pwsh.exe"
 )
 
-if "%PWSH%"=="" (
-    echo PowerShell 7 non trovato su questo PC - installazione automatica in corso tramite winget...
-    where winget.exe >nul 2>nul
-    if %errorlevel% neq 0 (
-        echo winget non disponibile su questo PC: installa PowerShell 7 manualmente da https://aka.ms/powershell-release
-        echo poi rilancia M365Ops.bat.
-        pause
-        exit /b 1
-    )
-    winget install --id Microsoft.PowerShell -e --silent --accept-package-agreements --accept-source-agreements
-    if exist "%ProgramFiles%\PowerShell\7\pwsh.exe" (
+rem Percorso comune (tutto gia' presente): nessuna finestra, avvio diretto e silenzioso,
+rem esattamente come prima. La GUI di installazione (22/08/2026, richiesta esplicitamente
+rem dall'utente: "una gui che segua l'installazione dei moduli. aggrega dentro
+rem l'installazione dei prereq anche nodejs") scatta SOLO se manca almeno uno tra
+rem PowerShell 7, winget o Node.js - vedi Show-M365OpsPrereqInstaller.ps1, che gestisce da
+rem sola l'intero flusso (incluso il bootstrap di winget stesso se assente, riusando
+rem Bootstrap-Winget.ps1) invece delle sottoroutine di solo testo usate prima qui.
+set "NEEDS_PREREQ_GUI=0"
+if "%PWSH%"=="" set "NEEDS_PREREQ_GUI=1"
+where winget.exe >nul 2>nul
+if %errorlevel% neq 0 set "NEEDS_PREREQ_GUI=1"
+where npx.cmd >nul 2>nul
+if %errorlevel% neq 0 set "NEEDS_PREREQ_GUI=1"
+
+if "%NEEDS_PREREQ_GUI%"=="1" (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Show-M365OpsPrereqInstaller.ps1"
+    set "PWSH="
+    where pwsh.exe >nul 2>nul
+    if %errorlevel% equ 0 (
+        set "PWSH=pwsh.exe"
+    ) else if exist "%ProgramFiles%\PowerShell\7\pwsh.exe" (
         set "PWSH=%ProgramFiles%\PowerShell\7\pwsh.exe"
-        echo PowerShell 7 installato correttamente.
-    ) else (
-        echo Installazione completata ma pwsh.exe non risulta nel percorso atteso.
-        echo Chiudi questa finestra e rilancia M365Ops.bat - se il problema persiste, installa manualmente da https://aka.ms/powershell-release
-        pause
-        exit /b 1
     )
 )
 
+if "%PWSH%"=="" exit /b 1
+
 start "" "%PWSH%" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0Launch-M365Ops.ps1"
+exit /b 0

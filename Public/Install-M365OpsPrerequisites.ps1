@@ -14,6 +14,12 @@ function Install-M365OpsPrerequisites {
         girare (serve pwsh per eseguirla). Il controllo/installazione di PowerShell 7 vive in
         M365Ops.bat, PRIMA di invocare pwsh.exe - l'unico punto dove ha senso, essendo un file
         .bat eseguito da cmd.exe (sempre presente) invece che da PowerShell stesso.
+
+        Dal 22/08/2026 M365Ops.bat mostra gia' una GUI dedicata (Show-M365OpsPrereqInstaller.ps1)
+        che installa Node.js/Edge/PowerShell 7 PRIMA che il server parta, se manca qualcosa -
+        questa funzione resta comunque come seconda passata idempotente qui in Launch-M365Ops.ps1
+        (utile se l'app viene lanciata in un modo che salta il .bat, es. direttamente da
+        Server.ps1 durante lo sviluppo) e come fallback manuale dal banner Impostazioni.
     .NOTES
         Installazione via winget, in modo silenzioso (nessun prompt) - coerente con la
         richiesta esplicita di procedere direttamente. Se winget non e' disponibile sul PC
@@ -40,6 +46,17 @@ function Install-M365OpsPrerequisites {
         # fissati a mano, che si romperebbero alla prima nuova versione delle dipendenze.
         try {
             Write-M365OpsLog "winget non trovato - tento il bootstrap automatico via Microsoft.WinGet.Client."
+            # TLS 1.2 + provider NuGet espliciti (22/08/2026, allineato a Bootstrap-Winget.ps1
+            # dopo che lo stesso identico blocco "ps7 assente e winget non disponibile" e'
+            # ricomparso dal vivo su un secondo PC pulito con la v0.9.26 gia' installata - vedi
+            # quel file per il dettaglio del perche' questo blocco qui non bastava da solo).
+            # Senza, Install-Module puo' fallire silenziosamente su TLS piu' vecchio negoziato
+            # di default, o restare in attesa di un prompt mai mostrato per il provider NuGet
+            # mancante (nessuno dei due sintomi ovvio dal solo messaggio d'errore).
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+            if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+                Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null
+            }
             if (-not (Get-Module -ListAvailable -Name Microsoft.WinGet.Client)) {
                 Install-Module Microsoft.WinGet.Client -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
             }

@@ -92,6 +92,15 @@ if (-not $Port) {
 $logDir = Join-Path $root 'Logs'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
 
+# Collegamento sul Desktop con icona dedicata (22/08/2026, richiesto esplicitamente
+# dall'utente: "disegna una icona bellina per il bat" - un .bat non puo' avere un'icona
+# propria, serve un collegamento .lnk). Idempotente e non bloccante: uno script a parte
+# (Tools\New-M365OpsShortcut.ps1) crea/aggiorna il collegamento solo se serve davvero,
+# un fallimento qui e' solo cosmetico e non deve mai impedire l'avvio del server.
+try {
+    & (Join-Path $root 'Tools\New-M365OpsShortcut.ps1') -Root $root
+} catch {}
+
 # Controllo prerequisiti (Node.js, Microsoft Edge) PRIMA di avviare il server, in modo
 # silenzioso - nessun click richiesto. Richiesto esplicitamente dall'utente il 18/08/2026:
 # "deve esserci l'autoinstallazione di tutto cio che manca per essere pronta all'uso".

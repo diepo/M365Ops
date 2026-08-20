@@ -211,8 +211,8 @@ Modulo M365Ops (Public/*.ps1, Private/*.ps1)                    │
 <h2>3. Prerequisiti software</h2>
 <table>
 <tr><th>Componente</th><th>Uso</th><th>Verifica</th><th>Installazione automatica</th></tr>
-<tr><td>PowerShell 7+</td><td>esecuzione del modulo e del server web</td><td><code>pwsh -v</code></td><td><span class="badge done">sì</span> — <code>M365Ops.bat</code> lo controlla PRIMA di avviare qualsiasi altra cosa e lo installa da solo via winget se manca (sezione 3.1)</td></tr>
-<tr><td>Node.js + npx</td><td>avvio del server MCP Lokka (<code>npx -y @merill/lokka</code>)</td><td><code>npx -v</code></td><td><span class="badge done">sì</span> — pulsante "Installa automaticamente" nel banner delle Impostazioni (sezione 3.1)</td></tr>
+<tr><td>PowerShell 7+</td><td>esecuzione del modulo e del server web</td><td><code>pwsh -v</code></td><td><span class="badge done">sì</span> — <code>M365Ops.bat</code> lo controlla PRIMA di avviare qualsiasi altra cosa e lo installa da solo via winget se manca, con una finestra grafica dedicata (sezione 3.1)</td></tr>
+<tr><td>Node.js + npx</td><td>avvio del server MCP Lokka (<code>npx -y @merill/lokka</code>)</td><td><code>npx -v</code></td><td><span class="badge done">sì</span> — stessa finestra grafica di PowerShell 7, oppure pulsante "Installa automaticamente" nel banner delle Impostazioni (sezione 3.1)</td></tr>
 <tr><td>Modulo <code>ImportExcel</code></td><td>export report in formato .xlsx</td><td><code>Get-Module -ListAvailable ImportExcel</code></td><td><span class="badge done">sì</span> — al primo uso (vedi nota sotto)</td></tr>
 <tr><td>Modulo <code>ExchangeOnlineManagement</code></td><td>connessione app-only a Exchange Online</td><td><code>Get-Module -ListAvailable ExchangeOnlineManagement</code></td><td><span class="badge done">sì</span> — al primo uso (vedi nota sotto)</td></tr>
 <tr><td>Microsoft Edge</td><td>generazione PDF (report ed export, incl. questo documento) via <code>--headless --print-to-pdf</code></td><td>presente di default su Windows 11</td><td><span class="badge done">sì</span> — stesso pulsante di Node.js, utile solo su PC senza Edge preinstallato (raro su Windows 11)</td></tr>
@@ -222,32 +222,48 @@ Modulo M365Ops (Public/*.ps1, Private/*.ps1)                    │
 uso dalle rispettive cmdlet (<code>Install-Module ... -Scope CurrentUser</code>), non serve
 preinstallarli manualmente.</div>
 
-<h3>3.1 Controllo e installazione automatica (17/08/2026, reso completamente silenzioso il 18/08/2026)</h3>
+<h3>3.1 Controllo e installazione automatica (17/08/2026, unificata in una GUI il 22/08/2026)</h3>
 <p>Su richiesta esplicita, l'app non si limita a segnalare i prerequisiti mancanti: li installa
 da sola dove tecnicamente possibile, senza che l'operatore debba far nulla — un doppio click su
-<code>M365Ops.bat</code> è sufficiente perché l'ambiente sia pronto all'uso, in due punti diversi
-a seconda di COSA manca.</p>
-<div class="ok"><strong>PowerShell 7</strong> — controllato da <code>M365Ops.bat</code> stesso,
-PRIMA di avviare <code>pwsh.exe</code>: se manca, lancia <code>winget install Microsoft.PowerShell</code>
-in modo silenzioso e poi procede normalmente. Deve stare nel file <code>.bat</code> (eseguito da
-<code>cmd.exe</code>, sempre presente su Windows) e non in uno script PowerShell — se manca
-proprio PowerShell 7, non esiste alcun modo di eseguire codice PowerShell per sistemarlo da solo.
-Se <code>winget</code> stesso non è disponibile (raro, PC molto datati), la finestra mostra il
-link diretto per l'installazione manuale invece di restare bloccata senza spiegazioni.</div>
-<div class="ok"><strong>Node.js e Microsoft Edge</strong> — controllati e installati in modo
-completamente silenzioso da <code>Launch-M365Ops.ps1</code>, PRIMA di avviare il server e senza
-alcun click richiesto (chiama <code>Install-M365OpsPrerequisites</code> in-process appena
-PowerShell 7 è già garantito presente dal passo precedente). Il banner "Ambiente non completo"
-(tab Impostazioni) con il pulsante <strong>"Installa automaticamente"</strong> resta comunque
-disponibile come ripetizione manuale, per l'unico caso in cui il controllo silenzioso all'avvio
-fallisca (es. <code>winget</code> assente o bloccato da policy aziendali) — chiama la stessa
-<code>Install-M365OpsPrerequisites</code> (<code>POST /api/install-prerequisites</code>) e
-aggiorna subito il PATH del processo corrente dal registro di sistema, così il risultato è
-utilizzabile senza dover riavviare l'intero server.</div>
-<p>Se <code>winget</code> non è disponibile sul PC, sia <code>M365Ops.bat</code> sia il controllo
-silenzioso all'avvio lo segnalano chiaramente (in <code>Logs\</code> e, per Node/Edge, anche nel
-banner della GUI) invece di fallire in modo oscuro, con l'indicazione di dove scaricare l'installer
-manualmente.</p>
+<code>M365Ops.bat</code> è sufficiente perché l'ambiente sia pronto all'uso.</p>
+<div class="ok"><strong>Percorso comune (tutto già presente): nessuna finestra.</strong>
+<code>M365Ops.bat</code> controlla PowerShell 7, winget e Node.js con un semplice <code>where</code>
+prima di fare qualunque altra cosa - se ci sono già tutti (il caso normale su un PC dove l'app è
+già stata usata), avvia il server direttamente, esattamente come prima, senza alcun ritardo o
+finestra aggiuntiva.</div>
+<div class="ok"><strong>Qualcosa manca: <code>Show-M365OpsPrereqInstaller.ps1</code>.</strong>
+Se manca anche solo uno tra PowerShell 7, winget o Node.js, <code>M365Ops.bat</code> apre una
+finestra grafica dedicata (Windows Forms, eseguita in Windows PowerShell 5.1 - sempre presente,
+a differenza di PowerShell 7 stesso) che mostra passo per passo cosa sta verificando/installando:
+PowerShell 7, Node.js, Microsoft Edge, e - se manca anche winget stesso - il bootstrap di winget
+prima di tutto il resto (vedi sotto). La finestra si chiude da sola se tutto va a buon fine,
+altrimenti resta aperta con il log completo e un pulsante "Chiudi". Prima del 22/08/2026 questi
+tre passaggi erano divisi fra un file <code>.bat</code> di solo testo (PowerShell 7) e un secondo
+controllo invisibile minuti dopo (Node.js/Edge, dentro <code>Launch-M365Ops.ps1</code>) - ora sono
+un unico flusso visibile, richiesto esplicitamente dall'utente ("una gui che segua l'installazione
+dei moduli. aggrega dentro l'installazione dei prereq anche nodejs visto che cmq serve").</div>
+<div class="ok"><strong>Bootstrap di winget stesso, se assente</strong> — raro (PC molto minimali/
+datati o Windows Server), ma possibile proprio sul tipo di "PC pulito" dove serve di più. Un file
+a parte, <code>Bootstrap-Winget.ps1</code>, usa il modulo ufficiale Microsoft
+<code>Microsoft.WinGet.Client</code> (<code>Repair-WinGetPackageManager</code>) per installarlo da
+zero, con TLS 1.2 e il provider NuGet forzati esplicitamente prima di <code>Install-Module</code>
+(altrimenti, su un PC davvero vergine, il tentativo può fallire silenziosamente per un protocollo
+TLS troppo vecchio negoziato di default, o restare in attesa di un prompt del provider NuGet mai
+mostrato). Se anche questo bootstrap fallisce, la finestra mostra il link diretto per
+l'installazione manuale di PowerShell 7 invece di restare bloccata senza spiegazioni.</div>
+<p>Il banner "Ambiente non completo" (tab Impostazioni) con il pulsante
+<strong>"Installa automaticamente"</strong> resta disponibile come ripetizione manuale dentro
+l'app stessa, per il caso in cui qualcosa cambi DOPO il primo avvio (es. Node.js disinstallato per
+sbaglio) - chiama <code>Install-M365OpsPrerequisites</code>
+(<code>POST /api/install-prerequisites</code>), che gira anche come seconda passata idempotente
+ad ogni avvio di <code>Launch-M365Ops.ps1</code>.</p>
+<div class="note">Al primo avvio, <code>Launch-M365Ops.ps1</code> crea anche un collegamento
+<strong>M365Ops.lnk</strong> sul Desktop con un'icona dedicata (<code>Assets\M365Ops.ico</code>) -
+un file <code>.bat</code> non può avere un'icona propria (limite di Windows: mostra sempre quella
+generica di <code>cmd.exe</code>), un collegamento sì. Operazione idempotente e non bloccante: se
+il collegamento esiste già e punta al <code>M365Ops.bat</code> corretto non viene ricreato, e un
+suo eventuale fallimento (es. cartella Desktop non scrivibile) è solo cosmetico, non impedisce mai
+l'avvio del server.</div>
 </section>
 
 <!-- ============================== 4 ============================== -->
@@ -1479,6 +1495,7 @@ invece di limitarsi a spiegarti come farlo a mano — vedi sezione 17.6 per i de
 </ol>
 Tutti e 5 verificati dal vivo dopo la correzione: profilo solo-certificato salvato con successo via API reale, <code>Install-M365OpsPrerequisites</code> testato senza regressioni con winget gia' presente, <code>GET /guida</code> testato via GET reale (PDF di 8 pagine servito correttamente).</td></tr>
 <tr><td>BUG: la v0.9.25 aveva corretto solo il TESTO del messaggio "chiave AI mancante", non la logica - nessun provider e' un default (v0.9.26, 22/08/2026)</td><td><span class="badge done">corretto</span></td><td>Correzione richiesta esplicitamente dall'utente dopo aver riletto la riga del changelog v0.9.25: "'manca ANTHROPIC_API_KEY' ora chiarisce che e' solo il provider di default, non l'unico -- correggi, non ci deve essere un provider di default". Aveva ragione: <code>Get-M365OpsSetupStatus.ps1</code> continuava a controllare UNA SOLA variabile scelta in base a <code>$script:ActiveAIProvider</code>. Correggendo la logica e' emerso un bug di scope preesistente e mai notato prima, causa vera del comportamento originale: <code>$script:ActiveAIProvider</code> e' una variabile di <strong>Gui\Server.ps1</strong>, ma il controllo vive in una funzione del <strong>modulo</strong> - il suo <code>$script:</code> e' un altro scope, quindi la lettura risultava SEMPRE <code>$null</code>, e il controllo finiva SEMPRE nel ramo ANTHROPIC_API_KEY indipendentemente da quale provider fosse davvero selezionato lato server (verificato dal vivo: anche con un server reale appena riavviato, l'interpolazione di quella variabile risultava vuota). Non un problema di testo quindi, ma la causa strutturale del "perche' solo Anthropic?" segnalato originariamente. Corretto controllando <code>ANTHROPIC_API_KEY</code> e le tre variabili <code>AZURE_OPENAI_*</code> in modo indipendente e alla pari, senza piu' fare riferimento alla variabile fuori scope: Claude e Azure OpenAI sono presentati come due alternative equivalenti, mai una "predefinita, non l'unica". Verificato dal vivo via <code>GET /api/setup-status</code> su un server reale riavviato, con entrambi i provider configurati: stato OK, messaggio corretto senza alcun riferimento a un provider attivo/default.</td></tr>
+<tr><td>BUG STRUTTURALE: "ps7 assente e winget non disponibile" ricomparso identico su un secondo PC pulito con la v0.9.26 gia' installata - GUI di installazione prerequisiti unificata, icona e collegamento Desktop (v0.9.27, 22/08/2026)</td><td><span class="badge done">corretto</span></td><td>Segnalato dal vivo dall'utente dopo aver riprovato l'installazione: "provata la 0.9.26 avviata installazione stesso problema di ps7 assenzte e winget nn disponibile" - lo stesso blocco gia' segnalato prima della v0.9.25. Causa reale: il bootstrap winget aggiunto in v0.9.25 viveva in <code>Install-M365OpsPrerequisites.ps1</code>, dentro il MODULO PowerShell - inutile per il caso vero, che scatta in <code>M365Ops.bat</code>, dentro <code>cmd.exe</code>, PRIMA che esista anche solo PowerShell 7 (il modulo richiede un ambiente PowerShell gia' funzionante per essere importato). Corretto con un nuovo file <code>Bootstrap-Winget.ps1</code>, eseguito da Windows PowerShell 5.1 (sempre presente su Windows 10/11 a differenza di <code>pwsh.exe</code>) - stesso bootstrap ufficiale Microsoft (<code>Microsoft.WinGet.Client</code> / <code>Repair-WinGetPackageManager</code>) ma dal punto giusto della catena, con TLS 1.2 e provider NuGet forzati esplicitamente (causa piu' comune di fallimenti silenziosi di <code>Install-Module</code> su un PC vergine, applicato anche al bootstrap gia' esistente in <code>Install-M365OpsPrerequisites.ps1</code> per coerenza). <code>M365Ops.bat</code> riscritto usando "call" a sottoroutine invece di "goto" dentro blocchi <code>if()</code> (problema noto di parsing di cmd.exe: l'intero blocco tra parentesi viene letto come un'unica unita' prima di essere eseguito) - verificato con test isolati di tutti e 3 i percorsi (tutto gia' presente, bootstrap fallito, bootstrap riuscito via fallback WindowsApps) prima di toccare il file reale, oltre al normale test dal vivo del percorso comune. <strong>Richiesto in aggiunta dallo stesso utente prima del commit:</strong> "disegna una icona bellina per il bat e una gui che segua l'installazione dei moduli. aggrega dentro l'installazione dei prereq anche nodejs visto che cmq serve". Realizzati: (1) icona originale <code>Assets\M365Ops.ico</code> (ingranaggio bianco su gradiente blu/turchese, generata via System.Drawing, nessun logo Microsoft riprodotto), assegnata a un nuovo collegamento <code>M365Ops.lnk</code> creato in automatico sul Desktop al primo avvio - un <code>.bat</code> non puo' avere un'icona propria in Windows, un collegamento si'; (2) <code>Show-M365OpsPrereqInstaller.ps1</code>, finestra Windows Forms che mostra dal vivo il controllo/installazione di PowerShell 7, Node.js e Microsoft Edge in un unico flusso visibile, richiamata da <code>M365Ops.bat</code> solo se manca davvero qualcosa - il percorso comune con tutto gia' presente resta istantaneo e senza finestre, invariato. Node.js, prima installato solo DOPO in un secondo momento invisibile dentro <code>Launch-M365Ops.ps1</code>, e' ora aggregato nello stesso flusso visibile.</td></tr>
 </table>
 </section>
 
@@ -2402,8 +2419,8 @@ Import-PfxCertificate -FilePath "M365Ops-Exchange.pfx" -CertStoreLocation Cert:\
 occupa di ogni prerequisito da solo al primo avvio (sezione 3.1).</p>
 <table>
 <tr><th>Componente</th><th>Si installa da sola?</th></tr>
-<tr><td>PowerShell 7+</td><td><span class="badge done">sì</span> — <code>M365Ops.bat</code> lo controlla ed installa via winget PRIMA di avviare qualunque altra cosa, in modo silenzioso</td></tr>
-<tr><td>Node.js (<code>npx</code>, richiesto da Lokka) e Microsoft Edge</td><td><span class="badge done">sì</span> — controllati e installati in modo silenzioso da <code>Launch-M365Ops.ps1</code> prima di avviare il server, nessun click richiesto</td></tr>
+<tr><td>PowerShell 7+</td><td><span class="badge done">sì</span> — <code>M365Ops.bat</code> lo controlla PRIMA di avviare qualunque altra cosa; se manca, mostra una finestra grafica che lo installa via winget (sezione 3.1)</td></tr>
+<tr><td>Node.js (<code>npx</code>, richiesto da Lokka) e Microsoft Edge</td><td><span class="badge done">sì</span> — stessa finestra grafica di PowerShell 7 se manca qualcosa, altrimenti verificati in modo silenzioso da <code>Launch-M365Ops.ps1</code> come seconda passata</td></tr>
 <tr><td>Moduli PowerShell (<code>ExchangeOnlineManagement</code>, <code>ImportExcel</code>, <code>IntuneWin32App</code>)</td><td><span class="badge done">sì</span> — installati automaticamente al primo uso se mancanti</td></tr>
 </table>
 <div class="note">Se <code>winget</code> non è disponibile sul PC nuovo (raro, PC molto datati),
@@ -2686,11 +2703,15 @@ un'azione dimenticata ancora pronta a essere eseguita da un vecchio "sì".</p>
 ├── Reports\                         output export CSV/XLSX/PDF (anche i grafici SVG generati, sezione 22)
 ├── Uploads\                         file caricati da GUI (installer, icone, CSV migrazione)
 ├── Logs\                            storico azioni, un file al giorno (sezione 19)
-├── Tools\                           IntuneWinAppUtil.exe
+├── Tools\                           IntuneWinAppUtil.exe, New-M365OpsIcon.ps1 / New-M365OpsShortcut.ps1 (sezione 3.1)
+├── Assets\
+│   └── M365Ops.ico                  icona dell'app, usata dal collegamento sul Desktop (sezione 3.1)
 ├── docs\
 │   ├── Guida-Configurazione.html    sorgente di questa guida
 │   └── Guida-Configurazione.pdf     versione stampabile
 ├── Launch-M365Ops.ps1 / M365Ops.bat avvio con un click (12.1) o da terminale (12.2), resume-session, auto-install prerequisiti
+├── Show-M365OpsPrereqInstaller.ps1  GUI di installazione prerequisiti, richiamata da M365Ops.bat solo se manca qualcosa (sezione 3.1)
+├── Bootstrap-Winget.ps1             installa winget stesso se assente, richiamato da Show-M365OpsPrereqInstaller.ps1 (sezione 3.1)
 ├── Start-M365OpsWebApp.ps1 / Start-M365Ops.ps1   superati da Launch-M365Ops.ps1 (mancano rilevamento porta e resume-session) - lasciati solo per compatibilità con script esterni esistenti, non usarli per l'avvio normale
 └── README.md                        guida rapida sviluppatore</div>
 </section>
