@@ -27,6 +27,37 @@ $script:PendingAction = $null
 
 Write-M365OpsLog "Server avviato sulla porta $Port, tenant iniziale '$TenantProfile'."
 
+# Auto-sync della guida nella Knowledge Base GLOBALE (21/08/2026, richiesto esplicitamente
+# dall'utente dopo aver notato che il documento caricato restava una foto statica: ogni nuova
+# modifica alla guida richiedeva un ricaricamento manuale via Add-M365OpsKnowledgeDocument,
+# facile da dimenticare - prova reale: la sezione 6.4 e' stata aggiornata piu' volte in questa
+# stessa sessione senza mai risincronizzare il documento gia' caricato). Ad ogni avvio del
+# server, se il PDF della guida e' cambiato rispetto all'ultimo caricamento (hash SHA256
+# confrontato con Config\global-kb-guide-hash.txt, non la data di modifica - piu' affidabile, un
+# semplice checkout/copia puo' cambiare la data senza cambiare il contenuto), lo ricarica
+# automaticamente. '_global' e' lo stesso nome riservato definito in M365Ops.psm1
+# ($script:M365OpsGlobalKbName) - duplicato qui come stringa letterale perche' quella variabile
+# e' nello scope del modulo, non visibile da questo script esterno (stesso principio gia' usato
+# ovunque nel modulo: TenantName resta sempre una stringa opaca, mai un tipo dedicato). Avvolto
+# in try/catch, non blocca mai l'avvio del server: un fallimento qui (es. provider AI non
+# raggiungibile in quel momento) non deve impedire all'app di partire.
+try {
+    $guidePdfPath = Join-Path $moduleRoot 'docs\Guida-Configurazione.pdf'
+    $guideHashPath = Join-Path $moduleRoot 'Config\global-kb-guide-hash.txt'
+    if (Test-Path $guidePdfPath) {
+        $currentHash = (Get-FileHash -Path $guidePdfPath -Algorithm SHA256).Hash
+        $lastHash = if (Test-Path $guideHashPath) { (Get-Content $guideHashPath -Raw).Trim() } else { $null }
+        if ($currentHash -ne $lastHash) {
+            Write-M365OpsLog "Guida di configurazione cambiata, risincronizzo nella Knowledge Base globale..."
+            Add-M365OpsKnowledgeDocument -TenantName '_global' -FilePath $guidePdfPath -OriginalFileName 'Guida-Configurazione.pdf' -Provider $script:ActiveAIProvider | Out-Null
+            Set-Content -Path $guideHashPath -Value $currentHash -Encoding UTF8
+            Write-M365OpsLog "Knowledge Base globale risincronizzata con la guida aggiornata."
+        }
+    }
+} catch {
+    Write-M365OpsLog "Auto-sync della guida nella Knowledge Base globale fallito (non bloccante): $($_.Exception.Message)"
+}
+
 function Get-M365OpsGroupPlanFromMessage {
     <#
     .SYNOPSIS
