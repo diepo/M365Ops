@@ -9,16 +9,44 @@ function Install-M365OpsUpdate {
 
         Sicurezza strutturale, non convenzionale: l'archivio scaricato da GitHub e'
         ESATTAMENTE l'albero tracciato da git a quel tag - Config\, Logs\, Uploads\,
-        Reports\, Testing\ non ci sono mai dentro (escluse da .gitignore, mai committate),
-        quindi questa funzione non puo' fisicamente toccarle anche solo volendo: non le
-        esclude "a mano", semplicemente non esistono nel materiale che sovrascrive. La
-        stessa garanzia richiesta a suo tempo per la Knowledge Base (isolamento per
-        struttura, non per promessa) vale qui per i dati operativi del tenant.
+        Reports\, Testing\, Scripts\Custom\ non ci sono mai dentro con contenuto reale
+        dell'utente (escluse da .gitignore o protette esplicitamente sotto), quindi questa
+        funzione non puo' fisicamente toccarle anche solo volendo: non le esclude "a mano",
+        semplicemente non esistono nel materiale che sovrascrive. La stessa garanzia
+        richiesta a suo tempo per la Knowledge Base (isolamento per struttura, non per
+        promessa) vale qui per i dati operativi del tenant.
+
+        BUG STRUTTURALE GRAVE corretto il 22/08/2026, trovato dal vivo dall'utente dopo
+        una serie di aggiornamenti apparentemente riusciti (0.9.33 -> ... -> 0.9.37, ognuno
+        loggato come "aggiornato" senza errori) che pero' non avevano MAI applicato le
+        modifiche reali al codice - confermato incollando il contenuto di
+        Connect-M365OpsTeams.ps1 dalla sua macchina: era ancora la versione di settimane
+        prima, nonostante il numero di versione in M365Ops.psd1 fosse salito correttamente
+        ad ogni giro. Causa: "Copy-Item -Path sorgente\Public -Destination dest\Public
+        -Recurse -Force" quando "dest\Public" ESISTE GIA' (sempre vero per un
+        aggiornamento, mai per un'installazione nuova) non sovrascrive il CONTENUTO della
+        cartella - copia l'intera cartella sorgente DENTRO quella di destinazione, creando
+        "dest\Public\Public\..." invece di sovrascrivere "dest\Public\...". Nessun errore,
+        nessun avviso: Copy-Item considera l'operazione riuscita, M365Ops.psd1 (un FILE, non
+        una cartella - non soggetto a questo problema) si aggiornava correttamente ad ogni
+        giro dando la falsa impressione che tutto funzionasse, mentre il codice VERO sotto
+        Public\/Private\/Gui\/Tools\ restava quello del tutto primo download, mai toccato
+        da nessun aggiornamento successivo. Riprodotto empiricamente prima di correggere:
+        un file "nuovo" creato con lo stesso identico pattern finisce in
+        "dest\Public\Public\NuovoFile.ps1", il file "vecchio" gia' presente in
+        "dest\Public\VecchioFile.ps1" resta totalmente intatto. Corretto con una copia
+        RICORSIVA file-per-file (mai una cartella intera passata a -Recurse verso una
+        destinazione che potrebbe gia' esistere) - crea le cartelle di destinazione se
+        mancanti, poi copia ogni singolo file con Copy-Item -Force, senza mai rischiare
+        l'annidamento indipendentemente dalla profondita' della struttura.
 
         Limite noto (accettabile per una v0.x): un file rimosso in una versione piu'
         recente non viene ripulito qui, solo aggiunte/modifiche vengono applicate - una
         reinstallazione pulita (cancellare la cartella e riclonare) resta il percorso
-        garantito al 100% se serve ripulire anche le rimozioni.
+        garantito al 100% se serve ripulire anche le rimozioni <strong>o se un'installazione
+        precedente ha gia' accumulato cartelle annidate dal bug sopra</strong> - in
+        quel caso una copia pulita e' l'unico modo sicuro di ripartire, questa funzione da
+        sola non ripulisce l'annidamento gia' presente su disco da aggiornamenti passati.
     .NOTES
         Mode: Write
     #>
@@ -54,13 +82,34 @@ function Install-M365OpsUpdate {
         # nell'archivio (vedi .SYNOPSIS), un controllo esplicito qui costa nulla e blocca
         # a monte qualunque scenario imprevisto (es. un futuro contributor che le committa
         # per errore in un fork), invece di fidarsi solo dell'assenza per costruzione.
-        $neverTouch = @('Config', 'Logs', 'Uploads', 'Reports', 'Testing', '.git')
+        # Scripts\Custom aggiunta il 22/08/2026 (stesso giro del fix sotto): script
+        # personalizzati creati dall'utente stesso, mai da sovrascrivere con quelli
+        # dell'archivio (che contiene solo _TEMPLATE.ps1/README.md).
+        $neverTouch = @('Config', 'Logs', 'Uploads', 'Reports', 'Testing', '.git', 'Scripts')
+
+        # BUG STRUTTURALE (22/08/2026, vedi .SYNOPSIS per il dettaglio completo): mai passare
+        # una CARTELLA a Copy-Item -Recurse verso una destinazione che potrebbe gia' esistere
+        # (sempre vero per un aggiornamento) - annida invece di sovrascrivere, senza nessun
+        # errore. Copia ricorsiva file-per-file: l'unico modo di garantire che ogni file
+        # venga davvero sovrascritto al posto giusto, indipendentemente dalla profondita'
+        # della struttura di cartelle.
+        function Copy-M365OpsUpdateItem {
+            param([string]$SourcePath, [string]$DestPath)
+            if (Test-Path -Path $SourcePath -PathType Container) {
+                if (-not (Test-Path $DestPath)) { New-Item -ItemType Directory -Force -Path $DestPath | Out-Null }
+                Get-ChildItem -Path $SourcePath -Force | ForEach-Object {
+                    Copy-M365OpsUpdateItem -SourcePath $_.FullName -DestPath (Join-Path $DestPath $_.Name)
+                }
+            } else {
+                Copy-Item -Path $SourcePath -Destination $DestPath -Force
+            }
+        }
 
         $copiedItems = @()
         Get-ChildItem -Path $sourceRoot.FullName -Force | ForEach-Object {
             if ($_.Name -in $neverTouch) { return }
             $dest = Join-Path $script:M365OpsModuleRoot $_.Name
-            Copy-Item -Path $_.FullName -Destination $dest -Recurse -Force
+            Copy-M365OpsUpdateItem -SourcePath $_.FullName -DestPath $dest
             $copiedItems += $_.Name
         }
 
