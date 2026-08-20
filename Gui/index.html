@@ -232,6 +232,7 @@
         <h3 style="margin-top:0;">Exchange Online</h3>
         <div id="mcp-exchange-status" class="hint">caricamento stato...</div>
         <p class="hint">Sui tenant App-only la connessione è silenziosa (certificato). Sui tenant Delegati mostra un codice da inserire su un'altra pagina — non blocca più l'app durante l'attesa.</p>
+        <p style="background:var(--warn-soft); color:var(--warn); padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin:8px 0;"><b>NB:</b> i moduli Exchange e Teams non convivono nello stesso processo server (conflitto noto di Microsoft, non un bug di questa app — vedi guida sezione 6.6). Avvia UNA delle due connessioni per volta e riavvia il server (tab Manutenzione) prima di passare all'altra.</p>
         <div class="actions">
           <button id="exchange-test-btn">Connetti / Test connessione Exchange</button>
           <span id="exchange-status-msg"></span>
@@ -253,6 +254,7 @@
         <h3 style="margin-top:0;">Microsoft Teams</h3>
         <div id="mcp-teams-status" class="hint">caricamento stato...</div>
         <p class="hint">App-only: elenco Team/canali/membri funziona subito con lo stesso certificato di Exchange - criteri di riunione/chiamata/messaggistica e configurazione accesso esterno richiedono in più il permesso "Skype and Teams Tenant Admin API" (vedi guida sezione 4.4). Sui tenant Delegati si apre una finestra per il login: il server resta bloccato per tutti finché non lo completi — fallo qui PRIMA di chiedere dati in chat, mai durante una richiesta composta.</p>
+        <p style="background:var(--warn-soft); color:var(--warn); padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin:8px 0;"><b>NB:</b> i moduli Teams e Exchange non convivono nello stesso processo server (conflitto noto di Microsoft, non un bug di questa app — vedi guida sezione 6.6). Avvia UNA delle due connessioni per volta e riavvia il server (tab Manutenzione) prima di passare all'altra. Nota anche: su tenant Delegati il popup di login può aprirsi DIETRO il browser — controlla con Alt+Tab prima di pensare che sia bloccato.</p>
         <div class="actions">
           <button id="teams-test-btn">Connetti / Test connessione Teams</button>
           <span id="teams-status-msg"></span>
