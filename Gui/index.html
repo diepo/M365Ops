@@ -3,6 +3,11 @@
 <head>
 <meta charset="utf-8">
 <title>M365 Ops Assistant</title>
+<script>
+  // Applicato PRIMA che il resto della pagina renderizzi, per evitare un lampo del tema
+  // sbagliato ad ogni caricamento (il resto del wiring del pulsante e' in fondo alla pagina).
+  document.documentElement.setAttribute('data-theme', localStorage.getItem('m365ops-theme') === 'dark' ? 'dark' : 'light');
+</script>
 <style>
   :root {
     --bg: #F3F5F7; --surface: #FFFFFF; --surface-alt: #EBEEF2; --border: #D9DFE5;
@@ -11,6 +16,18 @@
     --ok: #257A47; --ok-soft: #E1F3E8; --warn: #9C6B0E; --warn-soft: #FBEED9;
     --critical: #B23A32; --critical-soft: #FBE4E2;
     --radius-sm: 4px; --radius-md: 8px;
+  }
+  /* Dark mode (21/08/2026, richiesto esplicitamente dall'utente): stessa tavolozza di variabili
+     CSS di :root, solo i valori cambiano - ogni regola sotto usa gia' var(--...), quindi non
+     serve toccare nient'altro. Scelta esplicita dell'utente (pulsante), non legata al tema di
+     sistema: persistita in localStorage, applicata subito al caricamento pagina (script inline
+     nell'head, prima che il resto renderizzi) per evitare un lampo del tema sbagliato. */
+  html[data-theme="dark"] {
+    --bg: #10151B; --surface: #1A222B; --surface-alt: #232D38; --border: #333F4C;
+    --text: #E8EDF2; --text-muted: #9CADBC; --text-faint: #6C7E8F;
+    --accent: #4FA3D8; --accent-strong: #7EC2EA; --accent-soft: #1D3546;
+    --ok: #4FB37E; --ok-soft: #17301F; --warn: #D9A441; --warn-soft: #3A2E12;
+    --critical: #E2685D; --critical-soft: #3A1D1A;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -49,14 +66,12 @@
 
   footer { flex-shrink: 0; border-top: 1px solid var(--border); background: var(--surface); padding: 12px 18px; }
 
-  #upload-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 12.5px; color: var(--text-muted); }
-  #file-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #icon-label { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); }
-  #browse-btn {
+  .upload-btn {
     padding: 6px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);
     background: var(--surface-alt); color: var(--text); font-size: 12.5px; cursor: pointer;
+    font-family: inherit; flex-shrink: 0;
   }
-  #browse-btn:hover { background: var(--border); }
+  .upload-btn:hover { background: var(--border); }
 
   #input-row { display: flex; gap: 10px; }
   #input-box {
@@ -73,11 +88,26 @@
 
   .typing { color: var(--text-faint); font-style: italic; }
 
-  #settings-btn {
+  /* Stile condiviso per i pulsanti dell'header (21/08/2026, richiesto esplicitamente
+     dall'utente: "impostazioni tenant e stato permessi hanno due grafiche diverse rendili
+     coerenti") - una sola regola per tutti i pulsanti dell'header, invece di una copia per
+     ID che rischia di andare fuori sincrono ad ogni nuovo pulsante aggiunto. */
+  .header-btn {
     background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm);
     padding: 6px 12px; font-size: 12.5px; color: var(--text-muted); cursor: pointer;
+    font-family: inherit;
   }
-  #settings-btn:hover { background: var(--surface-alt); color: var(--text); }
+  .header-btn:hover { background: var(--surface-alt); color: var(--text); }
+  .header-btn.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  #theme-toggle-btn { padding: 6px 10px; font-size: 14px; line-height: 1; }
+
+  #upload-panel {
+    display: none; background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 14px 18px; flex-shrink: 0;
+  }
+  #upload-panel.open { display: flex; flex-direction: column; gap: 10px; }
+  .upload-row-item { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-muted); }
+  .upload-row-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   #settings-panel {
     display: none; background: var(--surface); border-bottom: 1px solid var(--border);
@@ -140,10 +170,30 @@
   </div>
   <div style="display:flex; align-items:center; gap:10px;">
     <span id="ai-badge">Chiamata AI in corso</span>
-    <button id="permissions-check-btn" title="Verifica quali permessi ha davvero l'app registrata su questo tenant">🔐 Stato permessi</button>
-    <button id="settings-btn">⚙ Impostazioni tenant</button>
+    <button id="theme-toggle-btn" class="header-btn" title="Cambia tema chiaro/scuro">🌙</button>
+    <button id="upload-toggle-btn" class="header-btn" title="Carica un file da pacchettizzare, un'icona o un CSV di migrazione">📎 Upload</button>
+    <button id="permissions-check-btn" class="header-btn" title="Verifica quali permessi ha davvero l'app registrata su questo tenant">🔐 Stato permessi</button>
+    <button id="settings-btn" class="header-btn">⚙ Impostazioni tenant</button>
   </div>
 </header>
+
+<div id="upload-panel">
+  <div class="upload-row-item">
+    <span id="file-label">Nessun file caricato</span>
+    <button id="browse-btn" class="upload-btn">Carica file (.exe / .msi / .ps1 / .bat / .cmd)...</button>
+    <input type="file" id="file-input" accept=".exe,.msi,.ps1,.bat,.cmd" style="display:none">
+  </div>
+  <div class="upload-row-item">
+    <span id="icon-label">Nessuna icona</span>
+    <button id="browse-icon-btn" class="upload-btn">Carica icona (opzionale)...</button>
+    <input type="file" id="icon-input" accept=".png,.jpg,.jpeg,.ico" style="display:none">
+  </div>
+  <div class="upload-row-item">
+    <span id="migration-csv-label">Nessun CSV migrazione</span>
+    <button id="browse-migration-csv-btn" class="upload-btn">Carica CSV migrazione...</button>
+    <input type="file" id="migration-csv-input" accept=".csv" style="display:none">
+  </div>
+</div>
 
 <div id="update-banner" style="display:none; margin:10px 16px 0; padding:8px 14px; background:var(--warn-soft); border:1px solid var(--warn); border-radius:var(--radius-sm); font-size:12.5px; align-items:center; gap:10px; justify-content:space-between;">
   <span id="update-banner-text"></span>
@@ -441,17 +491,6 @@
 <main id="chat"></main>
 
 <footer>
-  <div id="upload-row">
-    <span id="file-label">Nessun file caricato</span>
-    <button id="browse-btn">Carica file (.exe / .msi / .ps1 / .bat / .cmd)...</button>
-    <input type="file" id="file-input" accept=".exe,.msi,.ps1,.bat,.cmd" style="display:none">
-    <span id="icon-label">Nessuna icona</span>
-    <button id="browse-icon-btn">Carica icona (opzionale)...</button>
-    <input type="file" id="icon-input" accept=".png,.jpg,.jpeg,.ico" style="display:none">
-    <span id="migration-csv-label">Nessun CSV migrazione</span>
-    <button id="browse-migration-csv-btn">Carica CSV migrazione...</button>
-    <input type="file" id="migration-csv-input" accept=".csv" style="display:none">
-  </div>
   <div id="input-row">
     <textarea id="input-box" placeholder="Scrivi come faresti con un collega — es. 'mostrami i dispositivi non conformi'"></textarea>
     <button id="send-btn">Invia</button>
@@ -471,6 +510,9 @@
   const aiBadge = document.getElementById('ai-badge');
   const settingsBtn = document.getElementById('settings-btn');
   const permissionsCheckBtn = document.getElementById('permissions-check-btn');
+  const uploadToggleBtn = document.getElementById('upload-toggle-btn');
+  const uploadPanel = document.getElementById('upload-panel');
+  const themeToggleBtn = document.getElementById('theme-toggle-btn');
   const settingsPanel = document.getElementById('settings-panel');
   const profileList = document.getElementById('profile-list');
   const saveProfileBtn = document.getElementById('save-profile-btn');
@@ -1834,6 +1876,32 @@
   });
 
   permissionsCheckBtn.addEventListener('click', () => sendMessage('verifica permessi app'));
+
+  // Pannello upload a scomparsa (21/08/2026, richiesto esplicitamente dall'utente: prima erano
+  // 3 pulsanti sempre visibili sopra la casella di testo, "possiamo renderla piu' ordinata
+  // facendo una roba magari a scomparsa con scritto upload?") - stesso pattern toggle gia' usato
+  // per il pannello Impostazioni, cosi' i due si comportano in modo prevedibile e coerente.
+  uploadToggleBtn.addEventListener('click', () => {
+    const isOpen = uploadPanel.classList.toggle('open');
+    uploadToggleBtn.classList.toggle('active', isOpen);
+  });
+
+  // Tema chiaro/scuro (21/08/2026, richiesto esplicitamente dall'utente) - la scelta e' SOLO
+  // dell'utente (pulsante), mai dedotta dal tema del sistema operativo: persistita in
+  // localStorage cosi' resta la stessa tra un riavvio del browser e l'altro. L'applicazione
+  // iniziale avviene in uno script separato nell'<head> (vedi sopra il </title>), PRIMA che il
+  // resto della pagina renderizzi, per evitare un lampo del tema sbagliato ad ogni caricamento.
+  function setTheme(mode) {
+    document.documentElement.setAttribute('data-theme', mode);
+    localStorage.setItem('m365ops-theme', mode);
+    themeToggleBtn.textContent = mode === 'dark' ? '☀' : '🌙';
+    themeToggleBtn.title = mode === 'dark' ? 'Passa al tema chiaro' : 'Passa al tema scuro';
+  }
+  themeToggleBtn.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    setTheme(current === 'dark' ? 'light' : 'dark');
+  });
+  setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
 
   let currentTenantName = '';
 
