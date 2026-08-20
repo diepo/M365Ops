@@ -564,7 +564,15 @@ function Get-M365OpsCommandCatalog {
             Name         = "AppPermissionsCheck"
             Description  = "Verifica quali permessi ha davvero l'app registrata (Graph/Exchange/SharePoint/Teams) e cosa manca per lettura o scrittura completa. Uso: 'verifica permessi app'"
             Triggers     = @('(verific|controll|check).{0,15}permess', 'che permess.{0,20}(ha|hai)', 'stato permess', 'permess.{0,20}(app|applicazione|service principal)')
-            DeferWords   = @()
+            # Bug reale trovato dal vivo il 21/08/2026 durante lo stress test: "come funziona il
+            # check permessi per un tenant delegato?" - una domanda INFORMATIVA sulla
+            # funzionalita', mai una richiesta di eseguirla - veniva comunque intercettata dal
+            # trigger 'check.{0,15}permess' (letteralmente presente nella frase) ed eseguiva il
+            # controllo vero invece di rispondere alla domanda con l'AI/la guida. Parole che
+            # segnalano una domanda SU come funziona qualcosa, non una richiesta di farlo,
+            # dirottano all'AI - stesso principio gia' usato altrove nel catalogo per le domande
+            # meta sulle altre funzionalita'.
+            DeferWords   = @('come funziona', 'cosa fa', 'spiega', 'spiegami', 'perche')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { Get-M365OpsAppPermissionsCheck }
