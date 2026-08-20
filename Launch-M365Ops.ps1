@@ -150,9 +150,14 @@ Start-Process -FilePath $pwshPath -ArgumentList @('-NoProfile', '-STA', '-File',
 # Server.ps1 potrebbe finire su una porta DIVERSA da quella richiesta se occupata da un altro
 # programma - si rilegge active-port.txt ad ogni giro invece di continuare a controllare solo
 # quella di partenza, che potrebbe non essere mai quella vera.
+# Budget alzato da 10s a 30s il 22/08/2026 (bug reale segnalato dal vivo su Windows Sandbox,
+# hardware volutamente limitato): un primo avvio a freddo puo' impiegare piu' di 10s per
+# importare il modulo (350+ file in Public\/Private\) su CPU/disco piu' lenti - il ciclo esce
+# comunque appena il server risponde, quindi il percorso comune veloce (~1-2s) resta invariato,
+# solo il caso limite lento smette di mostrare un errore fuorviante mentre sta ancora lavorando.
 $ready = $false
 $actualPort = $Port
-for ($i = 0; $i -lt 20; $i++) {
+for ($i = 0; $i -lt 60; $i++) {
     Start-Sleep -Milliseconds 500
     if (Test-Path $activePortFile) {
         $currentPort = (Get-Content $activePortFile -Raw -ErrorAction SilentlyContinue).Trim()

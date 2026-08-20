@@ -33,7 +33,19 @@ function Install-M365OpsPrerequisites {
     #>
     $results = @()
 
+    # Controllo anche il percorso WindowsApps diretto, non solo Get-Command (22/08/2026, bug
+    # reale segnalato dal vivo su Windows Sandbox): un winget installato pochi minuti prima da
+    # Bootstrap-Winget.ps1 (Windows PowerShell 5.1, dentro M365Ops.bat) puo' risultare "non
+    # trovato" qui perche' questa funzione gira in un processo PowerShell 7 SEPARATO
+    # (Launch-M365Ops.ps1), che eredita il PATH del proprio processo genitore al momento in
+    # cui e' stato creato - non necessariamente aggiornato con l'installazione appena fatta.
+    # Senza questo controllo, il sintomo e' un secondo bootstrap ridondante e lento (rieseguito
+    # qui sotto) anche quando winget e' gia' realmente presente su disco.
     $winget = (Get-Command winget.exe -ErrorAction SilentlyContinue).Source
+    if (-not $winget) {
+        $windowsAppsWinget = "$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe"
+        if (Test-Path $windowsAppsWinget) { $winget = $windowsAppsWinget }
+    }
     if (-not $winget) {
         # Bootstrap automatico di winget stesso (21/08/2026, richiesto esplicitamente
         # dall'utente dopo un test su PC pulito: "si puo' prevedere una installazione del
@@ -107,7 +119,10 @@ function Install-M365OpsPrerequisites {
         # ANCHE quando il pacchetto era gia' disponibile e trovabile nella sorgente "winget"
         # (community repository, quella che vogliamo sempre usare per questi prerequisiti - mai
         # lo Store). Specificare la sorgente evita del tutto la query al backend msstore.
-        $output = & winget install --id $c.WingetId -e --source winget --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-String
+        # $winget (percorso risolto, non il nome nudo "winget"): stesso motivo del controllo di
+        # presenza sopra - se risolto solo via fallback WindowsApps, un "& winget install..." nudo
+        # tornerebbe a dipendere dal PATH e fallirebbe di nuovo nello stesso identico scenario.
+        $output = & $winget install --id $c.WingetId -e --source winget --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-String
         $exitCode = $LASTEXITCODE
         $installedSomething = $true
 
