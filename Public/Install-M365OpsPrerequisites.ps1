@@ -6,9 +6,17 @@ function Install-M365OpsPrerequisites {
         Get-M365OpsSetupStatus (che da' solo istruzioni manuali). Richiesto esplicitamente
         dall'utente il 17/08/2026: "se non ci sono direttamente procede alla installazione".
 
-        I moduli PowerShell (ImportExcel, ExchangeOnlineManagement, IntuneWin32App) NON sono
-        gestiti qui: si auto-installano gia' da soli al primo uso con Install-Module
-        -Scope CurrentUser dentro le rispettive cmdlet - non serve ripetere quella logica qui.
+        I moduli PowerShell (ExchangeOnlineManagement, ImportExcel, IntuneWin32App) SONO
+        gestiti anche qui dal 22/08/2026 (corretto dopo un bug reale segnalato dal vivo su un
+        PC davvero vergine: "ti avevo detto di implementare tutti i moduli come prerequisito" -
+        installare ExchangeOnlineManagement solo "al primo uso dentro le rispettive cmdlet"
+        si e' rivelato inconsistente in pratica, con almeno un percorso di codice
+        (Complete-M365OpsExchangeDelegatedLogin.ps1) che non aveva NESSUN fallback di
+        auto-installazione, facendo fallire un login delegato altrimenti riuscito con un
+        errore criptico di modulo mancante. Installati qui, in anticipo, cosi' un login/report
+        reale non e' mai il primo posto dove l'assenza del modulo viene scoperta. Il fallback
+        lazy nelle singole cmdlet resta comunque presente per difesa in profondita', non
+        rimosso.
 
         PowerShell 7 stesso NON e' gestito qui: se manca, questa funzione non puo' nemmeno
         girare (serve pwsh per eseguirla). Il controllo/installazione di PowerShell 7 vive in
@@ -32,6 +40,16 @@ function Install-M365OpsPrerequisites {
         finche' l'intero server non viene riavviato manualmente, un passaggio in piu' evitabile.
     #>
     $results = @()
+
+    # TLS 1.2 + provider NuGet forzati QUI, una sola volta, prima di qualunque Install-Module
+    # in questa funzione (winget-client piu' sotto E i moduli PowerShell veri e propri) - senza,
+    # su un PC davvero vergine Install-Module puo' fallire silenziosamente su TLS piu' vecchio
+    # negoziato di default, o restare in attesa di un prompt mai mostrato per il provider NuGet
+    # mancante (vedi anche Bootstrap-Winget.ps1, stesso principio).
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+    if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+        try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch {}
+    }
 
     # Controllo anche il percorso WindowsApps diretto, non solo Get-Command (22/08/2026, bug
     # reale segnalato dal vivo su Windows Sandbox): un winget installato pochi minuti prima da
@@ -58,17 +76,8 @@ function Install-M365OpsPrerequisites {
         # fissati a mano, che si romperebbero alla prima nuova versione delle dipendenze.
         try {
             Write-M365OpsLog "winget non trovato - tento il bootstrap automatico via Microsoft.WinGet.Client."
-            # TLS 1.2 + provider NuGet espliciti (22/08/2026, allineato a Bootstrap-Winget.ps1
-            # dopo che lo stesso identico blocco "ps7 assente e winget non disponibile" e'
-            # ricomparso dal vivo su un secondo PC pulito con la v0.9.26 gia' installata - vedi
-            # quel file per il dettaglio del perche' questo blocco qui non bastava da solo).
-            # Senza, Install-Module puo' fallire silenziosamente su TLS piu' vecchio negoziato
-            # di default, o restare in attesa di un prompt mai mostrato per il provider NuGet
-            # mancante (nessuno dei due sintomi ovvio dal solo messaggio d'errore).
-            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
-            if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
-                Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null
-            }
+            # TLS 1.2 + provider NuGet: gia' forzati in cima alla funzione, condivisi con
+            # l'installazione dei moduli PowerShell piu' sotto - non ripetuti qui.
             if (-not (Get-Module -ListAvailable -Name Microsoft.WinGet.Client)) {
                 Install-Module Microsoft.WinGet.Client -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
             }
@@ -138,6 +147,47 @@ function Install-M365OpsPrerequisites {
             Status = if ($nowPresent) { 'OK' } else { 'Failed' }
             Action = "Installazione tentata (winget install $($c.WingetId), exit code $exitCode)."
             Detail = if ($nowPresent) { 'Installato e rilevato correttamente.' } else { "Non rilevato dopo il tentativo di installazione - output winget: $($output.Trim())" }
+        }
+    }
+
+    # Moduli PowerShell (22/08/2026, richiesto esplicitamente dall'utente dopo un login
+    # Exchange delegato riuscito ma poi fallito con un errore criptico di modulo mancante:
+    # "installa TUTTO come prerequisito"). Installati qui in anticipo via Install-Module
+    # -Scope CurrentUser, invece di affidarsi solo al fallback "al primo uso" dentro le
+    # singole cmdlet - quel fallback resta comunque presente per difesa in profondita', ma
+    # non deve piu' essere l'UNICO posto dove l'assenza di un modulo viene scoperta, ne'
+    # deve dipendere da quale specifico percorso di codice viene toccato per primo (bug
+    # reale: Complete-M365OpsExchangeDelegatedLogin.ps1 non aveva nessun fallback per
+    # ExchangeOnlineManagement, a differenza di Connect-M365OpsExchange.ps1 - lo stesso
+    # modulo, due percorsi diversi, uno solo dei due gestiva l'assenza).
+    $moduleChecks = @(
+        @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'Modulo ExchangeOnlineManagement (connessione Exchange Online)' }
+        @{ Name = 'ImportExcel'; FriendlyName = 'Modulo ImportExcel (export report .xlsx)' }
+        @{ Name = 'IntuneWin32App'; FriendlyName = 'Modulo IntuneWin32App (packaging app Win32 per Intune)' }
+    )
+    foreach ($m in $moduleChecks) {
+        if (Get-Module -ListAvailable -Name $m.Name) {
+            $results += [pscustomobject]@{ Name = $m.FriendlyName; Status = 'OK'; Action = 'Gia'' presente, nessuna installazione necessaria.'; Detail = $null }
+            continue
+        }
+        $installedSomething = $true
+        try {
+            Write-M365OpsLog "$($m.Name) non trovato - lo installo (Install-Module -Scope CurrentUser)."
+            Install-Module $m.Name -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+            $nowPresent = [bool](Get-Module -ListAvailable -Name $m.Name)
+            $results += [pscustomobject]@{
+                Name   = $m.FriendlyName
+                Status = if ($nowPresent) { 'OK' } else { 'Failed' }
+                Action = 'Installazione tentata (Install-Module).'
+                Detail = if ($nowPresent) { 'Installato e rilevato correttamente.' } else { 'Install-Module completato senza errori ma il modulo non risulta rilevabile - riprova o installa manualmente.' }
+            }
+        } catch {
+            $results += [pscustomobject]@{
+                Name   = $m.FriendlyName
+                Status = 'Failed'
+                Action = 'Installazione tentata (Install-Module) - fallita.'
+                Detail = $_.Exception.Message
+            }
         }
     }
 

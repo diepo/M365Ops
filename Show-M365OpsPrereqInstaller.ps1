@@ -23,6 +23,13 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# Bug reale segnalato dal vivo il 22/08/2026 ("manca la progress bar in alto"): senza
+# EnableVisualStyles(), WinForms disegna i controlli con il rendering classico non temato -
+# in quella modalita' una ProgressBar in stile Marquee puo' non disegnarsi affatto (spazio
+# vuoto, nessun errore) invece di limitarsi a un aspetto meno moderno, un problema noto di
+# WinForms specifico dello stile Marquee. Va chiamato PRIMA di creare qualunque controllo.
+[System.Windows.Forms.Application]::EnableVisualStyles()
+
 $root = $PSScriptRoot
 $iconPath = Join-Path $root 'Assets\M365Ops.ico'
 
@@ -45,8 +52,13 @@ $form.Controls.Add($statusLabel)
 $progressBar = New-Object System.Windows.Forms.ProgressBar
 $progressBar.Location = New-Object System.Drawing.Point(15, 40)
 $progressBar.Size = New-Object System.Drawing.Size(480, 18)
-$progressBar.Style = 'Marquee'
-$progressBar.MarqueeAnimationSpeed = 30
+# Continuous con avanzamento manuale a passi, non Marquee: piu' affidabile su sessioni remote/
+# RDP (Windows Sandbox inclusa) dove l'animazione Marquee puo' non ridisegnarsi in tempo, e
+# mostra un progresso reale (X di 4 sezioni) invece del solo "sta succedendo qualcosa".
+$progressBar.Style = 'Continuous'
+$progressBar.Minimum = 0
+$progressBar.Maximum = 4
+$progressBar.Value = 0
 $form.Controls.Add($progressBar)
 
 $logBox = New-Object System.Windows.Forms.TextBox
@@ -133,6 +145,44 @@ function Test-M365OpsWingetPresent {
     return (Test-Path "$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe")
 }
 
+function Get-M365OpsPwshPath {
+    $cmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $fallback = "$env:ProgramFiles\PowerShell\7\pwsh.exe"
+    if (Test-Path $fallback) { return $fallback }
+    return $null
+}
+
+function Invoke-M365OpsModuleInstall {
+    <#
+        Installa un modulo PowerShell dentro un processo pwsh.exe (PowerShell 7) FIGLIO,
+        non nello scope di QUESTO script (Windows PowerShell 5.1) - un modulo installato con
+        -Scope CurrentUser sotto Windows PowerShell 5.1 finisce in Documents\WindowsPowerShell\
+        Modules, un percorso DIVERSO da quello che PowerShell 7 (dove gira davvero l'app,
+        Server.ps1/Launch-M365Ops.ps1) cerca (Documents\PowerShell\Modules) - installarlo qui
+        direttamente lo lascerebbe comunque invisibile all'app vera. Stesso pattern di
+        output live-tailato gia' usato per winget, cosi' anche questo passaggio (puo' durare
+        decine di secondi per modulo) non sembra bloccato.
+    #>
+    param([string]$PwshPath, [string]$ModuleName, [string]$FriendlyName)
+    Write-InstallerLog "  Install-Module $ModuleName in corso (dentro PowerShell 7)..."
+    $tmpOut = [System.IO.Path]::GetTempFileName()
+    $psCommand = "`$ErrorActionPreference='Stop'; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12; if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null }; Install-Module $ModuleName -Scope CurrentUser -Force -AllowClobber"
+    try {
+        $proc = Start-Process -FilePath $PwshPath -ArgumentList @('-NoProfile', '-Command', $psCommand) -PassThru -WindowStyle Hidden -RedirectStandardOutput $tmpOut
+        Wait-ProcessWithLiveOutput -Process $proc -OutputFile $tmpOut -BaseStatusText $statusLabel.Text
+        $exitCode = $proc.ExitCode
+    } finally {
+        Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue
+    }
+    if ($exitCode -eq 0) {
+        Write-InstallerLog "  $FriendlyName installato."
+    } else {
+        Write-InstallerLog "  ${FriendlyName}: installazione fallita (exit code $exitCode) - M365Ops ritentera' comunque al primo uso."
+    }
+    return $exitCode
+}
+
 function Get-M365OpsWingetPath {
     $cmd = Get-Command winget.exe -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
@@ -192,6 +242,7 @@ $form.Add_Shown({
             Write-InstallerLog "  winget non disponibile: impossibile installare PowerShell 7 automaticamente."
         }
     }
+    $progressBar.Value = 1
 
     if (Test-M365OpsWingetPresent) {
         $wingetPath = Get-M365OpsWingetPath
@@ -204,6 +255,7 @@ $form.Add_Shown({
             $statusLabel.Text = 'Installazione di Node.js...'
             Invoke-M365OpsWingetInstall -WingetPath $wingetPath -PackageId 'OpenJS.NodeJS.LTS' -FriendlyName 'Node.js' | Out-Null
         }
+        $progressBar.Value = 2
 
         Write-InstallerLog "=== Microsoft Edge (per export PDF) ==="
         $hasEdge = (Get-Command 'msedge.exe' -ErrorAction SilentlyContinue) -or (Test-Path "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") -or (Test-Path "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe")
@@ -217,9 +269,40 @@ $form.Add_Shown({
         Write-InstallerLog "=== Node.js / Microsoft Edge ==="
         Write-InstallerLog "  Saltati: senza winget non possono essere installati automaticamente qui (M365Ops li ritentera' comunque al primo avvio del server)."
     }
+    $progressBar.Value = 3
 
-    $progressBar.Style = 'Continuous'
-    $progressBar.Value = 100
+    # Moduli PowerShell (22/08/2026, richiesto esplicitamente dall'utente: "installa TUTTO
+    # come prerequisito" dopo un login Exchange delegato riuscito ma poi fallito per un
+    # ExchangeOnlineManagement mancante) - installati qui, visibili, invece che solo dentro
+    # Install-M365OpsPrerequisites (che gira dopo, senza finestra, dentro Launch-M365Ops.ps1) -
+    # cosi' un'attesa di decine di secondi per modulo non sembra piu' un buco silenzioso tra
+    # la chiusura di questa finestra e l'apertura del browser.
+    Write-InstallerLog "=== Moduli PowerShell (Exchange/Excel/Intune) ==="
+    if (Test-M365OpsPwshPresent) {
+        $pwshPath = Get-M365OpsPwshPath
+        if ($pwshPath) {
+            $moduleChecks = @(
+                @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'ExchangeOnlineManagement' }
+                @{ Name = 'ImportExcel'; FriendlyName = 'ImportExcel' }
+                @{ Name = 'IntuneWin32App'; FriendlyName = 'IntuneWin32App' }
+            )
+            foreach ($m in $moduleChecks) {
+                $checkCmd = "if (Get-Module -ListAvailable -Name $($m.Name)) { 'PRESENT' } else { 'MISSING' }"
+                $presence = (& $pwshPath -NoProfile -Command $checkCmd 2>$null | Out-String).Trim()
+                if ($presence -eq 'PRESENT') {
+                    Write-InstallerLog "  $($m.FriendlyName): gia' presente."
+                } else {
+                    $statusLabel.Text = "Installazione modulo $($m.FriendlyName)..."
+                    Invoke-M365OpsModuleInstall -PwshPath $pwshPath -ModuleName $m.Name -FriendlyName $m.FriendlyName | Out-Null
+                }
+            }
+        } else {
+            Write-InstallerLog "  Saltati: percorso di pwsh.exe non risolvibile in questo momento (M365Ops li installera' comunque al primo avvio del server)."
+        }
+    } else {
+        Write-InstallerLog "  Saltati: richiedono PowerShell 7, non ancora disponibile in questo momento."
+    }
+    $progressBar.Value = 4
 
     if (Test-M365OpsPwshPresent) {
         $statusLabel.Text = 'Prerequisiti pronti - avvio M365Ops...'

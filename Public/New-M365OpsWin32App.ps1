@@ -92,6 +92,16 @@ function New-M365OpsWin32App {
     }
 
     if (-not (Test-Path $IntuneWinToolPath)) { throw "IntuneWinAppUtil.exe non trovato in $IntuneWinToolPath" }
+    # Fallback di auto-installazione (22/08/2026, richiesto esplicitamente dall'utente dopo
+    # aver trovato lo stesso buco su ExchangeOnlineManagement: "installa TUTTO come
+    # prerequisito") - Install-M365OpsPrerequisites lo installa gia' in anticipo al primo
+    # avvio, questo resta solo come rete di sicurezza. Prima di questo fix non c'era NESSUN
+    # fallback qui (il docstring diceva "gia' installati oggi", un'assunzione mai vera su un
+    # PC nuovo).
+    if (-not (Get-Module -ListAvailable -Name IntuneWin32App)) {
+        Write-Host "Modulo IntuneWin32App non trovato, lo installo..." -ForegroundColor Yellow
+        Install-Module IntuneWin32App -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+    }
     Import-Module IntuneWin32App -ErrorAction Stop
 
     # BUG SERIO reale trovato dal vivo il 19/08/2026: $sourceDir/$outputDir erano cartelle FISSE

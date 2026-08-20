@@ -27,6 +27,16 @@ function Complete-M365OpsExchangeDelegatedLogin {
     if ($result.Status -eq 'Completed') {
         $script:M365OpsPendingExoDeviceCode.Remove($tenantName)
         try {
+            # Fallback di auto-installazione (22/08/2026, bug reale segnalato dal vivo: login
+            # delegato riuscito, poi fallito qui con "no valid module file was found" su un PC
+            # senza il modulo) - Install-M365OpsPrerequisites lo installa gia' in anticipo al
+            # primo avvio, questo resta solo come rete di sicurezza se quel passaggio e' stato
+            # saltato o e' fallito, stesso principio gia' in Connect-M365OpsExchange.ps1 (che
+            # pero' non passa mai da QUESTA funzione, da cui il buco originale).
+            if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) {
+                Write-Host "Modulo ExchangeOnlineManagement non trovato, lo installo..." -ForegroundColor Yellow
+                Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+            }
             Import-Module ExchangeOnlineManagement -ErrorAction Stop
             Connect-ExchangeOnline -AccessToken $result.AccessToken -UserPrincipalName $script:M365OpsContext.DelegatedUpn -ShowBanner:$false -ErrorAction Stop
             $script:M365OpsExchangeConnected = $true
