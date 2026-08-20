@@ -538,14 +538,39 @@ dal <code>DisplayName</code> con cui è registrata dentro Exchange via
 <code>New-ServicePrincipal</code>, sezione 6.1).</li>
 <li>Conferma, poi attendi la propagazione (stessa finestra fino a 60 minuti di sopra).</li>
 </ol>
-<div class="warn"><span class="badge todo">in attesa di verifica</span> Assegnato sul tenant di
-test il 20/08/2026 (app registrata come "intune-ai-interface", ruolo Exchange Administrator) -
-ancora "term not recognized" su <code>New-AcceptedDomain</code> a distanza di qualche minuto
-dall'assegnazione, coerente con la finestra di propagazione documentata sopra. Da riconfermare
-dopo l'attesa completa prima di considerare questa sezione conclusiva - se il problema persiste
-oltre i 60 minuti, verificare con <code>Get-ManagementRoleAssignment -RoleAssignee
-&lt;NomeApp&gt;</code> che il ruolo directory sia effettivamente comparso tra le assegnazioni
-via Exchange (non solo nel portale Entra ID).</div>
+<div class="warn"><span class="badge todo">ancora irrisolto</span> Assegnato sul tenant di test il
+20/08/2026 (app registrata come "intune-ai-interface", ruolo directory Exchange Administrator).
+Verificato dal vivo il giorno dopo (a distanza di oltre 12 ore, ben oltre la finestra di
+propagazione di 60 minuti documentata sopra) che <code>New-AcceptedDomain</code> e
+<code>Get-ReceiveConnector</code> restituiscono ancora <code>"term not recognized"</code> -
+quindi NON è (solo) un problema di propagazione. Due controlli fatti per escludere ipotesi più
+semplici, entrambi con esito positivo (quindi non è la causa):
+<ul>
+<li>Verificato via Graph (<code>GET /servicePrincipals/{id}/</code> e
+<code>roleManagement/directory/roleAssignments</code>) che il ruolo directory "Exchange
+Administrator" risulta assegnato al service principal <strong>giusto</strong> (stesso
+<code>AppId</code> configurato in <code>Config\tenants.json</code> per questo tenant - esclusa
+l'ipotesi "ruolo assegnato all'app sbagliata").</li>
+<li>Verificato lato Exchange con <code>Get-ManagementRoleAssignment -RoleAssignee
+&lt;NomeVisualizzatoInExchange&gt;</code> (attenzione: il nome da usare qui è quello mostrato da
+<code>Get-ServicePrincipal</code>, es. "Exchange-for-ia" in questo test - NON il
+<code>DisplayName</code> dell'App Registration in Entra ID, i due possono differire) che il
+ruolo <strong>"Remote and Accepted Domains"</strong> (che dovrebbe coprire proprio
+<code>New-AcceptedDomain</code>) risulta effettivamente assegnato via il role group
+"Organization Management".</li>
+</ul>
+Quindi: sia il ruolo directory Entra ID sia il ruolo RBAC Exchange specifico risultano
+correttamente assegnati all'app giusta, eppure il cmdlet resta non esposto nella sessione
+app-only/certificato. Ipotesi non ancora verificata: le sessioni Exchange Online PowerShell V3
+in modalità app-only/CBA (certificate-based auth) potrebbero esporre solo un sottoinsieme
+curato di cmdlet legato a ruoli RBAC con voci "Application" dedicate (es. "Application
+Mail.ReadWrite", "ApplicationImpersonation" - visibili nell'elenco ruoli di questo service
+principal), mentre i cmdlet di configurazione a livello di intera organizzazione (accepted
+domain, connector) potrebbero non essere mai esposti ad app-only indipendentemente dall'RBAC,
+richiedendo invece una sessione <strong>Delegated</strong> (utente reale con MFA). Non ancora
+confermato su documentazione Microsoft ufficiale in modo esplicito per questo caso specifico -
+da approfondire con il supporto Microsoft o un test diretto in modalità Delegated su questo
+stesso tenant prima di considerare la sezione 6.2/6.4 conclusiva per queste due cmdlet.</div>
 </section>
 
 <!-- ============================== 7 ============================== -->
@@ -1343,6 +1368,7 @@ invece di limitarsi a spiegarti come farlo a mano — vedi sezione 17.6 per i de
 <tr><td>BUG SERIO: array a un elemento collassato a scalare in <code>ConvertTo-M365OpsHashtable</code> (v0.9.12, 19/08/2026)</td><td><span class="badge done">corretto</span></td><td>Trovato durante uno stress test multi-round richiesto dall'utente: <code>"groupTypes":["DynamicMembership"]</code> (creazione di un gruppo dinamico Entra ID) diventava silenziosamente <code>"groupTypes":"DynamicMembership"</code> attraversando questa funzione - usata su OGNI parametro proveniente da un tool AI prima di quasi ogni scrittura del modulo, quindi capace di colpire qualunque campo array a un solo elemento in qualunque area. Stesso meccanismo di fondo del bug "role mancante" sopra (un array restituito da una funzione PowerShell viene enumerato sul flusso di output, e con un solo elemento il chiamante lo ricollassa a scalare), qui pero' annidato in una funzione ricorsiva generica. Corretto con la virgola unaria (<code>return ,@(...)</code>), verificata empiricamente per 0/1/2+ elementi. Trovato in parallelo un secondo bug in <code>Invoke-M365OpsWriteRecovery</code>: rifiutava correzioni gia' identificate correttamente per un dubbio non correlato su un campo diverso - corretto chiarendo che va risolto solo cio' che l'errore CORRENTE segnala, i round successivi affronteranno eventuali problemi non ancora manifestati</td></tr>
 <tr><td>Nuovo: <code>generate_raw_graph_export</code> - i report su dati Graph sono sempre righe reali, mai aggregate (v0.9.13, 19/08/2026)</td><td><span class="badge done">corretto</span></td><td>"fai un report dei sign-in log degli ultimi 7 giorni di diego@vnsys.it" ha prodotto un file Excel con UNA riga di riepilogo testuale invece dei 114 sign-in reali (verificato dal vivo). <code>generate_raw_export</code> esisteva gia' per questo problema ma SOLO per le cmdlet Exchange (<code>exo_query</code>) - i dati Graph non avevano equivalente, quindi con un volume anche solo moderato il modello rischiava di sintetizzare un riepilogo invece di riprodurre ogni riga entro il proprio budget di token, nonostante il divieto esplicito nella descrizione dello strumento. Aggiunto lo strumento gemello per un percorso Graph diretto con paginazione automatica (@odata.nextLink, tetto 50000 righe) - deliberatamente generale (non specifico ai sign-in) su richiesta esplicita dell'utente. Verificato dal vivo su due aree diverse: sign-in log (114 righe reali) e utenti+licenze del tenant (55 righe reali). Trovato e corretto in parallelo un bug UX nel testo del comando locale "aiuto": la Description di <code>SharedMailboxPermissions</code> conteneva gergo da sviluppatore invece di un testo per l'utente reale</td></tr>
 <tr><td>BUG STRUTTURALE: <code>-ErrorAction Stop</code> non protegge da un cmdlet nativo IRRISOLVIBILE, solo da un cmdlet che restituisce un errore morbido (v0.9.14, 20/08/2026)</td><td><span class="badge done">corretto</span></td><td>Trovato testando <code>New-M365OpsAcceptedDomain</code> (area "implementata ma mai testata dal vivo", sezione 17.15): ha riportato successo nonostante <code>New-AcceptedDomain</code> nativo non fosse mai stato eseguito (stesso limite RBAC di Receive/SendConnector, sezione 6.4 - verificato con una lettura indipendente). Causa verificata empiricamente in isolamento: quando il NOME del cmdlet non e' risolvibile ("term not recognized"), <code>-ErrorAction</code> passato come argomento viene ignorato (PowerShell lo lega solo DOPO aver risolto il cmdlet) - l'esecuzione prosegue secondo l'<code>$ErrorActionPreference</code> del chiamante (default 'Continue'). Questo significa che TUTTE le correzioni <code>-ErrorAction Stop</code> cmdlet-per-cmdlet dei bug-hunt precedenti restano vulnerabili esattamente a questo scenario (cmdlet indisponibile per ruolo RBAC mancante o altra causa), una classe di errore diversa da quella gia' coperta. Fix strutturale, non piu' per-cmdlet: <code>$ErrorActionPreference = 'Stop'</code> a livello di SCOPE DEL MODULO in <code>M365Ops.psm1</code> - verificato empiricamente che le funzioni esportate lo ereditano anche per un comando irrisolvibile, e che <code>Gui\Server.ps1</code> non chiama mai cmdlet native direttamente (solo funzioni del modulo), quindi il fix a livello di modulo copre l'intera superficie nativa dell'app. Verificato dal vivo con una regressione ampia su tutte le aree gia' testate (creazione/eliminazione reale di un gruppo, fallimento intenzionale ancora onesto) - nessuna rottura</td></tr>
+<tr><td>Nuovo: Knowledge Base GLOBALE + diagnosi errori che consulta anche la KB (v0.9.15, 20/08/2026)</td><td><span class="badge done">corretto</span></td><td>Richiesto esplicitamente dall'utente: la guida di configurazione ora e' caricabile come documento in un bucket KB riservato (<code>_global</code>, sezione 17.13) visibile sempre, a prescindere dal tenant attivo - cosi' si puo' chiedere "come configuro l'app per Exchange Online?" in qualunque momento. <code>Invoke-M365OpsErrorTriage</code> e <code>Invoke-M365OpsWriteRecovery</code> ora consultano anche questa KB (oltre a Microsoft Learn) per errori specifici di setup/configurazione di questa app. Bug reale trovato caricando la guida (52 pagine): <code>PdfLexer</code>'s <code>Get-PdfText</code> restituisce un array (un elemento per pagina), non una stringa - il codice lo passava cosi' com'era, quindi <code>.Length</code> contava le pagine (52) invece dei caratteri, scartando il testo vero e mandando in errore la catalogazione AI (array passato a un parametro tipizzato stringa). Corretto unendo esplicitamente le pagine in <code>Get-M365OpsExtractedFileText.ps1</code> - stessa famiglia "array trattato come scalare" gia' vista piu' volte (sezione 20.5). Verificato dal vivo: domanda di configurazione via chat risponde con dettagli reali della guida (log: chiamata effettiva a <code>kb_query</code>); lo stesso errore RBAC reale della sezione 6.4 passato a <code>Invoke-M365OpsErrorTriage</code> ora cita la documentazione interna invece di rispondere alla cieca, confermato anche con un controllo indipendente del solo match per parola chiave (bypassando l'AI)</td></tr>
 </table>
 </section>
 
@@ -1753,11 +1779,52 @@ admin dovrebbe sapere a memoria su questo cliente", non per stato live.</li>
 alcuna azione manuale, ogni cliente ha la propria Knowledge Base, mai mescolate.</li>
 </ul>
 
-<div class="note">Non esiste (ancora) una Knowledge Base GENERALE condivisa tra tutti i tenant per
-procedure interne non legate a un cliente specifico (es. un modello di classificazione ticket
-aziendale) - discusso il 18/08/2026, ha senso come estensione futura ma va tenuta chiaramente
-separata da questa (tab distinto) per non rischiare che contenuti specifici di un cliente finiscano
-in un pool visibile su ogni tenant.</div>
+<h3>Knowledge Base GLOBALE (aggiunta il 20/08/2026)</h3>
+<p>Estensione richiesta esplicitamente dall'utente: oltre alla Knowledge Base per-tenant sopra,
+esiste un secondo bucket <strong>riservato</strong> (nome tenant interno <code>_global</code>,
+prefisso <code>_</code> scelto apposta - i profili tenant reali in <code>Config\tenants.json</code>
+non iniziano mai per convenzione con underscore, quindi nessuna collisione possibile) per
+documentazione che riguarda <strong>l'app stessa</strong>, non un cliente specifico - a partire
+dalla guida di configurazione che stai leggendo ora, caricata come <code>Guida-Configurazione.pdf</code>.
+Questo bucket è visibile <strong>sempre</strong>, indipendentemente da quale tenant è attivo - a
+differenza della Knowledge Base per-tenant sopra, che resta isolata per cliente.</p>
+<p>Con questo, si può chiedere in chat qualcosa come <em>"come configuro l'app per Exchange
+Online?"</em> o <em>"quali permessi Graph servono per Intune?"</em> a prescindere dal tenant
+attivo, e l'AI consulta la guida vera tramite <code>kb_query</code> invece di rispondere a memoria
+- verificato dal vivo il 20/08/2026 (log: chiamata reale a <code>kb_query</code>, risposta con
+dettagli specifici della guida come il permesso <code>Exchange.ManageAsApp</code> e l'elenco
+completo dei permessi Graph richiesti).</p>
+<div class="note">L'isolamento tra tenant resta intatto: il bucket globale è un pool
+<strong>aggiuntivo e separato</strong>, mai un modo di raggiungere il KB di un altro cliente reale
+- <code>kb_query</code> prova prima il tenant attivo, poi il bucket globale come fallback, mai il
+contrario.</div>
+<p>Per caricare o aggiornare la guida nel bucket globale (operazione manuale, non da GUI per ora):</p>
+<pre class="code">Add-M365OpsKnowledgeDocument -TenantName '_global' -FilePath 'docs\Guida-Configurazione.pdf' `
+    -OriginalFileName 'Guida-Configurazione.pdf' -Provider AzureOpenAI</pre>
+<div class="warn">Bug reale trovato caricando la guida per la prima volta (52 pagine): il modulo
+<code>PdfLexer</code> restituisce un array di stringhe, una per pagina, non un'unica stringa - il
+codice originale lo passava così com'era, quindi <code>.Length</code> contava le PAGINE (52) invece
+dei caratteri, scartando di fatto tutto il testo vero e mandando in errore la catalogazione AI
+(un array non converte a un parametro tipizzato stringa). Corretto unendo esplicitamente le pagine
+in <code>Get-M365OpsExtractedFileText.ps1</code> prima di restituire il testo - stessa famiglia di
+bug "array trattato come scalare" già vista più volte in questo progetto (sezione 20.5).</div>
+
+<h3>Diagnosi errori che consulta anche la Knowledge Base (aggiunta il 20/08/2026)</h3>
+<p><code>Invoke-M365OpsErrorTriage</code> (diagnosi di un'azione fallita) e
+<code>Invoke-M365OpsWriteRecovery</code> (proposta di correzione immediata per una scrittura
+Graph fallita) ora consultano, oltre a Microsoft Learn, anche la Knowledge Base - sia quella
+globale sia quella del tenant attivo, combinate. Match per parola chiave semplice tra il testo
+dell'errore/contesto e gli argomenti/titolo dei documenti in catalogo (nessuna chiamata AI
+aggiuntiva per la ricerca: i cataloghi restano piccoli). Se un problema è specifico di
+configurazione/setup di QUESTA app (es. il limite RBAC app-only della sezione 6.4 qui sopra), la
+documentazione interna del progetto è una fonte più precisa e mirata di una ricerca generica su
+Microsoft Learn.</p>
+<div class="ok">Verificato dal vivo il 20/08/2026: passato a <code>Invoke-M365OpsErrorTriage</code>
+lo stesso errore reale <code>"term not recognized"</code> di <code>New-AcceptedDomain</code> della
+sezione 6.4 - la diagnosi ha citato correttamente la finestra di propagazione RBAC documentata
+nella guida invece di rispondere alla cieca, confermando (anche con un controllo indipendente del
+solo meccanismo di match per parola chiave, senza passare dall'AI) che il documento giusto viene
+trovato e usato.</div>
 </section>
 
 <!-- ============================== 17.14 ============================== -->

@@ -99,7 +99,7 @@ REGOLA su colonne aggiunte di tua iniziativa (bug reale osservato il 18/08/2026:
     # leggero) va SEMPRE nel prompt di sistema - nessuna chiamata AI aggiuntiva rispetto a
     # quella gia' in corso. Il testo COMPLETO di un documento specifico si recupera con
     # kb_query solo se davvero serve. $script:M365OpsContext.Name e' l'UNICA fonte usata per
-    # determinare quale catalogo caricare - lo stesso identificatore che governa quale
+    # determinare quale catalogo TENANT caricare - lo stesso identificatore che governa quale
     # certificato/token/connessione usa ogni altra funzione del modulo in questo momento, mai
     # un valore passato dall'esterno: cosi' non e' possibile per costruzione che il catalogo di
     # un tenant sia visibile mentre un ALTRO tenant e' quello davvero attivo (niente data leak
@@ -115,6 +115,24 @@ REGOLA su colonne aggiunte di tua iniziativa (bug reale osservato il 18/08/2026:
             "- `"$($doc.FileName)`"$($topicsText): $($doc.Summary)"
         }
         $systemPrompt += "`n`nKNOWLEDGE BASE DI QUESTO TENANT (documentazione caricata dall'operatore - peculiarita' di infrastruttura, procedure di troubleshooting specifiche del cliente, note operative): i seguenti documenti sono disponibili SOLO per il tenant attivo in questo momento, mai per altri. Se la domanda dell'utente riguarda un argomento coperto da uno di questi riassunti, usa kb_query con il FileName ESATTO per leggerne il testo completo prima di rispondere - non basarti mai sul solo riassunto per una risposta operativa precisa (es. una procedura passo-passo), il riassunto serve solo a capire QUALE documento e' rilevante.`n" + ($kbLines -join "`n")
+    }
+
+    # Knowledge Base GLOBALE (20/08/2026, richiesto esplicitamente dall'utente): un secondo
+    # catalogo, letto dallo stesso "tenant" fittizio $script:M365OpsGlobalKbName - contiene
+    # documentazione sull'APP STESSA (es. la guida di configurazione), non su un cliente
+    # specifico, quindi visibile SEMPRE a prescindere da quale tenant vero e' attivo (a
+    # differenza del blocco sopra). Stesso meccanismo di storage/catalogazione, solo un bucket
+    # diverso e sempre incluso - kb_query prova prima il tenant corrente, poi questo, in modo
+    # trasparente (vedi sotto), quindi l'AI non deve sapere a priori in quale dei due vive un
+    # FileName.
+    $kbGlobalCatalog = @()
+    try { $kbGlobalCatalog = @(Get-M365OpsKnowledgeCatalog -TenantName $script:M365OpsGlobalKbName) } catch { $kbGlobalCatalog = @() }
+    if ($kbGlobalCatalog.Count -gt 0) {
+        $kbGlobalLines = foreach ($doc in $kbGlobalCatalog) {
+            $topicsText = if ($doc.Topics -and @($doc.Topics).Count -gt 0) { " [" + (@($doc.Topics) -join ', ') + "]" } else { "" }
+            "- `"$($doc.FileName)`"$($topicsText): $($doc.Summary)"
+        }
+        $systemPrompt += "`n`nKNOWLEDGE BASE GLOBALE (documentazione sull'APP M365Ops stessa - come configurarla, come funziona, non su un cliente/tenant specifico): disponibile SEMPRE, indipendentemente da quale tenant e' attivo. Se l'utente chiede come configurare/usare l'app, come funziona una sua parte, o un problema di setup non legato ai dati di un tenant specifico, usa kb_query con il FileName ESATTO per leggerne il testo completo - stesso principio del blocco sopra, non basarti mai sul solo riassunto per una risposta operativa precisa.`n" + ($kbGlobalLines -join "`n")
     }
 
     # I tool "nostri" (fallback) non sono nemmeno offerti al primo giro di ragionamento:
@@ -1326,20 +1344,34 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                     }
                     "kb_query" {
                         # TenantName SEMPRE da $script:M365OpsContext.Name (tenant realmente
-                        # attivo in questo momento), MAI da un valore che l'AI potrebbe passare -
-                        # lo schema del tool infatti non espone nemmeno un parametro tenant. E'
-                        # l'unica garanzia strutturale di isolamento: per costruzione non esiste
-                        # un modo di chiedere a questo strumento la Knowledge Base di un tenant
-                        # diverso da quello attivo ora.
-                        if (-not $script:M365OpsContext -or -not $script:M365OpsContext.Name) {
-                            "Nessun tenant attivo - impossibile leggere la Knowledge Base."
+                        # attivo in questo momento) o dal bucket globale riservato
+                        # $script:M365OpsGlobalKbName, MAI da un valore che l'AI potrebbe passare
+                        # - lo schema del tool infatti non espone nemmeno un parametro tenant.
+                        # Questa resta l'unica garanzia strutturale di isolamento tra i KB dei
+                        # singoli tenant: per costruzione non esiste un modo di chiedere a questo
+                        # strumento la Knowledge Base di un tenant VERO diverso da quello attivo
+                        # ora. Il bucket globale (20/08/2026) non e' un'eccezione a questa
+                        # garanzia: non e' il KB di "un altro tenant", e' documentazione
+                        # sull'app stessa, deliberatamente la stessa per chiunque.
+                        # Prova prima il tenant corrente (piu' specifico), poi il globale in
+                        # fallback se il FileName non e' li' - l'AI chiede solo un FileName, non
+                        # deve sapere a priori in quale dei due cataloghi vive davvero.
+                        $kbResult = $null
+                        $kbErrors = @()
+                        if ($script:M365OpsContext -and $script:M365OpsContext.Name) {
+                            try { $kbResult = Get-M365OpsKnowledgeDocumentText -TenantName $script:M365OpsContext.Name -FileName $block.input.fileName }
+                            catch { $kbErrors += $_.Exception.Message }
+                        }
+                        if (-not $kbResult) {
+                            try { $kbResult = Get-M365OpsKnowledgeDocumentText -TenantName $script:M365OpsGlobalKbName -FileName $block.input.fileName }
+                            catch { $kbErrors += $_.Exception.Message }
+                        }
+                        if ($kbResult) {
+                            $kbResult
+                        } elseif (-not $script:M365OpsContext -or -not $script:M365OpsContext.Name) {
+                            "Nessun tenant attivo e nessun documento globale trovato con questo nome - impossibile leggere la Knowledge Base."
                         } else {
-                            try {
-                                Get-M365OpsKnowledgeDocumentText -TenantName $script:M365OpsContext.Name -FileName $block.input.fileName
-                            }
-                            catch {
-                                "Lettura Knowledge Base fallita: $($_.Exception.Message)"
-                            }
+                            "Lettura Knowledge Base fallita: $($kbErrors -join ' / ')"
                         }
                     }
                     "compliance_query" {

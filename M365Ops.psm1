@@ -45,6 +45,18 @@ $script:M365OpsModuleRoot = $here
 $script:M365OpsContext = $null
 $script:M365OpsTokenCache = @{}
 $script:M365OpsAiCallCount = @{ Claude = 0; AzureOpenAI = 0 }
+# "TenantName" riservato per la Knowledge Base GLOBALE (20/08/2026, richiesto esplicitamente
+# dall'utente): Add-/Get-/Remove-M365OpsKnowledgeDocument* accettano gia' un -TenantName
+# generico, usato SOLO per costruire un percorso sicuro (Config\KnowledgeBase-<nome>.json,
+# Uploads\kb\<nome>\) - non serve alcuna nuova funzione di storage, basta un "tenant" fittizio e
+# riservato per contenere documenti NON specifici di un cliente (es. la guida di configurazione
+# dell'app stessa) e renderli visibili SEMPRE, a prescindere da quale tenant vero e' attivo.
+# Prefisso "_" scelto apposta: i nomi profilo reali vengono da Config\tenants.json (scelti
+# dall'operatore in GUI, es. "vnsys-test") e non iniziano mai per convenzione con underscore,
+# quindi nessuna collisione possibile con un tenant vero. L'isolamento tra i KB dei singoli
+# tenant (la garanzia di sicurezza gia' documentata in quelle funzioni) resta INTATTO: questo e'
+# un bucket AGGIUNTIVO e separato, mai un modo di raggiungere il KB di un altro tenant vero.
+$script:M365OpsGlobalKbName = '_global'
 
 $publicNames = Get-ChildItem -Path (Join-Path $here 'Public') -Filter '*.ps1' | ForEach-Object { $_.BaseName }
 $customNames = Get-ChildItem -Path $script:M365OpsCustomScriptsPath -Filter '*.ps1' -ErrorAction SilentlyContinue |

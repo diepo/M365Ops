@@ -67,6 +67,35 @@ virgolettatura.
         }
     } catch { }
 
+    # Knowledge Base del progetto (20/08/2026, richiesto esplicitamente dall'utente), stesso
+    # principio gia' applicato a Invoke-M365OpsErrorTriage: per un errore specifico di setup/
+    # configurazione di QUESTA app (es. il limite RBAC app-only documentato in sezione 6.4 della
+    # guida) la KB globale/tenant e' una fonte piu' precisa di Microsoft Learn generico. Match
+    # per parola chiave semplice, nessuna chiamata AI aggiuntiva.
+    $kbSnippet = ""
+    try {
+        $kbCombined = @(Get-M365OpsKnowledgeCatalog -TenantName $script:M365OpsGlobalKbName)
+        if ($script:M365OpsContext -and $script:M365OpsContext.Name) {
+            $kbCombined += @(Get-M365OpsKnowledgeCatalog -TenantName $script:M365OpsContext.Name)
+        }
+        $haystack = "$ErrorMessage $Path $Reason".ToLower()
+        $kbMatch = $kbCombined | Where-Object {
+            $words = @($_.Topics) + @(($_.Title -split '\s+'))
+            $words | Where-Object { $_ -and $_.Length -gt 3 -and $haystack.Contains($_.ToLower()) } | Select-Object -First 1
+        } | Select-Object -First 1
+        if ($kbMatch) {
+            # -ErrorAction non media un throw esplicito - serve un try/catch vero.
+            $kbText = $null
+            try { $kbText = Get-M365OpsKnowledgeDocumentText -TenantName $script:M365OpsGlobalKbName -FileName $kbMatch.FileName } catch { }
+            if (-not $kbText -and $script:M365OpsContext -and $script:M365OpsContext.Name) {
+                try { $kbText = Get-M365OpsKnowledgeDocumentText -TenantName $script:M365OpsContext.Name -FileName $kbMatch.FileName } catch { }
+            }
+            if ($kbText) {
+                $kbSnippet = "`n`nDocumentazione INTERNA di questo progetto trovata per questo errore (`"$($kbMatch.Title)`" - se rilevante, e' una fonte piu' precisa di Microsoft Learn per problemi di setup/configurazione specifici di questa app):`n$kbText"
+            }
+        }
+    } catch { }
+
     $prompt = @"
 Una scrittura Microsoft Graph proposta da un tool di amministrazione Microsoft 365, gia'
 confermata esplicitamente dall'utente, e' stata eseguita ed e' FALLITA. L'errore restituito da
@@ -81,6 +110,7 @@ $bodyJson
 
 Errore restituito da Microsoft Graph:
 $ErrorMessage
+$kbSnippet
 $docsSnippet
 
 Se l'errore indica chiaramente cosa manca o e' invalido (es. "a password must be specified",

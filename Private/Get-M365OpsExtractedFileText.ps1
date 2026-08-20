@@ -59,7 +59,17 @@ function Get-M365OpsExtractedFileText {
             Import-Module PdfLexer -ErrorAction Stop
             $doc = Open-PdfDocument -Path $FilePath
             try {
-                return (Get-PdfText -Document $doc)
+                # BUG trovato dal vivo il 20/08/2026 caricando la guida (52 pagine) nella KB
+                # globale: Get-PdfText restituisce un ARRAY, un elemento di testo per PAGINA, non
+                # una stringa unica. "return (Get-PdfText -Document $doc)" lo passava al chiamante
+                # cosi' com'era: Add-M365OpsKnowledgeDocument legge poi $extractedText.Length
+                # aspettandosi un conteggio di CARATTERI, ma su un array .Length e' il conteggio
+                # di ELEMENTI (qui: 52, scambiato per "52 caratteri estratti" nel log, con testo
+                # vero e reale scartato) - e passare l'array a Invoke-M365OpsAgent -Context (tipo
+                # [string]) falliva con un errore di conversione di tipo, mai la vera causa del
+                # fallimento. Join esplicito in un'unica stringa, con un separatore che preserva i
+                # confini di pagina per la leggibilita' del testo estratto.
+                return ((Get-PdfText -Document $doc) -join "`n`n")
             }
             finally {
                 Close-PdfDocuments

@@ -39,6 +39,44 @@ function Invoke-M365OpsErrorTriage {
         }
     }
 
+    # Knowledge Base del progetto (20/08/2026, richiesto esplicitamente dall'utente): oltre a
+    # Microsoft Learn (generico), consulta anche la KB globale (guida di configurazione
+    # dell'app) e quella del tenant attivo - per un errore specifico di QUESTO progetto (es. il
+    # limite RBAC app-only su Receive/SendConnector/Accepted Domain, documentato in sezione 6.4
+    # della guida) sono una fonte piu' precisa di qualunque documentazione Microsoft generica.
+    # Match per parola chiave semplice (nessuna chiamata AI aggiuntiva: i cataloghi sono piccoli,
+    # non serve altro) - se un Topic o una parola del Title del documento compare nell'errore/
+    # contesto, il documento e' probabilmente rilevante. Antepone la KB a Microsoft Learn nel
+    # prompt finale (vedi sotto): per problemi di setup/configurazione di QUESTO progetto e'
+    # una fonte piu' affidabile, non sostituisce pero' l'uso di Microsoft Learn per la sintassi
+    # di una cmdlet/API nativa.
+    $kbSnippet = ""
+    try {
+        $kbCombined = @(Get-M365OpsKnowledgeCatalog -TenantName $script:M365OpsGlobalKbName)
+        if ($script:M365OpsContext -and $script:M365OpsContext.Name) {
+            $kbCombined += @(Get-M365OpsKnowledgeCatalog -TenantName $script:M365OpsContext.Name)
+        }
+        $haystack = "$ErrorMessage $Context".ToLower()
+        $kbMatch = $kbCombined | Where-Object {
+            $words = @($_.Topics) + @(($_.Title -split '\s+'))
+            $words | Where-Object { $_ -and $_.Length -gt 3 -and $haystack.Contains($_.ToLower()) } | Select-Object -First 1
+        } | Select-Object -First 1
+        if ($kbMatch) {
+            # -ErrorAction SilentlyContinue qui non basterebbe: Get-M365OpsKnowledgeDocumentText
+            # usa "throw", non Write-Error, e -ErrorAction non media mai un throw esplicito -
+            # serve un try/catch vero (stesso principio gia' applicato nel dispatch di kb_query
+            # in Invoke-M365OpsAgentTools.ps1).
+            $kbText = $null
+            try { $kbText = Get-M365OpsKnowledgeDocumentText -TenantName $script:M365OpsGlobalKbName -FileName $kbMatch.FileName } catch { }
+            if (-not $kbText -and $script:M365OpsContext -and $script:M365OpsContext.Name) {
+                try { $kbText = Get-M365OpsKnowledgeDocumentText -TenantName $script:M365OpsContext.Name -FileName $kbMatch.FileName } catch { }
+            }
+            if ($kbText) {
+                $kbSnippet = "`n`nDocumentazione INTERNA di questo progetto trovata per questo errore (`"$($kbMatch.Title)`" - se rilevante, e' una fonte piu' precisa di Microsoft Learn per problemi di setup/configurazione specifici di questa app):`n$kbText"
+            }
+        }
+    } catch { }
+
     if (-not $docsSnippet) {
         # BUG STRUTTURALE trovato dal vivo il 19/08/2026 (segnalato dall'utente dopo aver dovuto
         # chiedere lui stesso la correzione di un errore reale): il pre-fetch sopra copre SOLO i
@@ -82,6 +120,7 @@ $ErrorMessage
 
 Contesto: $Context
 $sourceSnippet
+$kbSnippet
 $docsSnippet
 
 Analizza l'errore e rispondi SOLO con un blocco JSON, nessun altro testo prima o dopo, in questo formato esatto:
