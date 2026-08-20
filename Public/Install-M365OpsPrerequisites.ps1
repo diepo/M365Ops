@@ -164,8 +164,17 @@ function Install-M365OpsPrerequisites {
     # "ma i moduli teams sharepoint graph etc ci sono????" - Graph non serve un modulo, questo
     # progetto lo chiama sempre via REST puro (Invoke-M365OpsGraphRequest), ma Teams/SharePoint/
     # PDF si', trovati con lo stesso grep sistematico gia' usato per Exchange/Excel/Intune):
+    # ExchangeOnlineManagement ha una RequiredVersion fissata (23/08/2026): 3.9.0 e' l'unica
+    # versione verificata dal vivo come conflict-free con MicrosoftTeams nello stesso processo
+    # (vedi Connect-M365OpsExchange.ps1 per il dettaglio completo della verifica) - dalla 3.10.0
+    # in poi il conflitto e' sistematico, indipendentemente dalla versione di Teams installata.
+    # Senza pin qui, questa funzione avrebbe installato "l'ultima disponibile" (quasi certamente
+    # 3.10.x+ su un'installazione nuova oggi), vanificando il pin gia' messo nelle cmdlet di
+    # connessione: PowerShell tiene versioni diverse dello stesso modulo in cartelle separate,
+    # ma Import-Module senza -RequiredVersion sceglie sempre la piu' recente installata - avere
+    # SOLO 3.10.x su disco avrebbe reso quel pin inutile (nessuna 3.9.0 da caricare).
     $moduleChecks = @(
-        @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'Modulo ExchangeOnlineManagement (connessione Exchange Online)' }
+        @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'Modulo ExchangeOnlineManagement (connessione Exchange Online)'; RequiredVersion = '3.9.0' }
         @{ Name = 'ImportExcel'; FriendlyName = 'Modulo ImportExcel (export report .xlsx)' }
         @{ Name = 'IntuneWin32App'; FriendlyName = 'Modulo IntuneWin32App (packaging app Win32 per Intune)' }
         @{ Name = 'MicrosoftTeams'; FriendlyName = 'Modulo MicrosoftTeams (connessione Teams)' }
@@ -173,15 +182,20 @@ function Install-M365OpsPrerequisites {
         @{ Name = 'PdfLexer'; FriendlyName = 'Modulo PdfLexer (estrazione testo da PDF caricati nella Knowledge Base)' }
     )
     foreach ($m in $moduleChecks) {
-        if (Get-Module -ListAvailable -Name $m.Name) {
+        $installed = Get-Module -ListAvailable -Name $m.Name
+        $present = if ($m.RequiredVersion) { [bool]($installed | Where-Object Version -eq $m.RequiredVersion) } else { [bool]$installed }
+        if ($present) {
             $results += [pscustomobject]@{ Name = $m.FriendlyName; Status = 'OK'; Action = 'Gia'' presente, nessuna installazione necessaria.'; Detail = $null }
             continue
         }
         $installedSomething = $true
         try {
-            Write-M365OpsLog "$($m.Name) non trovato - lo installo (Install-Module -Scope CurrentUser)."
-            Install-Module $m.Name -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
-            $nowPresent = [bool](Get-Module -ListAvailable -Name $m.Name)
+            $versionLabel = if ($m.RequiredVersion) { " $($m.RequiredVersion)" } else { '' }
+            Write-M365OpsLog "$($m.Name)$versionLabel non trovato - lo installo (Install-Module -Scope CurrentUser)."
+            $installParams = @{ Name = $m.Name; Scope = 'CurrentUser'; Force = $true; AllowClobber = $true; SkipPublisherCheck = $true; ErrorAction = 'Stop' }
+            if ($m.RequiredVersion) { $installParams.RequiredVersion = $m.RequiredVersion }
+            Install-Module @installParams
+            $nowPresent = if ($m.RequiredVersion) { [bool](Get-Module -ListAvailable -Name $m.Name | Where-Object Version -eq $m.RequiredVersion) } else { [bool](Get-Module -ListAvailable -Name $m.Name) }
             $results += [pscustomobject]@{
                 Name   = $m.FriendlyName
                 Status = if ($nowPresent) { 'OK' } else { 'Failed' }

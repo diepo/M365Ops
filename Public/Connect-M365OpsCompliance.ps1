@@ -25,20 +25,23 @@ function Connect-M365OpsCompliance {
         throw "Impossibile connettersi a Purview: il modulo MicrosoftTeams e' gia' stato caricato in questo stesso processo server, e i due moduli portano versioni incompatibili delle stesse librerie di autenticazione - conflitto noto e documentato di Microsoft (non un bug di M365Ops), presente da anni, senza soluzione lato modulo. Riavvia il server (pulsante Manutenzione, o 'M365Ops - Termina e riavvia' sul Desktop se non risponde) per liberare il processo."
     }
 
-    if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) {
+    # Versione FISSATA a 3.9.0, confermata conflict-free con MicrosoftTeams (23/08/2026) - vedi
+    # Connect-M365OpsExchange.ps1 per il dettaglio completo della verifica dal vivo.
+    $script:M365OpsExoSafeVersion = '3.9.0'
+    if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object Version -eq $script:M365OpsExoSafeVersion)) {
         # TLS1.2/provider NuGet/-SkipPublisherCheck (22/08/2026): stesso irrobustimento
         # applicato a Connect-M365OpsTeams.ps1 dopo un blocco reale trovato dal vivo - senza,
         # Install-Module puo' restare in attesa per sempre di un prompt di conferma mai
         # mostrato in un processo server senza finestra visibile (vedi quel file per il
         # dettaglio completo).
-        Write-Host "Modulo ExchangeOnlineManagement non trovato, lo installo..." -ForegroundColor Yellow
+        Write-Host "Modulo ExchangeOnlineManagement $script:M365OpsExoSafeVersion non trovato, lo installo..." -ForegroundColor Yellow
         [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
         if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
             try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch {}
         }
-        Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+        Install-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
     }
-    Import-Module ExchangeOnlineManagement -ErrorAction Stop
+    Import-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -ErrorAction Stop
     $script:M365OpsExchangeModuleImported = $true
 
     if ($script:M365OpsContext.AuthMode -eq 'Delegated') {

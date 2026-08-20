@@ -40,22 +40,39 @@ function Connect-M365OpsExchange {
         throw "Impossibile connettersi a Exchange Online: il modulo MicrosoftTeams e' gia' stato caricato in questo stesso processo server, e i due moduli portano versioni incompatibili delle stesse librerie di autenticazione - conflitto noto e documentato di Microsoft (non un bug di M365Ops), presente da anni, senza soluzione lato modulo. In QUESTA sessione del server puoi usare Teams OPPURE Exchange, non entrambi - riavvia il server (pulsante Manutenzione, o 'M365Ops - Termina e riavvia' sul Desktop se non risponde) per liberare il processo e usare Exchange da capo."
     }
 
-    # Auto-installazione se manca (es. primo avvio su un PC nuovo) - stesso principio gia'
-    # usato per ImportExcel in Export-M365OpsReport, cosi' non serve un prerequisito manuale.
-    if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) {
+    # Versione FISSATA a 3.9.0 (23/08/2026), non "l'ultima disponibile": l'utente ha fatto
+    # notare giustamente che il conflitto con MicrosoftTeams (blocco commento sopra) non gli
+    # tornava - "ieri ho connesso tutti i servizi uno dopo l'altro senza errori", ipotizzando
+    # una dipendenza dalla versione dei moduli. Aveva ragione: verificato dal vivo (non a
+    # memoria) con Connect-ExchangeOnline reale (credenziali finte, l'assembly conflict scatta
+    # PRIMA di qualunque validazione di rete) che il conflitto NON dipende dalla versione di
+    # MicrosoftTeams installata (riprodotto identico sia con 7.3.1 sia con 7.9.0), ma dalla
+    # versione di ExchangeOnlineManagement: 3.9.0 non va MAI in conflitto con Teams (testato
+    # con entrambe le versioni Teams sopra), 3.10.0+ va SEMPRE in conflitto (riprodotto anche
+    # l'errore esatto dell'utente, stesso "Microsoft.Identity.Client.dll... manifest
+    # definition does not match", con Teams 7.9.0 + Exchange 3.10.1). 3.9.0 supporta comunque
+    # tutto cio' che serve a questo progetto: -CertificateThumbprint/-Certificate (App-only,
+    # verificato) e -AccessToken (login delegato, verificato) sono entrambi presenti. Un
+    # aggiornamento futuro a una versione piu' recente e conflict-free andrebbe verificato allo
+    # stesso modo prima di cambiare questo numero, mai per assunzione.
+    $script:M365OpsExoSafeVersion = '3.9.0'
+    if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object Version -eq $script:M365OpsExoSafeVersion)) {
         # TLS1.2/provider NuGet/-SkipPublisherCheck (22/08/2026): stesso irrobustimento
         # applicato a Connect-M365OpsTeams.ps1 dopo un blocco reale trovato dal vivo - senza,
         # Install-Module puo' restare in attesa per sempre di un prompt di conferma mai
         # mostrato in un processo server senza finestra visibile (vedi quel file per il
-        # dettaglio completo).
-        Write-Host "Modulo ExchangeOnlineManagement non trovato, lo installo..." -ForegroundColor Yellow
+        # dettaglio completo). Install-Module con -RequiredVersion NON tocca ne' rimuove altre
+        # versioni gia' presenti (es. una piu' recente installata prima di questo fix) - le
+        # affianca semplicemente nella propria cartella di versione, PowerShell le tiene
+        # perfettamente separate su disco.
+        Write-Host "Modulo ExchangeOnlineManagement $script:M365OpsExoSafeVersion non trovato, lo installo..." -ForegroundColor Yellow
         [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
         if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
             try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch {}
         }
-        Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+        Install-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
     }
-    Import-Module ExchangeOnlineManagement -ErrorAction Stop
+    Import-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -ErrorAction Stop
     $script:M365OpsExchangeModuleImported = $true
 
     if ($script:M365OpsContext.AuthMode -eq 'Delegated') {

@@ -176,16 +176,24 @@ function Invoke-M365OpsModuleInstall {
     param([string]$PwshPath, [array]$Modules)
     if (-not $Modules -or $Modules.Count -eq 0) { return @{} }
 
-    $namesJoined = ($Modules | ForEach-Object { $_.Name }) -join "','"
+    # "Nome=Versione" per modulo, versione vuota se nessun pin (es. ExchangeOnlineManagement
+    # -> 3.9.0, fissata il 23/08/2026 - vedi Connect-M365OpsExchange.ps1 per il dettaglio
+    # completo della verifica dal vivo del conflitto con MicrosoftTeams).
+    $specsJoined = ($Modules | ForEach-Object { "$($_.Name)=$($_.RequiredVersion)" }) -join ';'
     $psCommand = @"
 `$ErrorActionPreference = 'Continue'
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
 if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
     try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch { Write-Host "NUGET-PROVIDER-FAILED: `$(`$_.Exception.Message)" }
 }
-foreach (`$name in @('$namesJoined')) {
+foreach (`$spec in ('$specsJoined' -split ';')) {
+    `$parts = `$spec -split '=', 2
+    `$name = `$parts[0]
+    `$ver = if (`$parts.Count -gt 1 -and `$parts[1]) { `$parts[1] } else { `$null }
     try {
-        Install-Module `$name -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+        `$installParams = @{ Name = `$name; Scope = 'CurrentUser'; Force = `$true; AllowClobber = `$true; SkipPublisherCheck = `$true; ErrorAction = 'Stop' }
+        if (`$ver) { `$installParams.RequiredVersion = `$ver }
+        Install-Module @installParams
         Write-Host "MODULE-RESULT: `$name=OK"
     } catch {
         Write-Host "MODULE-RESULT: `$name=FAILED: `$(`$_.Exception.Message)"
@@ -320,8 +328,14 @@ $form.Add_Shown({
             # graph etc ci sono????" - vedi lo stesso elenco/commento in
             # Install-M365OpsPrerequisites.ps1 per il dettaglio del perche' Graph non serve un
             # modulo qui).
+            # ExchangeOnlineManagement -> RequiredVersion 3.9.0 (23/08/2026): unica versione
+            # verificata dal vivo come conflict-free con MicrosoftTeams nello stesso processo -
+            # vedi Connect-M365OpsExchange.ps1 per il dettaglio completo. Senza questo pin anche
+            # qui, questa GUI avrebbe installato "l'ultima disponibile" (3.10.x+ oggi),
+            # rendendo il pin nelle cmdlet di connessione inutile (nessuna 3.9.0 su disco da
+            # caricare).
             $moduleChecks = @(
-                @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'ExchangeOnlineManagement' }
+                @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'ExchangeOnlineManagement'; RequiredVersion = '3.9.0' }
                 @{ Name = 'ImportExcel'; FriendlyName = 'ImportExcel' }
                 @{ Name = 'IntuneWin32App'; FriendlyName = 'IntuneWin32App' }
                 @{ Name = 'MicrosoftTeams'; FriendlyName = 'MicrosoftTeams' }
@@ -331,9 +345,10 @@ $form.Add_Shown({
             # Un solo processo pwsh.exe per controllare la presenza di TUTTI i moduli insieme
             # (non uno per modulo) - stesso principio del fix qui sotto per l'installazione:
             # meno processi separati che toccano PackageManagement/PowerShellGet in sequenza
-            # ravvicinata, meno rischio di collisione sugli stessi file.
-            $namesForCheck = ($moduleChecks | ForEach-Object { $_.Name }) -join "','"
-            $checkCmd = "foreach (`$n in @('$namesForCheck')) { if (Get-Module -ListAvailable -Name `$n) { Write-Output ('PRESENT:' + `$n) } else { Write-Output ('MISSING:' + `$n) } }"
+            # ravvicinata, meno rischio di collisione sugli stessi file. "Nome=Versione" per
+            # verificare la versione ESATTA quando e' fissata, non solo "e' presente qualcosa".
+            $specsForCheck = ($moduleChecks | ForEach-Object { "$($_.Name)=$($_.RequiredVersion)" }) -join ';'
+            $checkCmd = "foreach (`$spec in ('$specsForCheck' -split ';')) { `$p = `$spec -split '=',2; `$n = `$p[0]; `$v = if (`$p.Count -gt 1 -and `$p[1]) { `$p[1] } else { `$null }; `$found = if (`$v) { [bool](Get-Module -ListAvailable -Name `$n | Where-Object Version -eq `$v) } else { [bool](Get-Module -ListAvailable -Name `$n) }; if (`$found) { Write-Output ('PRESENT:' + `$n) } else { Write-Output ('MISSING:' + `$n) } }"
             $checkOutput = (& $pwshPath -NoProfile -Command $checkCmd 2>$null | Out-String)
             $missingModules = @()
             foreach ($m in $moduleChecks) {
