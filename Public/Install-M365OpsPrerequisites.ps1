@@ -180,7 +180,7 @@ function Install-M365OpsPrerequisites {
         $installedSomething = $true
         try {
             Write-M365OpsLog "$($m.Name) non trovato - lo installo (Install-Module -Scope CurrentUser)."
-            Install-Module $m.Name -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+            Install-Module $m.Name -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
             $nowPresent = [bool](Get-Module -ListAvailable -Name $m.Name)
             $results += [pscustomobject]@{
                 Name   = $m.FriendlyName

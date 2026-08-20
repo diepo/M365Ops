@@ -155,32 +155,67 @@ function Get-M365OpsPwshPath {
 
 function Invoke-M365OpsModuleInstall {
     <#
-        Installa un modulo PowerShell dentro un processo pwsh.exe (PowerShell 7) FIGLIO,
-        non nello scope di QUESTO script (Windows PowerShell 5.1) - un modulo installato con
-        -Scope CurrentUser sotto Windows PowerShell 5.1 finisce in Documents\WindowsPowerShell\
-        Modules, un percorso DIVERSO da quello che PowerShell 7 (dove gira davvero l'app,
-        Server.ps1/Launch-M365Ops.ps1) cerca (Documents\PowerShell\Modules) - installarlo qui
-        direttamente lo lascerebbe comunque invisibile all'app vera. Stesso pattern di
-        output live-tailato gia' usato per winget, cosi' anche questo passaggio (puo' durare
-        decine di secondi per modulo) non sembra bloccato.
+        Installa TUTTI i moduli PowerShell mancanti in un SOLO processo pwsh.exe (PowerShell
+        7) figlio - non uno per modulo. Bug reale segnalato dal vivo il 22/08/2026: la prima
+        versione lanciava un processo pwsh.exe SEPARATO per ciascuno dei 6 moduli, ciascuno dei
+        quali ripeteva da zero il bootstrap di TLS1.2/provider NuGet - su un PC dove NuGet non
+        era ancora installato, i sei tentativi finivano per correre a ridosso l'uno dell'altro
+        e collidere sullo stesso file delle librerie PackageManagement/PowerShellGet ("The
+        version 'X' of module 'PackageManagement' is currently in use. Retry the operation
+        after closing the applications.") - TUTTI E SEI i tentativi fallivano con lo stesso
+        errore. Un solo processo, che fa il bootstrap UNA volta sola e poi installa tutti i
+        moduli in sequenza nello stesso spazio, elimina la possibilita' stessa della collisione
+        (mai due processi che toccano quei file insieme) - piu' veloce e piu' robusto.
+
+        Nello scope di PowerShell 7, non di QUESTO script (Windows PowerShell 5.1): un modulo
+        installato con -Scope CurrentUser sotto Windows PowerShell 5.1 finisce in
+        Documents\WindowsPowerShell\Modules, un percorso DIVERSO da quello che PowerShell 7
+        (dove gira davvero l'app) cerca (Documents\PowerShell\Modules) - installarlo qui
+        direttamente lo lascerebbe comunque invisibile all'app vera.
     #>
-    param([string]$PwshPath, [string]$ModuleName, [string]$FriendlyName)
-    Write-InstallerLog "  Install-Module $ModuleName in corso (dentro PowerShell 7)..."
-    $tmpOut = [System.IO.Path]::GetTempFileName()
-    $psCommand = "`$ErrorActionPreference='Stop'; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12; if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null }; Install-Module $ModuleName -Scope CurrentUser -Force -AllowClobber"
+    param([string]$PwshPath, [array]$Modules)
+    if (-not $Modules -or $Modules.Count -eq 0) { return @{} }
+
+    $namesJoined = ($Modules | ForEach-Object { $_.Name }) -join "','"
+    $psCommand = @"
+`$ErrorActionPreference = 'Continue'
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+    try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch { Write-Host "NUGET-PROVIDER-FAILED: `$(`$_.Exception.Message)" }
+}
+foreach (`$name in @('$namesJoined')) {
     try {
-        $proc = Start-Process -FilePath $PwshPath -ArgumentList @('-NoProfile', '-Command', $psCommand) -PassThru -WindowStyle Hidden -RedirectStandardOutput $tmpOut
-        Wait-ProcessWithLiveOutput -Process $proc -OutputFile $tmpOut -BaseStatusText $statusLabel.Text
-        $exitCode = $proc.ExitCode
+        Install-Module `$name -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+        Write-Host "MODULE-RESULT: `$name=OK"
+    } catch {
+        Write-Host "MODULE-RESULT: `$name=FAILED: `$(`$_.Exception.Message)"
+    }
+}
+"@
+    $tmpScript = [System.IO.Path]::GetTempFileName() + '.ps1'
+    $tmpOut = [System.IO.Path]::GetTempFileName()
+    $results = @{}
+    try {
+        Set-Content -Path $tmpScript -Value $psCommand -Encoding UTF8
+        $proc = Start-Process -FilePath $PwshPath -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$tmpScript`"") -PassThru -WindowStyle Hidden -RedirectStandardOutput $tmpOut
+        Wait-ProcessWithLiveOutput -Process $proc -OutputFile $tmpOut -BaseStatusText 'Installazione moduli PowerShell...'
+        $finalOutput = Get-Content -Path $tmpOut -Raw -ErrorAction SilentlyContinue
+        foreach ($line in ($finalOutput -split "`r?`n")) {
+            if ($line -match '^MODULE-RESULT: (\S+?)=OK\s*$') { $results[$Matches[1]] = $true }
+            elseif ($line -match '^MODULE-RESULT: (\S+?)=FAILED') { $results[$Matches[1]] = $false }
+        }
     } finally {
-        Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue
+        Remove-Item $tmpScript, $tmpOut -Force -ErrorAction SilentlyContinue
     }
-    if ($exitCode -eq 0) {
-        Write-InstallerLog "  $FriendlyName installato."
-    } else {
-        Write-InstallerLog "  ${FriendlyName}: installazione fallita (exit code $exitCode) - M365Ops ritentera' comunque al primo uso."
+
+    foreach ($m in $Modules) {
+        if ($results.ContainsKey($m.Name) -and $results[$m.Name]) {
+            Write-InstallerLog "  $($m.FriendlyName): installato."
+        } else {
+            Write-InstallerLog "  $($m.FriendlyName): installazione fallita - M365Ops ritentera' comunque al primo uso."
+        }
     }
-    return $exitCode
+    return $results
 }
 
 function Get-M365OpsWingetPath {
@@ -293,15 +328,24 @@ $form.Add_Shown({
                 @{ Name = 'PnP.PowerShell'; FriendlyName = 'PnP.PowerShell (SharePoint)' }
                 @{ Name = 'PdfLexer'; FriendlyName = 'PdfLexer (estrazione testo PDF)' }
             )
+            # Un solo processo pwsh.exe per controllare la presenza di TUTTI i moduli insieme
+            # (non uno per modulo) - stesso principio del fix qui sotto per l'installazione:
+            # meno processi separati che toccano PackageManagement/PowerShellGet in sequenza
+            # ravvicinata, meno rischio di collisione sugli stessi file.
+            $namesForCheck = ($moduleChecks | ForEach-Object { $_.Name }) -join "','"
+            $checkCmd = "foreach (`$n in @('$namesForCheck')) { if (Get-Module -ListAvailable -Name `$n) { Write-Output ('PRESENT:' + `$n) } else { Write-Output ('MISSING:' + `$n) } }"
+            $checkOutput = (& $pwshPath -NoProfile -Command $checkCmd 2>$null | Out-String)
+            $missingModules = @()
             foreach ($m in $moduleChecks) {
-                $checkCmd = "if (Get-Module -ListAvailable -Name $($m.Name)) { 'PRESENT' } else { 'MISSING' }"
-                $presence = (& $pwshPath -NoProfile -Command $checkCmd 2>$null | Out-String).Trim()
-                if ($presence -eq 'PRESENT') {
+                if ($checkOutput -match "PRESENT:$([regex]::Escape($m.Name))(\r?\n|$)") {
                     Write-InstallerLog "  $($m.FriendlyName): gia' presente."
                 } else {
-                    $statusLabel.Text = "Installazione modulo $($m.FriendlyName)..."
-                    Invoke-M365OpsModuleInstall -PwshPath $pwshPath -ModuleName $m.Name -FriendlyName $m.FriendlyName | Out-Null
+                    $missingModules += $m
                 }
+            }
+            if ($missingModules.Count -gt 0) {
+                $statusLabel.Text = "Installazione di $($missingModules.Count) moduli PowerShell..."
+                Invoke-M365OpsModuleInstall -PwshPath $pwshPath -Modules $missingModules | Out-Null
             }
         } else {
             Write-InstallerLog "  Saltati: percorso di pwsh.exe non risolvibile in questo momento (M365Ops li installera' comunque al primo avvio del server)."
