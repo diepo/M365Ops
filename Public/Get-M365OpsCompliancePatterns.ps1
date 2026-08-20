@@ -16,14 +16,30 @@ function Get-M365OpsCompliancePatterns {
         return "Nessun dispositivo non conforme trovato."
     }
 
-    $enriched = foreach ($d in $devices) {
+    # BUG reale a DUE livelli, trovato dal vivo il 21/08/2026 durante uno stress test mirato
+    # ("mai dare per scontato che non esistano bug non ancora scoperti") - stesso meccanismo di
+    # fondo gia' visto piu' volte in questo progetto (sezione 20.5 della guida), ma qui in una
+    # combinazione non ancora vista altrove:
+    # (1) "$enriched = foreach (...) {...}" collassa a uno SCALARE (PSCustomObject singolo, non
+    #     array) quando c'e' ESATTAMENTE UN dispositivo non conforme - richiede @(...) attorno
+    #     al foreach per restare sempre un array.
+    # (2) ANCHE con $enriched gia' un vero array, "$enriched | ConvertTo-Json" (in PIPELINE)
+    #     collassa comunque a un oggetto nudo "{...}" con un array a un solo elemento - verificato
+    #     empiricamente: un vero Object[] con Count=1 pipeIato in ConvertTo-Json produce
+    #     ancora {"a":1}, non [{"a":1}]. Serve "-InputObject", mai la pipe, stesso principio gia'
+    #     documentato in Add-M365OpsKnowledgeDocument.ps1 e in piu' endpoint di Server.ps1.
+    # Entrambi i livelli erano necessari: il primo da solo non bastava. Riprodotto empiricamente
+    # con un dispositivo sintetico prima di correggere - il prompt AI chiede esplicitamente di
+    # "raggruppare QUESTI dispositivi" (plurale), un oggetto nudo con un tenant quasi sano (un
+    # solo dispositivo non conforme) avrebbe silenziosamente rotto quell'istruzione.
+    $enriched = @(foreach ($d in $devices) {
         [pscustomobject]@{
             device = $d
             reasons = Get-M365OpsDeviceComplianceReasons -Id $d.id
         }
-    }
+    })
 
-    $context = $enriched | ConvertTo-Json -Depth 8
+    $context = ConvertTo-Json -InputObject $enriched -Depth 8
 
     $prompt = @"
 Analizza questi dispositivi Intune non conformi (dati grezzi da Microsoft Graph).

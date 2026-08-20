@@ -624,7 +624,7 @@
   // una PANORAMICA, non l'elenco completo dei permessi Graph (quello resta nella guida, sempre
   // consultabile in chat con una domanda specifica) - altrimenti due copie della stessa lista
   // da mantenere allineate in due punti diversi del codice.
-  const FIRST_RUN_TEXT = 'Benvenuto in M365Ops! Prima di iniziare, configura almeno un tenant da "⚙ Impostazioni tenant" (in alto a destra). Due modalità di autenticazione a disposizione:\n\n• Delegata — login col tuo utente reale + MFA, nessuna App Registration da creare: usi i ruoli admin già assegnati a te su quel tenant. La scelta più rapida per iniziare.\n\n• App Registration (App-only) — nessuna interazione dopo il setup iniziale, pensata per un uso continuativo. Serve: un\'App Registration in Entra ID, un client secret O un certificato (uno dei due basta, non entrambi), e permessi Microsoft Graph Application per le aree che userai (Intune, Entra ID, Teams, SharePoint...). Per Exchange Online serve in più: caricare lo stesso certificato nell\'App Registration, il permesso "Exchange.ManageAsApp" (non è un permesso Graph) e registrare il service principal dentro Exchange Online con un ruolo RBAC.\n\nPer i dettagli completi (elenco permessi, passaggi Entra ID, certificato Exchange) fammi pure domande specifiche una volta salvato il profilo, es. "quali permessi Graph servono per Intune?" o "come configuro Exchange Online in App-only?" — consulto la guida vera, non rispondo a memoria.';
+  const FIRST_RUN_TEXT = 'Benvenuto in M365Ops! Prima di iniziare, configura almeno un tenant da "⚙ Impostazioni tenant" (in alto a destra). Due modalità di autenticazione a disposizione:\n\n• Delegata — login col tuo utente reale + MFA, nessuna App Registration da creare: usi i ruoli admin già assegnati a te su quel tenant. La scelta più rapida per iniziare.\n\n• App Registration (App-only) — nessuna interazione dopo il setup iniziale, pensata per un uso continuativo. Serve: un\'App Registration in Entra ID, un client secret O un certificato (uno dei due basta, non entrambi), e permessi Microsoft Graph Application per le aree che userai (Intune, Entra ID, Teams, SharePoint...). Per Exchange Online serve in più: caricare lo stesso certificato nell\'App Registration, il permesso "Exchange.ManageAsApp" (non è un permesso Graph) e registrare il service principal dentro Exchange Online con un ruolo RBAC.\n\nPer i dettagli completi (elenco permessi, passaggi Entra ID, certificato Exchange) fammi pure domande specifiche una volta salvato il profilo, es. "quali permessi Graph servono per Intune?" o "come configuro Exchange Online in App-only?" — consulto la guida vera, non rispondo a memoria. Se non hai ancora configurato nessun motore AI (tab "Motore AI"), puoi comunque leggere la guida completa senza bisogno di nessuna chiave da /guida (apri quel percorso nel browser).';
 
   // Ricostruisce il pannello chat per il tenant attivo: storico persistito (se c'e') +
   // un'eventuale proposta ancora in sospeso. Usata sia all'avvio pagina sia dopo un cambio
@@ -1249,8 +1249,16 @@
       settingsStatus.textContent = 'Compila almeno nome e tenant ID.';
       return;
     }
-    if (authMode === 'AppOnly' && (!clientId || !secretEnvVar)) {
-      settingsStatus.textContent = 'Modalita\' App-only: servono client ID e nome variabile secret.';
+    // BUG DI REGRESSIONE corretto il 21/08/2026 (trovato dal vivo su un PC pulito): richiedeva
+    // ANCORA secretEnvVar obbligatorio anche dopo che il certificato era diventato
+    // un'alternativa valida al secret (v0.9.17) - bloccava a monte la configurazione
+    // "solo certificato" che quella funzionalita' era pensata per abilitare.
+    if (authMode === 'AppOnly' && !clientId) {
+      settingsStatus.textContent = 'Modalita\' App-only: serve il client ID.';
+      return;
+    }
+    if (authMode === 'AppOnly' && !secretEnvVar && !exchangeCertThumbprint) {
+      settingsStatus.textContent = 'Modalita\' App-only: serve un secret O un certificato (uno dei due basta).';
       return;
     }
     if (authMode === 'Delegated' && !delegatedUpn) {

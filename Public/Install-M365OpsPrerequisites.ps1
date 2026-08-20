@@ -29,12 +29,38 @@ function Install-M365OpsPrerequisites {
 
     $winget = (Get-Command winget.exe -ErrorAction SilentlyContinue).Source
     if (-not $winget) {
-        return @([pscustomobject]@{
-            Name   = 'winget'
-            Status = 'Missing'
-            Action = 'Nessuna - winget non e'' disponibile su questo PC, impossibile installare automaticamente.'
-            Detail = 'Installa i pacchetti "App Installer" dal Microsoft Store, oppure installa i prerequisiti manualmente (vedi sezione 3 della guida).'
-        })
+        # Bootstrap automatico di winget stesso (21/08/2026, richiesto esplicitamente
+        # dall'utente dopo un test su PC pulito: "si puo' prevedere una installazione del
+        # prereq winget?"). winget manca tipicamente su installazioni Windows molto minimali/
+        # datate o Windows Server, dove l'App Installer del Microsoft Store non e' mai stato
+        # preinstallato - comune proprio sul tipo di "PC pulito" dove questa funzione serve di
+        # piu'. Metodo ufficiale Microsoft (non un URL indovinato): il modulo
+        # Microsoft.WinGet.Client, cmdlet Repair-WinGetPackageManager - gestisce da solo le
+        # dipendenze (VCLibs, Microsoft.UI.Xaml) invece di richiedere URL di pacchetti .appx
+        # fissati a mano, che si romperebbero alla prima nuova versione delle dipendenze.
+        try {
+            Write-M365OpsLog "winget non trovato - tento il bootstrap automatico via Microsoft.WinGet.Client."
+            if (-not (Get-Module -ListAvailable -Name Microsoft.WinGet.Client)) {
+                Install-Module Microsoft.WinGet.Client -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+            }
+            Import-Module Microsoft.WinGet.Client -ErrorAction Stop
+            Repair-WinGetPackageManager -ErrorAction Stop
+            $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+            $winget = (Get-Command winget.exe -ErrorAction SilentlyContinue).Source
+        }
+        catch {
+            $bootstrapError = $_.Exception.Message
+        }
+
+        if (-not $winget) {
+            return @([pscustomobject]@{
+                Name   = 'winget'
+                Status = 'Missing'
+                Action = "Bootstrap automatico tentato (modulo Microsoft.WinGet.Client, Repair-WinGetPackageManager) - fallito."
+                Detail = "winget non e' disponibile su questo PC e il tentativo di installazione automatica e' fallito$(if ($bootstrapError) { ": $bootstrapError" } else { '.' }) Installa i pacchetti `"App Installer`" dal Microsoft Store, oppure installa i prerequisiti manualmente (vedi sezione 3 della guida)."
+            })
+        }
+        $results += [pscustomobject]@{ Name = 'winget'; Status = 'OK'; Action = 'Installato automaticamente (Repair-WinGetPackageManager).'; Detail = $null }
     }
 
     $checks = @(
@@ -57,7 +83,14 @@ function Install-M365OpsPrerequisites {
             continue
         }
 
-        $output = & winget install --id $c.WingetId -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-String
+        # --source winget aggiunto il 21/08/2026 (bug reale trovato dal vivo su un PC pulito):
+        # senza, winget interroga TUTTE le sorgenti configurate (tipicamente winget + msstore) -
+        # se il backend msstore risponde con un errore (visto dal vivo: "Failed when searching
+        # source: msstore... 0x8a15003b Rest API internal error"), l'intera chiamata falliva
+        # ANCHE quando il pacchetto era gia' disponibile e trovabile nella sorgente "winget"
+        # (community repository, quella che vogliamo sempre usare per questi prerequisiti - mai
+        # lo Store). Specificare la sorgente evita del tutto la query al backend msstore.
+        $output = & winget install --id $c.WingetId -e --source winget --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-String
         $exitCode = $LASTEXITCODE
         $installedSomething = $true
 

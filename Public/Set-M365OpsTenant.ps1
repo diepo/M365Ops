@@ -6,8 +6,10 @@ function Set-M365OpsTenant {
         Il thumbprint del certificato Exchange e l'indirizzo email mittente NON sono segreti.
         Preserva McpServers del profilo (gestiti da Set-M365OpsMcpServer) se gia' presenti.
 
-        AuthMode 'AppOnly' (default) richiede ClientId + SecretEnvVar (App Registration con
-        client credentials) - nessuna interazione umana necessaria dopo il setup iniziale.
+        AuthMode 'AppOnly' (default) richiede ClientId + (SecretEnvVar O ExchangeCertThumbprint -
+        uno dei due basta, sono alternativi dal 21/08/2026, vedi Get-M365OpsToken.ps1) - App
+        Registration con client credentials, nessuna interazione umana necessaria dopo il setup
+        iniziale.
         AuthMode 'Delegated' non richiede alcuna App Registration: usa un login interattivo
         (utente + MFA) tramite Start-M365OpsDelegatedLogin - pensato per i tenant dove non
         hai i permessi per creare un'App Registration ma hai ruoli admin delegati (Exchange
@@ -31,8 +33,18 @@ function Set-M365OpsTenant {
         [string]$SharePointInteractiveClientId
     )
 
-    if ($AuthMode -eq 'AppOnly' -and (-not $ClientId -or -not $SecretEnvVar)) {
-        throw "AuthMode 'AppOnly' richiede -ClientId e -SecretEnvVar (App Registration con client credentials). Per un tenant senza App Registration usa -AuthMode Delegated -DelegatedUpn."
+    # BUG DI REGRESSIONE trovato dal vivo il 21/08/2026, segnalato dall'utente durante un test
+    # su PC pulito ("ho messo appid, thumbprint etc e non salva: servono client ID e nome
+    # variabile secret"): questa validazione richiedeva ANCORA -SecretEnvVar obbligatorio anche
+    # dopo che Get-M365OpsToken.ps1 (v0.9.17) aveva reso il certificato un'alternativa valida al
+    # secret - bloccava a monte esattamente la configurazione "solo certificato" che quella
+    # funzionalita' era pensata per abilitare. Corretto: serve SecretEnvVar O
+    # ExchangeCertThumbprint, non necessariamente entrambi.
+    if ($AuthMode -eq 'AppOnly' -and -not $ClientId) {
+        throw "AuthMode 'AppOnly' richiede -ClientId. Per un tenant senza App Registration usa -AuthMode Delegated -DelegatedUpn."
+    }
+    if ($AuthMode -eq 'AppOnly' -and -not $SecretEnvVar -and -not $ExchangeCertThumbprint) {
+        throw "AuthMode 'AppOnly' richiede -SecretEnvVar O -ExchangeCertThumbprint (uno dei due basta - sono alternativi, non serve compilare entrambi). Senza nessuno dei due l'app non ha modo di autenticarsi verso Microsoft Graph."
     }
     if ($AuthMode -eq 'Delegated' -and -not $DelegatedUpn) {
         throw "AuthMode 'Delegated' richiede -DelegatedUpn (il tuo UPN su quel tenant, es. mario.rossi@clientex.onmicrosoft.com)."

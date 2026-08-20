@@ -1178,6 +1178,28 @@ try {
                     $contentType = "text/html; charset=utf-8"
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($indexHtml)
                 }
+                "GET /guida" {
+                    # Aggiunto il 21/08/2026, richiesto esplicitamente dall'utente dopo un test
+                    # su PC pulito: "quando l'app parte e non e' configurata la sua guida deve
+                    # essere raggiungibile per essere consultata, o non fa perche' manca l'IA?".
+                    # Prima di questo fix la guida era leggibile SOLO tramite kb_query dentro il
+                    # motore AI (Invoke-M365OpsAgentTools) - senza una chiave AI configurata,
+                    # nemmeno una domanda semplicissima come "come genero il certificato
+                    # Exchange?" trovava risposta, un problema dell'uovo e della gallina (serve
+                    # la guida per sapere come configurare l'AI, ma la guida richiedeva l'AI per
+                    # essere letta). Servito qui staticamente, senza passare dal motore AI - una
+                    # semplice URL raggiungibile con qualunque browser, anche a zero
+                    # configurazione, zero chiavi API, zero tenant salvati.
+                    $guidePdfFile = Join-Path $moduleRoot 'docs\Guida-Configurazione.pdf'
+                    if (Test-Path $guidePdfFile) {
+                        $contentType = "application/pdf"
+                        $responseBytes = [System.IO.File]::ReadAllBytes($guidePdfFile)
+                    } else {
+                        $response.StatusCode = 404
+                        $contentType = "text/plain; charset=utf-8"
+                        $responseBytes = [System.Text.Encoding]::UTF8.GetBytes("Guida non trovata su questo PC (docs\Guida-Configurazione.pdf mancante).")
+                    }
+                }
                 "GET /api/status" {
                     # pending/pendingText esposti qui cosi' un refresh della pagina puo' ridisegnare
                     # subito il banner "si'/no" in sospeso invece di lasciarlo invisibile mentre il

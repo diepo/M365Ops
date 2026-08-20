@@ -51,13 +51,19 @@ function Get-M365OpsSetupStatus {
         }
     }
 
+    # Bug reale segnalato dal vivo il 21/08/2026 su un PC pulito: il messaggio citava SOLO la
+    # variabile del provider di default (Claude/Anthropic), dando l'impressione sbagliata che
+    # fosse l'unico provider supportato - "perche' solo anthropic? dovrebbe dire che manca una
+    # chiave API per IA". $script:ActiveAIProvider e' semplicemente il default quando nessuno e'
+    # mai stato scelto esplicitamente (Server.ps1), non un vincolo: Azure OpenAI e' un'alternativa
+    # completa, scelta dal tab Motore AI. Il Detail ora lo chiarisce esplicitamente.
     $aiKeyVar = if ($script:ActiveAIProvider -eq 'AzureOpenAI') { 'AZURE_OPENAI_KEY' } else { 'ANTHROPIC_API_KEY' }
     $aiKey = Get-M365OpsSecret -Name $aiKeyVar
     $items += [pscustomobject]@{
         Name = "Chiave motore AI ($aiKeyVar)"
         Status = if ($aiKey) { 'OK' } else { 'Missing' }
-        Detail = if ($aiKey) { 'Impostata.' } else { "Variabile d'ambiente '$aiKeyVar' non trovata su questo PC - le richieste in linguaggio libero e il catalogo con RequiresAI falliranno." }
-        Fix = 'Tab Motore AI -> inserisci la chiave -> Salva.'
+        Detail = if ($aiKey) { 'Impostata.' } else { "Manca una chiave API per il motore AI: '$aiKeyVar' (provider attualmente selezionato: $($script:ActiveAIProvider), il default finche' non ne scegli uno) non e' impostata su questo PC - le richieste in linguaggio libero e il catalogo con RequiresAI falliranno. Se preferisci l'altro provider (Claude/Anthropic o Azure OpenAI), selezionalo dal tab Motore AI prima di inserire la chiave." }
+        Fix = 'Tab Motore AI -> scegli il provider che preferisci (Claude o Azure OpenAI) -> inserisci la chiave -> Salva.'
     }
 
     $npx = (Get-Command 'npx.cmd' -ErrorAction SilentlyContinue) -or (Get-Command 'npx' -ErrorAction SilentlyContinue)

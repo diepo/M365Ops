@@ -50,12 +50,25 @@ function Invoke-M365OpsAgentTools {
         $azureKey = Get-M365OpsSecret -Name 'AZURE_OPENAI_KEY'
         $azureEndpoint = Get-M365OpsSecret -Name 'AZURE_OPENAI_ENDPOINT'
         $azureDeployment = Get-M365OpsSecret -Name 'AZURE_OPENAI_DEPLOYMENT'
+        # Nota "consulta la guida su .../guida" aggiunta il 21/08/2026 (richiesto esplicitamente
+        # dall'utente su un PC pulito: "quando l'app parte e non e' configurata la sua guida deve
+        # essere raggiungibile... o non fa perche' manca l'IA?"): prima di questo fix, senza
+        # nessuna chiave AI configurata, anche la domanda piu' semplice sulla guida stessa
+        # falliva con questo errore - un problema dell'uovo e della gallina. La guida e' ora
+        # raggiungibile anche a zero configurazione via /guida (sezione 17.20 della guida
+        # stessa). $Port non e' un parametro di questa funzione (vive nel modulo, non in
+        # Server.ps1) - la porta reale si legge da Config\active-port.txt, scritta da
+        # Server.ps1 all'avvio apposta per questo genere di lettura incrociata.
+        $guidePortHint = try { (Get-Content (Join-Path $script:M365OpsModuleRoot 'Config\active-port.txt') -Raw -ErrorAction Stop).Trim() } catch { '8743' }
         if (-not ($azureKey -and $azureEndpoint -and $azureDeployment)) {
-            throw "Servono AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT come variabili d'ambiente."
+            throw "Servono AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT come variabili d'ambiente (tab Motore AI). Nel frattempo puoi comunque consultare la guida di configurazione direttamente da http://localhost:$guidePortHint/guida, senza bisogno di nessuna chiave AI."
         }
     } else {
         $apiKey = Get-M365OpsSecret -Name 'ANTHROPIC_API_KEY'
-        if (-not $apiKey) { throw "Variabile d'ambiente ANTHROPIC_API_KEY non trovata." }
+        if (-not $apiKey) {
+            $guidePortHint = try { (Get-Content (Join-Path $script:M365OpsModuleRoot 'Config\active-port.txt') -Raw -ErrorAction Stop).Trim() } catch { '8743' }
+            throw "Variabile d'ambiente ANTHROPIC_API_KEY non trovata (tab Motore AI). Nel frattempo puoi comunque consultare la guida di configurazione direttamente da http://localhost:$guidePortHint/guida, senza bisogno di nessuna chiave AI."
+        }
     }
 
     $pendingWrite = $null
@@ -345,7 +358,7 @@ Proponi un'azione di SCRITTURA su Exchange Online. NON viene mai eseguita qui: l
 - Remove-M365OpsQuarantineMessage {Identity} - elimina definitivamente un messaggio in quarantena (spam/phishing/malware confermato, non un falso positivo)
 - Set-M365OpsDistributionGroup {Identity, DisplayName?, HiddenFromAddressListsEnabled?, ExtraParams?} / Set-M365OpsDynamicDistributionGroup {Identity, DisplayName?, RecipientFilter?}
 - Remove-M365OpsDynamicDistributionGroup {Identity}
-- Enable-M365OpsDistributionGroup {Identity} / Disable-M365OpsDistributionGroup {Identity} - mail-abilita/disabilita un gruppo esistente, non lo crea ne' lo elimina
+- Enable-M365OpsDistributionGroup {Identity} / Disable-M365OpsDistributionGroup {Identity} - NON FUNZIONANO MAI in Exchange Online (bug reale trovato il 21/08/2026: Enable-/Disable-DistributionGroup sono cmdlet esclusivi di Exchange on-premises, nessun equivalente cloud) - lanciano subito un errore chiaro se chiamati, non proporli mai come soluzione: un gruppo creato in Exchange Online e' gia' mail-enabled dalla creazione, e non esiste modo di "disabilitare" la posta di un gruppo esistente senza eliminarlo (Remove-M365OpsDistributionGroup)
 - Update-M365OpsDistributionGroupMember {Identity, Members} - SOSTITUISCE l'intera membership con quella data (non incrementale) - chi non e' nell'elenco viene rimosso dal gruppo
 - New-M365OpsTenantAllowBlockListSpoofItem {Action: Allow|Block, SendingInfrastructure, SpoofedUser, SpoofType: Internal|External} / Remove-M365OpsTenantAllowBlockListSpoofItem {Ids: [elenco GUID da Get-M365OpsTenantAllowBlockListSpoofItems]}
 - Set-M365OpsTenantAllowBlockListItem {Ids, ListType, ExpirationDate?, NoExpiration?, Notes?} - modifica una voce ESISTENTE (es. estende la scadenza), non ne crea una nuova
