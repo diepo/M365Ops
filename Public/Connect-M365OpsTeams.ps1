@@ -50,7 +50,22 @@ function Connect-M365OpsTeams {
         # per evitare un client_id indovinato a memoria, bug reale gia' visto su SharePoint) resta
         # valido: e' una proprieta' del modulo stesso, non del parametro -UseDeviceAuthentication
         # specificamente - il modulo sceglie il client corretto in ENTRAMBI i flussi.
-        Connect-MicrosoftTeams -TenantId $script:M365OpsContext.TenantId -ErrorAction Stop
+        # Diagnostica prima/dopo (22/08/2026, richiesta esplicitamente dall'utente dopo un
+        # login Teams delegato apparentemente bloccato su Windows Sandbox - popup completato
+        # ma l'app restava ferma, senza modo di distinguere "bloccato per sempre" da "lento").
+        # Write-M365OpsLog scrive su Logs\m365ops-YYYYMMDD.log (persistente, recuperabile anche
+        # a processo terminato) - a differenza di Write-Host, che finisce solo sulla console
+        # nascosta del server e nel caso di un vero blocco non e' mai stato utile a diagnosticare
+        # nulla in questa sessione (vedi il bug del device-code, sezione 17.14).
+        Write-M365OpsLog "Connect-MicrosoftTeams (delegato, interattivo) avviato - in attesa del popup di login..."
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        try {
+            Connect-MicrosoftTeams -TenantId $script:M365OpsContext.TenantId -ErrorAction Stop
+        } catch {
+            Write-M365OpsLog "Connect-MicrosoftTeams (delegato) FALLITO dopo $([int]$sw.Elapsed.TotalSeconds)s: $($_.Exception.Message)" -Level Error
+            throw
+        }
+        Write-M365OpsLog "Connect-MicrosoftTeams (delegato) completato con successo in $([int]$sw.Elapsed.TotalSeconds)s."
         $script:M365OpsTeamsConnected = $true
         return
     }
