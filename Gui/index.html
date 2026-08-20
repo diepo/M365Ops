@@ -243,13 +243,14 @@
           <input type="text" id="f-clientid" placeholder="GUID">
         </div>
         <div>
-          <label>Nome variabile d'ambiente per il secret</label>
+          <label>Nome variabile d'ambiente per il secret (facoltativo se usi il certificato sotto)</label>
           <input type="text" id="f-secretvar" placeholder="es. M365_CLIENT_SECRET_CLIENTEX">
         </div>
         <div>
           <label>Valore client secret (facoltativo — lascia vuoto per non toccarlo)</label>
           <input type="password" id="f-secretvalue" placeholder="valore del secret dal portale Entra ID">
         </div>
+        <p class="hint full">Client secret e certificato (sotto) sono alternativi, non serve compilare entrambi: se il secret non e' disponibile, l'app usa automaticamente il certificato per autenticarsi anche verso Microsoft Graph (non solo Exchange) - un solo materiale da gestire e rinnovare invece di due.</p>
       </div>
       <div id="authmode-delegated-fields" style="display:none;">
         <label>Il tuo UPN su questo tenant</label>
@@ -257,7 +258,7 @@
         <p class="hint">Userai i ruoli admin (Exchange Admin, User Admin, ecc.) gia' assegnati a questo utente su quel tenant. Richiede un login interattivo con MFA da questo tab dopo il salvataggio.</p>
       </div>
       <div>
-        <label>Thumbprint certificato Exchange (facoltativo, solo App-only)</label>
+        <label>Thumbprint certificato (per Registered App / Exchange, facoltativo)</label>
         <input type="text" id="f-exchangecert" placeholder="es. 0000000000000000000000000000000000000000">
       </div>
       <div class="actions full">
@@ -572,6 +573,15 @@
 
   const WELCOME_TEXT = 'Pronto. Per consultare la guida dell\'app, fammi domande specifiche su ciò che vuoi sapere. Scrivi "aiuto" per l\'elenco completo dei comandi diretti, o "⚙ Impostazioni tenant" per tenant/script personalizzati/connettori.';
 
+  // Messaggio di onboarding al primo avvio (21/08/2026, richiesto esplicitamente dall'utente):
+  // mostrato SOLO quando non esiste ancora nessun profilo tenant salvato (data.firstRun da
+  // GET /api/status) - appena l'utente salva il primo profilo, i caricamenti successivi
+  // tornano al WELCOME_TEXT normale da soli, nessun flag da resettare a mano. Deliberatamente
+  // una PANORAMICA, non l'elenco completo dei permessi Graph (quello resta nella guida, sempre
+  // consultabile in chat con una domanda specifica) - altrimenti due copie della stessa lista
+  // da mantenere allineate in due punti diversi del codice.
+  const FIRST_RUN_TEXT = 'Benvenuto in M365Ops! Prima di iniziare, configura almeno un tenant da "⚙ Impostazioni tenant" (in alto a destra). Due modalità di autenticazione a disposizione:\n\n• Delegata — login col tuo utente reale + MFA, nessuna App Registration da creare: usi i ruoli admin già assegnati a te su quel tenant. La scelta più rapida per iniziare.\n\n• App Registration (App-only) — nessuna interazione dopo il setup iniziale, pensata per un uso continuativo. Serve: un\'App Registration in Entra ID, un client secret O un certificato (uno dei due basta, non entrambi), e permessi Microsoft Graph Application per le aree che userai (Intune, Entra ID, Teams, SharePoint...). Per Exchange Online serve in più: caricare lo stesso certificato nell\'App Registration, il permesso "Exchange.ManageAsApp" (non è un permesso Graph) e registrare il service principal dentro Exchange Online con un ruolo RBAC.\n\nPer i dettagli completi (elenco permessi, passaggi Entra ID, certificato Exchange) fammi pure domande specifiche una volta salvato il profilo, es. "quali permessi Graph servono per Intune?" o "come configuro Exchange Online in App-only?" — consulto la guida vera, non rispondo a memoria.';
+
   // Ricostruisce il pannello chat per il tenant attivo: storico persistito (se c'e') +
   // un'eventuale proposta ancora in sospeso. Usata sia all'avvio pagina sia dopo un cambio
   // tenant - senza, un refresh mostrava una chat vuota anche se il server "ricordava" ancora
@@ -580,7 +590,7 @@
   // venisse interpretato come risposta a una proposta che non vedeva piu'.
   async function loadChatPanel() {
     chat.innerHTML = '';
-    let pending = false, pendingText = '';
+    let pending = false, pendingText = '', firstRun = false;
     try {
       const res = await fetch('/api/status');
       const data = await res.json();
@@ -588,6 +598,7 @@
       tenantLabel.textContent = 'tenant attivo: ' + data.tenant;
       pending = !!data.pending;
       pendingText = data.pendingText || '';
+      firstRun = !!data.firstRun;
     } catch (e) {
       tenantLabel.textContent = 'errore di connessione al server locale';
       return;
@@ -604,7 +615,7 @@
     if (pending) {
       addMessage('ai', pendingText + "\n\n(rispondi 'sì' per eseguirla davvero, 'no' per annullare)", true);
     } else if (chat.children.length === 0) {
-      addMessage('system', WELCOME_TEXT);
+      addMessage('system', firstRun ? FIRST_RUN_TEXT : WELCOME_TEXT);
     }
   }
 

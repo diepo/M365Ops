@@ -1188,6 +1188,12 @@ try {
                         tenant      = $script:ActiveTenantProfile
                         pending     = [bool]$script:PendingAction
                         pendingText = if ($script:PendingAction) { $script:PendingAction.ConfirmText } else { $null }
+                        # Nessun profilo tenant salvato ancora in Config\tenants.json (21/08/2026,
+                        # richiesto esplicitamente dall'utente): la GUI usa questo per mostrare un
+                        # messaggio di benvenuto/onboarding diverso al primo avvio, che indirizza al
+                        # tab Impostazioni tenant - ridiventa false da solo non appena l'utente salva
+                        # il primo profilo, nessun flag separato da resettare manualmente.
+                        firstRun    = (@(Get-M365OpsTenantList).Count -eq 0)
                     } | ConvertTo-Json -Compress
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
