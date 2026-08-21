@@ -1,7 +1,7 @@
 function Assert-M365OpsExoSafeVersion {
     <#
     .SYNOPSIS
-        Garantisce che ExchangeOnlineManagement 3.1.0 - la versione, in coppia con MicrosoftTeams
+        Garantisce che ExchangeOnlineManagement 3.4.0 - la versione, in coppia con MicrosoftTeams
         6.5.0 (connesso DOPO, vedi Assert-M365OpsTeamsSafeVersion.ps1) e con Exchange connesso
         PRIMA, verificata dal vivo come conflict-free in TUTTI i flussi usati da questo progetto
         (App-only, login delegato device-code, Purview) - vedi Connect-M365OpsExchange.ps1 e
@@ -11,20 +11,34 @@ function Assert-M365OpsExoSafeVersion {
         anche il modulo (i chiamanti non devono piu' farlo separatamente) e imposta
         <code>$script:M365OpsExchangeModuleImported</code> al successo.
 
-        PERCHE' 3.1.0 e non una versione piu' recente (25/08/2026, dopo che il pin a 3.9.0
+        PERCHE' 3.4.0 e non una versione piu' recente (25/08/2026, dopo che il pin a 3.9.0
         introdotto in v0.9.41 si e' rivelato insufficiente - nessun ordine di connessione era
         affidabilmente sicuro con quella versione, indipendentemente da quale Teams fosse
         installato): analizzata la libreria di autenticazione condivisa
         (Microsoft.Identity.Client.dll) bundled in OGNI versione rilasciata di entrambi i moduli -
         nessuna coppia condivide la build esatta in nessun punto della storia di nessuno dei due
-        moduli, quindi non esiste una versione "perfettamente compatibile" in senso stretto. La
-        coppia 3.1.0/6.5.0 e' pero' risultata verificata come sicura (Exchange connesso prima) in
-        un test dal vivo completo di tutti i flussi del progetto, ripetuto due volte. 3.1.0 e'
-        anche la piu' vecchia versione ExchangeOnlineManagement con tutto cio' che serve
-        (CertificateThumbprint, AccessToken per il device-code delegato, CertificateThumbprint su
-        Connect-IPPSSession per Purview) - scelta deliberatamente la piu' vecchia versione VIABILE,
-        per restare il piu' possibile lontana dalla soglia 3.10.0 dove il conflitto torna sempre
-        presente in ogni combinazione testata.
+        moduli, quindi non esiste una versione "perfettamente compatibile" in senso stretto. Le
+        versioni 3.1.0-3.4.0 condividono TUTTE la stessa build (4.44.0.0) - la coppia con
+        MicrosoftTeams 6.5.0 (Exchange connesso prima) e' risultata verificata come sicura in un
+        test dal vivo completo di tutti i flussi del progetto.
+
+        PERCHE' NON 3.1.0 (che tecnicamente sarebbe la piu' vecchia con tutto cio' che serve
+        sulla carta - CertificateThumbprint, AccessToken, CertificateThumbprint su
+        Connect-IPPSSession): scelta e poi SCARTATA lo stesso giorno dopo un test dal vivo con
+        CREDENZIALI REALI (non finte) - <code>Connect-IPPSSession</code> in App-only su 3.1.0
+        falliva con un errore WS-Management/WinRM ("Connecting to remote server
+        ps.compliance.protection.outlook.com failed..."), non un conflitto di assembly: 3.1.0
+        usa ancora il vecchio protocollo Remote PowerShell (RPS) per Security & Compliance,
+        che Microsoft ha dismesso lato server dal 15 luglio 2023 (banner ufficiale del modulo
+        stesso) - nessuna quantita' di correzioni lato nostro puo' farlo funzionare di nuovo,
+        e' un endpoint che non esiste piu'. Test con credenziali FINTE (usati per verificare
+        solo l'assenza del conflitto Teams) non lo avevano mai scoperto: fallivano prima, sul
+        controllo locale del certificato, senza mai arrivare alla vera chiamata di rete.
+        ExchangeOnlineManagement 3.2.0 ha spostato Security & Compliance sulle REST API (stesso
+        banner del modulo) - 3.4.0, ultima versione della fascia 3.1.0-3.4.0 con Microsoft.Identity.Client
+        4.44.0.0 identica, e' quindi la piu' vecchia versione REALMENTE viabile (non solo sulla
+        carta), riverificata con SUCCESSO con una connessione Purview reale, credenziali reali,
+        sul tenant di test - non solo "nessun conflitto", una connessione che funziona davvero.
 
         Richiesto esplicitamente dall'utente il 23/08/2026 dopo il primo fix (v0.9.41, che si
         limitava a un pin -RequiredVersion su Import-Module/Install-Module senza mai rimuovere
@@ -57,7 +71,7 @@ function Assert-M365OpsExoSafeVersion {
         non siano vuoti, e tratta un'installazione "presente ma danneggiata" come "da
         reinstallare", esattamente come farebbe per una versione mancante.
     .PARAMETER InstallOnly
-        Salta l'import: garantisce solo che la 3.1.0 sia presente sul disco (comportamento
+        Salta l'import: garantisce solo che la 3.4.0 sia presente sul disco (comportamento
         originale). Usato da <code>Install-M365OpsPrerequisites</code>, che gira ad OGNI avvio del
         server (non solo al primo) PRIMA che l'utente scelga se gli serve Teams o Exchange -
         importare il modulo li' dentro caricherebbe ExchangeOnlineManagement nel processo del
@@ -68,13 +82,13 @@ function Assert-M365OpsExoSafeVersion {
         Exchange serve DAVVERO.
     .OUTPUTS
         pscustomobject con RemovedVersions (array di stringhe, versioni disinstallate con
-        successo) e Installed (bool, true se la 3.1.0 e' stata installata da questa chiamata) -
+        successo) e Installed (bool, true se la 3.4.0 e' stata installata da questa chiamata) -
         usato da Install-M365OpsPrerequisites per riportare all'utente cosa e' stato fatto, non
         solo se il modulo e' presente.
     #>
     param([switch]$InstallOnly)
 
-    $safeVersion = [version]'3.1.0'
+    $safeVersion = [version]'3.4.0'
     $conflictFloor = [version]'3.10.0'
     $removedVersions = @()
     $installedNow = $false

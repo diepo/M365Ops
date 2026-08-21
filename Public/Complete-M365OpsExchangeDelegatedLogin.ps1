@@ -40,12 +40,12 @@ function Complete-M365OpsExchangeDelegatedLogin {
             # primo avvio, questo resta solo come rete di sicurezza se quel passaggio e' stato
             # saltato o e' fallito, stesso principio gia' in Connect-M365OpsExchange.ps1 (che
             # pero' non passa mai da QUESTA funzione, da cui il buco originale).
-            # Versione FISSATA a 3.1.0, verificata dal vivo come conflict-free con MicrosoftTeams
+            # Versione FISSATA a 3.4.0, verificata dal vivo come conflict-free con MicrosoftTeams
             # 6.5.0 (25/08/2026) - vedi Assert-M365OpsExoSafeVersion.ps1 per il dettaglio completo
             # della verifica, ESATTAMENTE con -AccessToken (il percorso usato proprio qui sotto,
             # confermato funzionante nel test dal vivo). Assert-M365OpsExoSafeVersion (Private)
             # disinstalla anche attivamente una eventuale versione >= 3.10.0 gia' presente sul
-            # disco, installa/importa la 3.1.0 (i chiamanti non lo fanno piu' separatamente) e
+            # disco, installa/importa la 3.4.0 (i chiamanti non lo fanno piu' separatamente) e
             # ripara da sola un'installazione locale corrotta se ne trova una.
             Assert-M365OpsExoSafeVersion
             # Invoke-M365OpsWithExoRepairRetry (Private, 25/08/2026) - vedi

@@ -32,22 +32,22 @@ function Connect-M365OpsExchange {
     # voglio il safe guard, nelle versioni vecchie funzionava"), sostituita con un messaggio
     # reattivo (Get-M365OpsModuleConflictHint) invece di un blocco preventivo; (5) FISSATA LA
     # COPPIA GIUSTA il 25/08/2026, dopo che l'utente ha insistito correttamente che "fino
-    # all'altro giorno" tutto funzionava - Exchange 3.1.0 + Teams 6.5.0 (Exchange connesso
+    # all'altro giorno" tutto funzionava - Exchange 3.4.0 + Teams 6.5.0 (Exchange connesso
     # PRIMA) verificata dal vivo come priva del conflitto in ogni flusso del progetto (vedi
     # Assert-M365OpsExoSafeVersion.ps1 per il dettaglio completo di come si e' arrivati a questa
     # coppia). Il try/catch sotto resta comunque come rete di sicurezza per l'ordine inverso o
     # per PC con altre versioni residue - qualunque altro errore (incluso il successo) passa
     # inalterato.
     try {
-        # Versione FISSATA a 3.1.0 - vedi Assert-M365OpsExoSafeVersion.ps1 per il dettaglio
+        # Versione FISSATA a 3.4.0 - vedi Assert-M365OpsExoSafeVersion.ps1 per il dettaglio
         # completo del perche' questa versione specifica (in coppia con MicrosoftTeams 6.5.0,
         # connesso dopo). Dalla 3.10.0 in poi il conflitto e' SEMPRE presente, in entrambe le
-        # direzioni, con ogni versione di Teams testata - quella soglia va sempre evitata. 3.1.0
+        # direzioni, con ogni versione di Teams testata - quella soglia va sempre evitata. 3.4.0
         # supporta tutto cio' che serve a questo progetto: -CertificateThumbprint/-Certificate
         # (App-only), -AccessToken (login delegato device-code) e CertificateThumbprint su
         # Connect-IPPSSession (Purview) - tutti verificati dal vivo.
         # Assert-M365OpsExoSafeVersion (Private) disinstalla anche attivamente una eventuale
-        # versione >= 3.10.0 gia' presente sul disco, installa la 3.1.0 se manca, la IMPORTA
+        # versione >= 3.10.0 gia' presente sul disco, installa la 3.4.0 se manca, la IMPORTA
         # (i chiamanti non lo fanno piu' separatamente) e ripara da sola un'installazione locale
         # corrotta se ne trova una - vedi quel file per il dettaglio completo.
         Assert-M365OpsExoSafeVersion

@@ -1426,6 +1426,30 @@ try {
                     }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
+                "POST /api/compliance-test" {
+                    # Nuovo (25/08/2026): Purview/Compliance non aveva NESSUN punto di ingresso
+                    # in GUI per la modalita' Delegata - Get-M365OpsRetentionCompliancePolicies
+                    # chiama Connect-M365OpsCompliance SENZA -AllowInteractive, quindi su un
+                    # tenant Delegato falliva sempre con "vai al tab Tenant e connetti" senza che
+                    # esistesse davvero un modo di farlo. Stesso identico principio di
+                    # /api/sharepoint-test e /api/teams-test: AuthMode letto tramite
+                    # Get-M365OpsActiveTenantInfo, MAI $script:M365OpsContext direttamente qui
+                    # (Server.ps1 non e' parte del modulo, stesso bug di scope gia' visto altrove
+                    # in questo file). Il login delegato qui e' interattivo (popup bloccante,
+                    # come Teams/SharePoint), non device-code in background come Exchange -
+                    # ExchangeOnlineManagement 3.4.0 (fissata per il conflitto Teams, sezione 6.6)
+                    # non espone un flusso device-code su Connect-IPPSSession, solo su
+                    # Connect-ExchangeOnline - vedi Connect-M365OpsCompliance.ps1 per il dettaglio.
+                    try {
+                        $isDelegated = (Get-M365OpsActiveTenantInfo).AuthMode -eq 'Delegated'
+                        Connect-M365OpsCompliance -Force -AllowInteractive:$isDelegated
+                        $policies = @(Get-M365OpsRetentionCompliancePolicies)
+                        $json = (@{ ok = $true; text = "Connesso. Trovate $($policies.Count) policy di conservazione." } | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ ok = $false; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
                 "POST /api/sharepoint-sync-app" {
                     # Endpoint manuale per Sync-M365OpsSharePointAppRegistration (17/08/2026) -
                     # utile sia come pulsante "ri-sincronizza" per un utente sia per verificare
@@ -1541,6 +1565,7 @@ try {
                         sharePointConnected    = $info.SharePointConnected
                         sharePointConnectedUrl = $info.SharePointConnectedUrl
                         teamsConnected         = $info.TeamsConnected
+                        complianceConnected    = $info.ComplianceConnected
                         intuneConnected        = $info.IntuneConnected
                         intuneConnectedUpn     = $info.IntuneConnectedUpn
                         intuneConnectedTenant  = $info.IntuneConnectedTenant

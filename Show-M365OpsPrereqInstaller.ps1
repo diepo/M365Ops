@@ -341,14 +341,14 @@ $form.Add_Shown({
             # Install-M365OpsPrerequisites.ps1 per il dettaglio del perche' Graph non serve un
             # modulo qui).
             # ExchangeOnlineManagement + MicrosoftTeams -> RequiredVersion fissata come COPPIA
-            # (25/08/2026: 3.1.0 + 6.5.0, Exchange connesso prima) - vedi
+            # (25/08/2026: 3.4.0 + 6.5.0, Exchange connesso prima) - vedi
             # Assert-M365OpsExoSafeVersion.ps1/Assert-M365OpsTeamsSafeVersion.ps1 per il dettaglio
             # completo di come si e' arrivati a questi due numeri specifici. Senza questo pin
             # anche qui, questa GUI avrebbe installato "l'ultima disponibile" per entrambi,
             # rendendo il pin nelle cmdlet di connessione inutile (nessuna versione sicura su
             # disco da caricare).
             $moduleChecks = @(
-                @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'ExchangeOnlineManagement'; RequiredVersion = '3.1.0' }
+                @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'ExchangeOnlineManagement'; RequiredVersion = '3.4.0' }
                 @{ Name = 'ImportExcel'; FriendlyName = 'ImportExcel' }
                 @{ Name = 'IntuneWin32App'; FriendlyName = 'IntuneWin32App' }
                 @{ Name = 'MicrosoftTeams'; FriendlyName = 'MicrosoftTeams'; RequiredVersion = '6.5.0' }
@@ -360,11 +360,11 @@ $form.Add_Shown({
             # meno processi separati che toccano PackageManagement/PowerShellGet in sequenza
             # ravvicinata, meno rischio di collisione sugli stessi file. "Nome=Versione" per
             # verificare la versione ESATTA quando e' fissata, non solo "e' presente qualcosa".
-            # ExchangeOnlineManagement: "presente" richiede la 3.1.0 esatta E nessuna versione
+            # ExchangeOnlineManagement: "presente" richiede la 3.4.0 esatta E nessuna versione
             # >= 3.10.0 in conflitto affiancata (23/08/2026, soglia invariata dopo il cambio di
             # pin del 25/08/2026: dalla 3.10.0 in poi il conflitto e' sempre presente
             # indipendentemente da quale Teams sia installato) - se una 3.10.x e' comunque
-            # presente accanto alla 3.1.0 (es. installata a mano), va comunque trattata come
+            # presente accanto alla 3.4.0 (es. installata a mano), va comunque trattata come
             # "MISSING" cosi' finisce nel percorso di installazione qui sotto, che la disinstalla
             # attivamente invece di lasciarla li'.
             $specsForCheck = ($moduleChecks | ForEach-Object { "$($_.Name)=$($_.RequiredVersion)" }) -join ';'

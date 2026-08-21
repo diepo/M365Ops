@@ -232,7 +232,7 @@
         <h3 style="margin-top:0;">Exchange Online</h3>
         <div id="mcp-exchange-status" class="hint">caricamento stato...</div>
         <p class="hint">Sui tenant App-only la connessione è silenziosa (certificato). Sui tenant Delegati mostra un codice da inserire su un'altra pagina — non blocca più l'app durante l'attesa.</p>
-        <p style="background:var(--ok-soft,#e6f4ea); color:var(--ok,#1e7a34); padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin:8px 0;"><b>✓ Coesiste con Teams:</b> il modulo <code>ExchangeOnlineManagement</code> è FISSATO alla versione 3.1.0, verificata insieme a MicrosoftTeams 6.5.0 come priva del conflitto tra i due moduli (App-only, login delegato e Purview tutti testati dal vivo) — connetti Exchange PRIMA di Teams nella stessa sessione del server. Non aggiornare mai questi moduli a mano: M365Ops li reinstalla/ripara da sola ad ogni connessione. Dettaglio completo in guida, sezione 6.6.</p>
+        <p style="background:var(--ok-soft,#e6f4ea); color:var(--ok,#1e7a34); padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin:8px 0;"><b>✓ Coesiste con Teams:</b> il modulo <code>ExchangeOnlineManagement</code> è FISSATO alla versione 3.4.0, verificata insieme a MicrosoftTeams 6.5.0 come priva del conflitto tra i due moduli (App-only, login delegato e Purview tutti testati dal vivo) — connetti Exchange PRIMA di Teams nella stessa sessione del server. Non aggiornare mai questi moduli a mano: M365Ops li reinstalla/ripara da sola ad ogni connessione. Dettaglio completo in guida, sezione 6.6.</p>
         <div class="actions">
           <button id="exchange-test-btn">Connetti / Test connessione Exchange</button>
           <span id="exchange-status-msg"></span>
@@ -254,10 +254,20 @@
         <h3 style="margin-top:0;">Microsoft Teams</h3>
         <div id="mcp-teams-status" class="hint">caricamento stato...</div>
         <p class="hint">App-only: elenco Team/canali/membri funziona subito con lo stesso certificato di Exchange - criteri di riunione/chiamata/messaggistica e configurazione accesso esterno richiedono in più il permesso "Skype and Teams Tenant Admin API" (vedi guida sezione 4.4). Sui tenant Delegati si apre una finestra per il login: il server resta bloccato per tutti finché non lo completi — fallo qui PRIMA di chiedere dati in chat, mai durante una richiesta composta.</p>
-        <p style="background:var(--ok-soft,#e6f4ea); color:var(--ok,#1e7a34); padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin:8px 0;"><b>✓ Coesiste con Exchange</b> se connetti Exchange PRIMA di Teams nella stessa sessione del server (vedi l'avviso nel riquadro Exchange Online qui sopra e guida sezione 6.6) — il modulo <code>MicrosoftTeams</code> è fissato alla versione 6.5.0, verificata insieme a ExchangeOnlineManagement 3.1.0. Nota anche: su tenant Delegati il popup di login può aprirsi DIETRO il browser — controlla con Alt+Tab prima di pensare che sia bloccato.</p>
+        <p style="background:var(--ok-soft,#e6f4ea); color:var(--ok,#1e7a34); padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin:8px 0;"><b>✓ Coesiste con Exchange</b> se connetti Exchange PRIMA di Teams nella stessa sessione del server (vedi l'avviso nel riquadro Exchange Online qui sopra e guida sezione 6.6) — il modulo <code>MicrosoftTeams</code> è fissato alla versione 6.5.0, verificata insieme a ExchangeOnlineManagement 3.4.0. Nota anche: su tenant Delegati il popup di login può aprirsi DIETRO il browser — controlla con Alt+Tab prima di pensare che sia bloccato.</p>
         <div class="actions">
           <button id="teams-test-btn">Connetti / Test connessione Teams</button>
           <span id="teams-status-msg"></span>
+        </div>
+      </div>
+
+      <div id="compliance-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+        <h3 style="margin-top:0;">Purview / Compliance</h3>
+        <div id="mcp-compliance-status" class="hint">caricamento stato...</div>
+        <p class="hint">Usato per i report di conservazione/retention (guida sezione 11). App-only è silenzioso (stesso certificato di Exchange). Sui tenant Delegati si apre una finestra per il login: il server resta bloccato per tutti finché non lo completi — fallo qui PRIMA di chiedere un report in chat, mai durante una richiesta composta. A differenza di Exchange, qui non c'è un flusso non bloccante a codice dispositivo (limite della versione del modulo fissata per il conflitto con Teams, vedi guida sezione 6.6) — è un popup come per Teams/SharePoint, non un codice da inserire altrove.</p>
+        <div class="actions">
+          <button id="compliance-test-btn">Connetti / Test connessione Purview</button>
+          <span id="compliance-status-msg"></span>
         </div>
       </div>
 
@@ -1039,6 +1049,7 @@
     rows.push(`${statusDot(data.exchangeConnected)}<b>Exchange Online:</b> ${data.exchangeConnected ? 'connesso' : (data.exchangeConfigured || isDelegated ? 'non connesso — vedi sotto' : 'non configurato')}`);
     rows.push(`${statusDot(data.sharePointConnected)}<b>SharePoint/OneDrive:</b> ${data.sharePointConnected ? 'connesso' : 'non connesso — vedi sotto'}`);
     rows.push(`${statusDot(data.teamsConnected)}<b>Microsoft Teams:</b> ${data.teamsConnected ? 'connesso' : 'non connesso — vedi sotto'}`);
+    rows.push(`${statusDot(data.complianceConnected)}<b>Purview/Compliance:</b> ${data.complianceConnected ? 'connesso' : 'non connesso — vedi sotto'}`);
     rows.push(`${statusDot(data.intuneConnected)}<b>Intune:</b> ${data.intuneConnected ? `connesso${data.intuneConnectedUpn ? ` (${data.intuneConnectedUpn})` : ''}` : 'non connesso — vedi sotto'}`);
     panel.innerHTML = rows.join('<br>');
 
@@ -1100,6 +1111,18 @@
       if (teamsMsg) {
         if (data.teamsConnected && teamsMsg.textContent.startsWith('Errore')) { teamsMsg.textContent = ''; }
         if (!data.teamsConnected && teamsMsg.textContent.startsWith('Connesso')) { teamsMsg.textContent = ''; }
+      }
+    }
+
+    const complianceStatus = document.getElementById('mcp-compliance-status');
+    if (complianceStatus) {
+      complianceStatus.innerHTML = data.complianceConnected
+        ? `${statusDot(true)}Connesso.`
+        : `${statusDot(false)}Non connesso.`;
+      const complianceMsg = document.getElementById('compliance-status-msg');
+      if (complianceMsg) {
+        if (data.complianceConnected && complianceMsg.textContent.startsWith('Errore')) { complianceMsg.textContent = ''; }
+        if (!data.complianceConnected && complianceMsg.textContent.startsWith('Connesso')) { complianceMsg.textContent = ''; }
       }
     }
 
@@ -1635,6 +1658,37 @@
       }
 
       const res = await fetch('/api/teams-test', { method: 'POST' });
+      const data = await res.json();
+      status.textContent = data.text || 'Fatto.';
+      btn.disabled = false;
+      loadConnectionStatus();
+      loadSetupStatus();
+    } catch (e) {
+      status.textContent = 'Errore di comunicazione: ' + e.message;
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('compliance-test-btn').addEventListener('click', async (ev) => {
+    // Nuovo (25/08/2026): stesso schema di Teams/SharePoint qui sopra - login delegato
+    // interattivo (popup bloccante), non un flusso a codice dispositivo. Purview non aveva
+    // nessun punto di ingresso in GUI prima di questo fix, vedi Server.ps1 /api/compliance-test.
+    const btn = ev.currentTarget;
+    const status = document.getElementById('compliance-status-msg');
+    btn.disabled = true;
+    try {
+      const statusRes = await fetch('/api/mcp-status');
+      const statusData = await statusRes.json();
+
+      if (statusData.authMode === 'Delegated') {
+        const proceed = confirm('Si aprirà una finestra per il login: il server resterà bloccato per tutti finché non lo completi. Procedere?');
+        if (!proceed) { btn.disabled = false; return; }
+        status.textContent = 'apertura login in corso... il server è bloccato finché non completi il login';
+      } else {
+        status.textContent = 'connessione in corso...';
+      }
+
+      const res = await fetch('/api/compliance-test', { method: 'POST' });
       const data = await res.json();
       status.textContent = data.text || 'Fatto.';
       btn.disabled = false;

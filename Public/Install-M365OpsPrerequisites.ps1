@@ -165,7 +165,7 @@ function Install-M365OpsPrerequisites {
     # progetto lo chiama sempre via REST puro (Invoke-M365OpsGraphRequest), ma Teams/SharePoint/
     # PDF si', trovati con lo stesso grep sistematico gia' usato per Exchange/Excel/Intune):
     # ExchangeOnlineManagement E MicrosoftTeams hanno ENTRAMBI una RequiredVersion fissata come
-    # COPPIA (25/08/2026: 3.1.0 + 6.5.0, Exchange connesso prima - vedi
+    # COPPIA (25/08/2026: 3.4.0 + 6.5.0, Exchange connesso prima - vedi
     # Assert-M365OpsExoSafeVersion.ps1/Assert-M365OpsTeamsSafeVersion.ps1 per il dettaglio
     # completo di come si e' arrivati a questi due numeri specifici, dopo che un pin sulla sola
     # ExchangeOnlineManagement 3.9.0 si era rivelato insufficiente). Senza pin qui, questa
@@ -187,10 +187,10 @@ function Install-M365OpsPrerequisites {
     $exoResult = Assert-M365OpsExoSafeVersion -InstallOnly
     if ($exoResult.RemovedVersions.Count -gt 0) { $installedSomething = $true }
     if ($exoResult.Installed) { $installedSomething = $true }
-    $exoNowPresent = [bool](Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object Version -eq '3.1.0')
+    $exoNowPresent = [bool](Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object Version -eq '3.4.0')
     $exoDetailParts = @()
     if ($exoResult.RemovedVersions.Count -gt 0) { $exoDetailParts += "Versione/i in conflitto rimossa/e: $($exoResult.RemovedVersions -join ', ')." }
-    $exoDetailParts += if ($exoNowPresent) { 'Versione 3.1.0 presente (fissata, vedi guida sezione 6.6).' } else { 'Versione 3.1.0 non rilevata dopo il tentativo di installazione - riprova o installa manualmente.' }
+    $exoDetailParts += if ($exoNowPresent) { 'Versione 3.4.0 presente (fissata, vedi guida sezione 6.6).' } else { 'Versione 3.4.0 non rilevata dopo il tentativo di installazione - riprova o installa manualmente.' }
     $results += [pscustomobject]@{
         Name   = 'Modulo ExchangeOnlineManagement (connessione Exchange Online)'
         Status = if ($exoNowPresent) { 'OK' } else { 'Failed' }
@@ -205,7 +205,7 @@ function Install-M365OpsPrerequisites {
         Name   = 'Modulo MicrosoftTeams (connessione Teams)'
         Status = if ($teamsNowPresent) { 'OK' } else { 'Failed' }
         Action = if ($teamsResult.Installed) { 'Installazione/pulizia tentata (Assert-M365OpsTeamsSafeVersion).' } else { 'Gia'' presente nella versione corretta, nessuna azione necessaria.' }
-        Detail = if ($teamsNowPresent) { 'Versione 6.5.0 presente (fissata in coppia con ExchangeOnlineManagement 3.1.0, vedi guida sezione 6.6).' } else { 'Versione 6.5.0 non rilevata dopo il tentativo di installazione - riprova o installa manualmente.' }
+        Detail = if ($teamsNowPresent) { 'Versione 6.5.0 presente (fissata in coppia con ExchangeOnlineManagement 3.4.0, vedi guida sezione 6.6).' } else { 'Versione 6.5.0 non rilevata dopo il tentativo di installazione - riprova o installa manualmente.' }
     }
 
     $moduleChecks = @(

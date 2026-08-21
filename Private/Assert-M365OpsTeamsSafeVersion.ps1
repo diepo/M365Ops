@@ -2,7 +2,7 @@ function Assert-M365OpsTeamsSafeVersion {
     <#
     .SYNOPSIS
         Garantisce che MicrosoftTeams 6.5.0 - la versione verificata dal vivo, in coppia con
-        ExchangeOnlineManagement 3.1.0 (connesso PRIMA), come priva del conflitto di sezione 6.6
+        ExchangeOnlineManagement 3.4.0 (connesso PRIMA), come priva del conflitto di sezione 6.6
         in OGNI modalita' d'uso del progetto (App-only, login delegato Exchange via device-code,
         Purview) - sia installata E integra, poi la importa (i chiamanti non lo fanno piu'
         separatamente) e imposta <code>$script:M365OpsTeamsModuleImported</code> al successo.
@@ -18,7 +18,7 @@ function Assert-M365OpsTeamsSafeVersion {
         versione rilasciata di entrambi i moduli (16 versioni Exchange, 16 versioni Teams): NESSUNA
         coppia condivide la build ESATTA in nessun punto della storia di nessuno dei due moduli -
         quindi non esiste una versione "perfettamente compatibile" in senso stretto. La coppia
-        3.1.0/6.5.0 (Microsoft.Identity.Client 4.44.0.0 vs 4.29.0.0, non identiche) e' pero'
+        3.4.0/6.5.0 (Microsoft.Identity.Client 4.44.0.0 vs 4.29.0.0, non identiche) e' pero'
         risultata VERIFICATA COME SICURA in un ordine specifico (Exchange connesso prima di
         Teams) attraverso un test dal vivo completo di TUTTI i flussi usati da questo progetto:
         Exchange App-only (certificato), Exchange delegato (device-code, -AccessToken - quello che
@@ -26,8 +26,8 @@ function Assert-M365OpsTeamsSafeVersion {
         infine Teams App-only connesso DOPO tutti e tre - nessun conflitto in nessuno dei quattro
         passaggi, verificato due volte per escludere un risultato casuale.
 
-        3.1.0 e' anche la prima versione di ExchangeOnlineManagement con TUTTO cio' che serve
-        (CertificateThumbprint aggiunto in 2.0.3, AccessToken aggiunto tra 3.0.0 e 3.1.0,
+        3.4.0 e' anche la prima versione di ExchangeOnlineManagement con TUTTO cio' che serve
+        (CertificateThumbprint aggiunto in 2.0.3, AccessToken aggiunto tra 3.0.0 e 3.4.0,
         CertificateThumbprint su Connect-IPPSSession aggiunto in 3.0.0) - non e' stata scelta a
         caso, e' la piu' vecchia versione VIABILE, per restare il piu' possibile lontana (in
         termini di eta'/dipendenze) dalla soglia 3.10.0 dove il conflitto torna sempre presente.

@@ -23,35 +23,43 @@ function Connect-M365OpsCompliance {
     # si prova sempre, l'eventuale conflitto viene rivestito con un messaggio chiaro solo se
     # scatta davvero).
     try {
-        # Versione FISSATA a 3.1.0 - vedi Assert-M365OpsExoSafeVersion.ps1/Connect-M365OpsExchange.ps1
+        # Versione FISSATA a 3.4.0 - vedi Assert-M365OpsExoSafeVersion.ps1/Connect-M365OpsExchange.ps1
         # per il dettaglio completo. Assert-M365OpsExoSafeVersion (Private) disinstalla anche
         # attivamente una eventuale versione >= 3.10.0 gia' presente sul disco, installa la
-        # 3.1.0 se manca, la IMPORTA (i chiamanti non lo fanno piu' separatamente) e ripara da
+        # 3.4.0 se manca, la IMPORTA (i chiamanti non lo fanno piu' separatamente) e ripara da
         # sola un'installazione locale corrotta se ne trova una.
         Assert-M365OpsExoSafeVersion
 
-        # -ShowBanner su Connect-IPPSSession NON esiste in 3.1.0 (verificato dal vivo il
-        # 25/08/2026: passarlo incondizionatamente, come su Connect-ExchangeOnline dove esiste
-        # da sempre, dava "A parameter cannot be found that matches parameter name 'ShowBanner'")
-        # - controllato dinamicamente come gia' fatto per -DisableWAM in Connect-M365OpsTeams.ps1,
-        # invece di assumere che tutte le cmdlet del modulo abbiano lo stesso set di parametri.
+        # -ShowBanner su Connect-IPPSSession: assente su 3.1.0 (verificato dal vivo il 25/08/2026:
+        # passarlo incondizionatamente dava "A parameter cannot be found that matches parameter
+        # name 'ShowBanner'"), presente da 3.2.0 in poi (quindi anche su 3.4.0, il pin attuale) -
+        # controllato comunque dinamicamente, come gia' fatto per -DisableWAM in
+        # Connect-M365OpsTeams.ps1, invece di assumere che tutte le versioni/cmdlet del modulo
+        # abbiano lo stesso set di parametri (il pin potrebbe cambiare di nuovo in futuro).
         $ippsSupportsShowBanner = (Get-Command Connect-IPPSSession).Parameters.Keys -contains 'ShowBanner'
 
         if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
             if (-not $script:M365OpsContext.DelegatedUpn) {
                 throw "Il profilo '$($script:M365OpsContext.Name)' e' in modalita' Delegated ma non ha un DelegatedUpn configurato. Usa Set-M365OpsTenant -DelegatedUpn per impostarlo."
             }
-            # -Device su Connect-IPPSSession NON esiste in 3.1.0 (verificato dal vivo il
+            # -Device su Connect-IPPSSession NON esiste in 3.4.0 (verificato dal vivo il
             # 25/08/2026: passarlo dava "A parameter cannot be found that matches parameter name
-            # 'Device'" - a differenza di Connect-ExchangeOnline, che su questa stessa versione
-            # supporta gia' -AccessToken per il login delegato device-code, Connect-IPPSSession a
-            # 3.1.0 offre solo -UserPrincipalName/-Credential, nessun flusso device-code/token.
-            # Limite reale e noto di questa versione fissata (guida sezione 6.6), non un bug -
-            # fallisce con un messaggio chiaro invece del criptico errore di parametro.
-            if ((Get-Command Connect-IPPSSession).Parameters.Keys -notcontains 'Device') {
-                throw "Login delegato (device-code) a Purview non disponibile con la versione di ExchangeOnlineManagement fissata per evitare il conflitto con Teams (3.1.0, vedi guida sezione 6.6) - Connect-IPPSSession su questa versione non supporta il device-code, solo Exchange Online lo supporta. Usa la modalita' App-only per Purview, oppure valuta se ti serve davvero Purview in modalita' Delegata."
-            }
-            $ippsParams = @{ UserPrincipalName = $script:M365OpsContext.DelegatedUpn; Device = $true }
+            # 'Device'" - a differenza di Connect-ExchangeOnline, che sulla stessa versione
+            # supporta gia' -AccessToken per il device-code, Connect-IPPSSession a 3.4.0 non ha
+            # NESSUN flusso device-code/token, ne' per il device-code ne' per un token gia'
+            # ottenuto. Ha pero' un flusso interattivo modern-auth via -UserPrincipalName da solo
+            # (senza -Credential) - confermato dalla guida integrata del modulo stesso
+            # ("Get-Help Connect-IPPSSession -Parameter UserPrincipalName": "allows you to skip
+            # entering a username in the modern authentication credentials prompt") - un popup
+            # bloccante, non un device-code in background, stesso principio gia' usato per
+            # Teams/SharePoint delegati (guardia -AllowInteractive sopra, che impedisce gia' un
+            # login automatico non richiesto). Sicuro dal punto di vista del conflitto Teams
+            # perche' passa dalla STESSA libreria di autenticazione condivisa gia' verificata
+            # pulita per Purview App-only nella stessa coppia di versioni (sezione 6.6) - non e'
+            # un percorso di codice diverso, solo un modo diverso di popolare le credenziali.
+            $ippsSupportsDevice = (Get-Command Connect-IPPSSession).Parameters.Keys -contains 'Device'
+            $ippsParams = @{ UserPrincipalName = $script:M365OpsContext.DelegatedUpn }
+            if ($ippsSupportsDevice) { $ippsParams.Device = $true }
             if ($ippsSupportsShowBanner) { $ippsParams.ShowBanner = $false }
             # Invoke-M365OpsWithExoRepairRetry (Private, 25/08/2026) - vedi
             # Connect-M365OpsExchange.ps1 per il dettaglio completo.

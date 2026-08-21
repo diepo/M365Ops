@@ -21,6 +21,7 @@ function Get-M365OpsActiveTenantInfo {
         SharePointConnectedUrl = $script:M365OpsSharePointConnectedUrl
         SharePointInteractiveClientId = $script:M365OpsContext.SharePointInteractiveClientId
         TeamsConnected         = [bool]$script:M365OpsTeamsConnected
+        ComplianceConnected    = [bool]$script:M365OpsComplianceConnected
         IntuneConnected        = [bool]$script:M365OpsIntuneConnected
         IntuneConnectedUpn     = $script:M365OpsIntuneConnectedAs.Upn
         IntuneConnectedTenant  = $script:M365OpsIntuneConnectedAs.TenantName

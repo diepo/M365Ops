@@ -23,7 +23,7 @@ function Connect-M365OpsTeams {
 
     # BUG STRUTTURALE DI TERZE PARTI, trovato il 22/08/2026 - vedi Connect-M365OpsExchange.ps1
     # per la storia completa dei tentativi. Conclusione finale (25/08/2026): fissate ENTRAMBE le
-    # versioni dei due moduli come coppia verificata (ExchangeOnlineManagement 3.1.0 +
+    # versioni dei due moduli come coppia verificata (ExchangeOnlineManagement 3.4.0 +
     # MicrosoftTeams 6.5.0, Exchange connesso PRIMA) - vedi Assert-M365OpsTeamsSafeVersion.ps1 e
     # Assert-M365OpsExoSafeVersion.ps1 per il dettaglio completo di come si e' arrivati a questa
     # coppia specifica. Il try/catch sotto resta comunque come rete di sicurezza per l'ordine
