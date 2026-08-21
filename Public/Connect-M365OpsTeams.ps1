@@ -21,19 +21,21 @@ function Connect-M365OpsTeams {
         throw "Sessione Teams non ancora attiva per questo tenant delegato. Il server non avvia mai un login interattivo da solo (bloccherebbe l'intera app per tutti, essendo a thread singolo) - vai al tab Tenant (non MCP/Connettori), sezione 'Stato connessioni', Microsoft Teams, e clicca 'Connetti / Test connessione Teams' per farlo esplicitamente (si apre una finestra per il login, il server resta bloccato per tutti finche' non completi il login - fallo PRIMA di chiedere dati in chat, mai durante una richiesta composta). Se sembra che non succeda nulla dopo il click, la finestra di login potrebbe essersi aperta DIETRO il browser invece che in primo piano - controlla con Alt+Tab o la barra delle applicazioni prima di pensare che sia bloccato (bug reale segnalato dal vivo il 22/08/2026)."
     }
 
-    # BUG STRUTTURALE DI TERZE PARTI, trovato e riprodotto dal vivo il 22/08/2026 (in
-    # App-only, quindi indipendente dalla modalita' Delegata o dall'ambiente Sandbox - non
-    # e' un bug di questo progetto): i moduli MicrosoftTeams e ExchangeOnlineManagement
-    # portano con se' versioni INCOMPATIBILI delle stesse librerie condivise di
-    # autenticazione (Microsoft.Identity.Client / Microsoft.IdentityModel.*) - una volta che
-    # UN modulo le ha caricate nel processo, l'ALTRO fallisce sempre, in ENTRAMBE le
-    # direzioni (riprodotto: Teams poi Exchange fallisce su
-    # Microsoft.IdentityModel.Abstractions, Exchange poi Teams fallisce su
-    # Microsoft.Identity.Client - cambiare l'ordine non risolve nulla). Vedi
-    # Connect-M365OpsExchange.ps1 per il dettaglio completo e la fonte pubblica del
-    # conflitto (documentato da anni, nessun fix lato Microsoft).
+    # BUG STRUTTURALE DI TERZE PARTI, trovato il 22/08/2026, RIDIMENSIONATO il 24/08/2026 dopo
+    # aver fissato ExchangeOnlineManagement a 3.9.0 (v0.9.41/42): il conflitto NON e' piu'
+    # bidirezionale come inizialmente creduto. Verificato dal vivo (Connect-ExchangeOnline/
+    # -MicrosoftTeams reali, credenziali finte - l'assembly conflict scatta prima di qualunque
+    # validazione di rete): Teams importato PRIMA e poi ExchangeOnlineManagement 3.9.0 importato
+    # DOPO non va mai in conflitto (guardia rimossa dal lato Exchange/Purview/login delegato,
+    # vedi Connect-M365OpsExchange.ps1) - ma l'ordine INVERSO, cioe' proprio questo caso
+    # (Exchange gia' importato, Teams che tenta di importare dopo), resta rotto anche con la
+    # 3.9.0, testato anche con la 2.0.5 (la piu' vecchia disponibile) e con piu' versioni di
+    # Teams (7.3.1, 7.9.0) - sempre fallisce su Microsoft.Identity.Client, causa non ancora
+    # isolata oltre "l'ordine di caricamento conta". Questa guardia resta quindi necessaria SOLO
+    # in questa direzione. Messaggio aggiornato con l'unica mitigazione nota, oltre al riavvio:
+    # la PROSSIMA volta connettere Teams per primo evita del tutto il problema.
     if ($script:M365OpsExchangeModuleImported) {
-        throw "Impossibile connettersi a Teams: il modulo ExchangeOnlineManagement e' gia' stato caricato in questo stesso processo server, e i due moduli portano versioni incompatibili delle stesse librerie di autenticazione - conflitto noto e documentato di Microsoft (non un bug di M365Ops), presente da anni, senza soluzione lato modulo. In QUESTA sessione del server puoi usare Exchange OPPURE Teams, non entrambi - riavvia il server (pulsante Manutenzione, o 'M365Ops - Termina e riavvia' sul Desktop se non risponde) per liberare il processo e usare Teams da capo."
+        throw "Impossibile connettersi a Teams: il modulo ExchangeOnlineManagement e' gia' stato caricato in questo stesso processo server prima di Teams, e in QUESTO ordine specifico i due moduli portano ancora versioni incompatibili delle stesse librerie di autenticazione (conflitto noto di Microsoft, non un bug di M365Ops - vedi guida sezione 6.6). Riavvia il server (pulsante Manutenzione, o 'M365Ops - Termina e riavvia' sul Desktop se non risponde) per liberare il processo, poi connetti PRIMA Teams e SOLO DOPO Exchange/Purview in questa sessione - in quest'altro ordine il conflitto non si presenta piu'."
     }
 
     if (-not (Get-Module -ListAvailable -Name MicrosoftTeams)) {

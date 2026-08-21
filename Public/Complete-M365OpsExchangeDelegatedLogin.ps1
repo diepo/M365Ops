@@ -29,13 +29,12 @@ function Complete-M365OpsExchangeDelegatedLogin {
         # Conflitto noto MicrosoftTeams/ExchangeOnlineManagement, riprodotto dal vivo il
         # 22/08/2026 esattamente su QUESTA funzione (il messaggio d'errore dell'utente -
         # "Could not load file or assembly ...Microsoft.IdentityModel.Abstractions...
-        # manifest definition does not match" - corrisponde esattamente) - vedi
-        # Connect-M365OpsExchange.ps1 per il dettaglio completo. Controllato PRIMA di
-        # importare il modulo, cosi' l'utente vede un messaggio chiaro invece del criptico
-        # errore .NET nativo che aveva causato un blocco/crash apparente del server.
-        if ($script:M365OpsTeamsModuleImported) {
-            return [pscustomobject]@{ Status = 'Error'; Message = "Token ottenuto ma il modulo MicrosoftTeams e' gia' caricato in questo processo server, e i due moduli portano versioni incompatibili delle stesse librerie di autenticazione - conflitto noto e documentato di Microsoft (non un bug di M365Ops), senza soluzione lato modulo. Riavvia il server (pulsante Manutenzione, o 'M365Ops - Termina e riavvia' sul Desktop se non risponde) per liberare il processo e riprova il login Exchange da capo." }
-        }
+        # manifest definition does not match" - corrisponde esattamente). GUARDIA RIMOSSA
+        # QUI il 24/08/2026 (vedi Connect-M365OpsExchange.ps1 per il dettaglio completo): con
+        # il pin a 3.9.0 sotto, Teams-poi-Exchange e' sicuro - verificato dal vivo anche con
+        # -AccessToken specificamente (il percorso usato proprio qui sotto), non solo con
+        # certificato. L'ordine inverso resta rotto, guardia ancora attiva in
+        # Connect-M365OpsTeams.ps1.
         try {
             # Fallback di auto-installazione (22/08/2026, bug reale segnalato dal vivo: login
             # delegato riuscito, poi fallito qui con "no valid module file was found" su un PC

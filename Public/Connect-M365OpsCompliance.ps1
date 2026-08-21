@@ -18,13 +18,12 @@ function Connect-M365OpsCompliance {
         throw "Sessione Security & Compliance (Purview) non ancora attiva per questo tenant delegato. Il server non avvia mai un login interattivo da solo (bloccherebbe l'intera app per tutti, essendo a thread singolo) - vai al tab Tenant (sezione 'Stato connessioni'), Purview/Compliance, e clicca 'Connetti / Test connessione Purview' per farlo esplicitamente, poi riprova."
     }
 
-    # Conflitto noto MicrosoftTeams/ExchangeOnlineManagement (22/08/2026) - vedi
-    # Connect-M365OpsExchange.ps1 per il dettaglio completo. Questa funzione importa lo
-    # stesso modulo ExchangeOnlineManagement, quindi eredita lo stesso rischio.
-    if ($script:M365OpsTeamsModuleImported) {
-        throw "Impossibile connettersi a Purview: il modulo MicrosoftTeams e' gia' stato caricato in questo stesso processo server, e i due moduli portano versioni incompatibili delle stesse librerie di autenticazione - conflitto noto e documentato di Microsoft (non un bug di M365Ops), presente da anni, senza soluzione lato modulo. Riavvia il server (pulsante Manutenzione, o 'M365Ops - Termina e riavvia' sul Desktop se non risponde) per liberare il processo."
-    }
-
+    # GUARDIA RIMOSSA QUI il 24/08/2026 (vedi Connect-M365OpsExchange.ps1 per il dettaglio
+    # completo): il conflitto MicrosoftTeams/ExchangeOnlineManagement non e' bidirezionale,
+    # Teams-poi-Exchange/Purview e' sicuro con il pin 3.9.0 sotto (verificato dal vivo anche su
+    # Connect-IPPSSession specificamente, non solo Connect-ExchangeOnline) - l'ordine inverso
+    # resta rotto e la sua guardia vive in Connect-M365OpsTeams.ps1.
+    #
     # Versione FISSATA a 3.9.0, confermata conflict-free con MicrosoftTeams (23/08/2026) - vedi
     # Connect-M365OpsExchange.ps1 per il dettaglio completo della verifica dal vivo.
     # Assert-M365OpsExoSafeVersion (Private) disinstalla anche attivamente una eventuale
