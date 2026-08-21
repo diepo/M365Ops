@@ -410,7 +410,8 @@
     </div>
 
     <h2 style="margin-top:20px;">Altri server MCP</h2>
-    <p class="hint">Salvati qui per riferimento — al momento solo Lokka è collegato al motore di ragionamento in chat, gli altri sono gestibili ma non ancora richiamabili dall'AI.</p>
+    <p class="hint">Ogni server qui sotto è collegato al motore di ragionamento in chat con lo stesso livello di sicurezza di Lokka — le letture sono dirette, ogni scrittura passa sempre da una proposta con conferma esplicita dell'utente. Clicca "Connetti/Test" dopo averne salvato uno nuovo (o dopo aver cambiato tenant) per verificarlo e vederne i tool disponibili.</p>
+    <p class="hint"><b>CLI Microsoft 365</b> — copre Entra ID, Outlook, Planner, OneDrive, Purview (ricerca conformità), Teams lato Graph (app/riunioni/chat, MAI criteri di riunione/chiamata). NON copre Exchange profondo (mailbox/gruppi/regole) né Intune (resta tutto sui moduli esistenti) — SharePoint richiede login a certificato, non ancora supportato qui (il login a client secret di questo tenant lo rifiuta sempre). Prerequisito: <code>npm install -g @pnp/cli-microsoft365</code> su questo PC — se lo installi ora per la prima volta, non basta "Riavvia server": chiudi tutto e riapri dal collegamento sul Desktop (un programma npm appena installato non è visibile a un processo già in esecuzione).</p>
     <div id="other-mcp-list" class="hint">nessun altro server configurato</div>
     <div id="new-mcp-form">
       <div>
@@ -1508,8 +1509,12 @@
 
   async function loadMcpServers() {
     try {
-      const res = await fetch('/api/mcp-servers');
-      const servers = await res.json();
+      const [serversRes, statusRes] = await Promise.all([fetch('/api/mcp-servers'), fetch('/api/mcp-status')]);
+      const servers = await serversRes.json();
+      const statusData = await statusRes.json();
+      const statusByName = {};
+      (statusData.mcpServers || []).forEach(s => { statusByName[s.name] = s; });
+
       const lokka = servers.find(s => s.name === 'lokka');
       if (lokka) {
         document.getElementById('f-lokka-command').value = lokka.command || '';
@@ -1520,7 +1525,39 @@
       if (others.length === 0) {
         listEl.textContent = 'nessun altro server configurato';
       } else {
-        listEl.innerHTML = others.map(s => `<div class="status-row"><strong>${s.name}</strong> — ${s.command} ${s.args} <button data-mcpname="${s.name}" class="remove-mcp-btn" style="margin-left:8px; font-size:11px; padding:2px 8px;">Rimuovi</button></div>`).join('');
+        listEl.innerHTML = others.map(s => {
+          const st = statusByName[s.name];
+          const statusText = st && st.connected ? `${statusDot(true)}connesso — ${st.toolCount} tool` : `${statusDot(false)}non connesso`;
+          return `<div class="status-row"><strong>${s.name}</strong> — ${s.command} ${s.args}<br>${statusText}
+            <button data-mcpname="${s.name}" class="connect-mcp-btn" style="margin-left:8px; font-size:11px; padding:2px 8px;">Connetti/Test</button>
+            <button data-mcpname="${s.name}" class="remove-mcp-btn" style="margin-left:4px; font-size:11px; padding:2px 8px;">Rimuovi</button>
+            <span class="connect-mcp-status" data-mcpname="${s.name}" style="margin-left:6px;"></span></div>`;
+        }).join('');
+        listEl.querySelectorAll('.connect-mcp-btn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const name = btn.dataset.mcpname;
+            const statusSpan = listEl.querySelector(`.connect-mcp-status[data-mcpname="${CSS.escape(name)}"]`);
+            btn.disabled = true;
+            statusSpan.textContent = 'connessione in corso...';
+            try {
+              const res = await fetch('/api/mcp-servers/connect', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+              });
+              const data = await res.json();
+              statusSpan.textContent = data.text || (data.ok ? 'Fatto.' : 'Errore sconosciuto.');
+            } catch (e) {
+              statusSpan.textContent = 'Errore: ' + e.message;
+            }
+            btn.disabled = false;
+            // Bug reale trovato dal vivo il 26/08/2026: loadMcpServers() rigenera l'INTERA
+            // lista (listEl.innerHTML = ...), quindi chiamarla subito dopo aver scritto il
+            // messaggio di esito lo cancellava all'istante, prima che l'utente potesse
+            // leggerlo - un ritardo breve lascia il messaggio visibile un momento prima che
+            // il pallino di stato si aggiorni.
+            setTimeout(loadMcpServers, 2500);
+          });
+        });
         listEl.querySelectorAll('.remove-mcp-btn').forEach(btn => {
           btn.addEventListener('click', async () => {
             if (!confirm(`Rimuovere il server MCP "${btn.dataset.mcpname}"?`)) return;

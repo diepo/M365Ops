@@ -2,11 +2,9 @@ function Disconnect-M365OpsLokka {
     <#
     .SYNOPSIS
         Ferma il sottoprocesso Lokka, se attivo.
+
+        Alias sottile su Disconnect-M365OpsMcpServer -Name 'lokka' (26/08/2026) - vedi
+        Connect-M365OpsMcpServer.ps1 per il perche'.
     #>
-    if ($script:M365OpsLokkaProcess -and -not $script:M365OpsLokkaProcess.HasExited) {
-        $script:M365OpsLokkaProcess.Kill()
-        Write-Host "Lokka fermato." -ForegroundColor Yellow
-    }
-    $script:M365OpsLokkaProcess = $null
-    $script:M365OpsLokkaTools = $null
+    Disconnect-M365OpsMcpServer -Name 'lokka'
 }

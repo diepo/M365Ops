@@ -791,6 +791,81 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
         }
     }
 
+    # CLI Microsoft 365 (26/08/2026, valutazione e integrazione richieste esplicitamente
+    # dall'utente): secondo server MCP oltre a Lokka, offerto SOLO se configurato per il
+    # tenant attivo (vedi Get-M365OpsMcpServers - l'utente ha gia' registrato l'entry
+    # 'CLI-Microsoft365' dalla GUI). Copre ~400 comandi su SharePoint, Entra, Outlook,
+    # Planner, OneDrive, Purview (audit/compliance search), Teams (solo lato Graph:
+    # app/meeting/chat, MAI criteri di riunione/chiamata) - NON sostituisce Exchange
+    # profondo (mailbox/gruppi/regole di trasporto, il gruppo 'exo' della CLI copre solo
+    # application role assignment) ne' i criteri Teams (Get-CsTeamsMeetingPolicy e affini,
+    # API "Teams Admin Center" mai esposta da questa CLI) ne' Intune (nessun gruppo
+    # dedicato) - quei tre restano SOLO sui moduli PowerShell/Graph gia' esistenti in questo
+    # modulo, mai in fallback qui. LIMITE REALE trovato testando dal vivo (non documentato
+    # da nessuna parte): con login a client secret (l'unico supportato per ora, vedi
+    # Connect-M365OpsCliMicrosoft365.ps1) i comandi 'spo' (SharePoint) falliscono SEMPRE con
+    # "SharePoint does not support authentication using client ID and secret" - Entra/
+    # Outlook/Planner invece verificati funzionanti con dati reali. A differenza di
+    # graph_api_call/exo_query, il server MCP sottostante non distingue lettura da scrittura
+    # al suo interno (un solo tool generico m365_run_command esegue QUALUNQUE comando) - la
+    # distinzione qui e' fatta da Test-M365OpsCliCommandReadOnly (Private), basata sul verbo
+    # finale del comando (get/list/search/export/status = lettura, ogni altro verbo, incluso
+    # uno sconosciuto, richiede sempre conferma) - MAI eseguita una scrittura senza passare
+    # da propose_cli_m365_command. Nomi dei tool e comportamento del comando (prefisso "m365
+    # " SEMPRE richiesto, "--output" da NON impostare mai a mano) verificati dal vivo
+    # chiamando davvero il server MCP (0.1.23), non dalla sua documentazione pubblica, che su
+    # entrambi questi punti si e' rivelata sbagliata o incompleta.
+    $cliM365Configured = $false
+    try { $cliM365Configured = [bool](Get-M365OpsMcpServers | Where-Object { $_.Name -eq 'CLI-Microsoft365' }) } catch { }
+    if ($cliM365Configured) {
+        $fallbackTools += @{
+            name = "cli_m365_run_command"
+            description = "Esegue un comando di SOLA LETTURA di CLI Microsoft 365 (Entra, Outlook, Planner, OneDrive, OneNote, To Do, Purview audit/compliance search, Teams solo lato Graph - app/meeting/chat, MAI criteri di riunione/chiamata). ATTENZIONE: i comandi 'spo' (SharePoint) NON funzionano su questa integrazione (il login usa client secret, che SharePoint rifiuta sempre con un errore esplicito) - per SharePoint usa sempre sharepoint_query, mai questo strumento. Usa cli_m365_search_commands PRIMA se non conosci gia' il nome esatto del comando, poi cli_m365_get_command_docs per i parametri esatti - non indovinare. Rifiutato automaticamente se il comando non e' riconosciuto come sola lettura (usa propose_cli_m365_command in quel caso)."
+            input_schema = @{
+                type       = "object"
+                properties = @{
+                    command = @{ type = "string"; description = "Comando completo CON il prefisso 'm365 ' (obbligatorio), es. 'm365 entra user get --userName mario@contoso.com', 'm365 outlook calendar event list'. NON aggiungere '--output json' o altro '--output': il formato ottimale viene scelto automaticamente da questo strumento." }
+                }
+                required   = @("command")
+            }
+        }
+        $fallbackTools += @{
+            name = "cli_m365_search_commands"
+            description = "Cerca tra i ~400 comandi di CLI Microsoft 365 per parola chiave (fuzzy search) - usalo SEMPRE per primo quando non conosci gia' il nome esatto di un comando (es. 'condivisione esterna sito', 'evento calendario ricorrente'). Ogni risultato include name (nome comando completo, gia' col prefisso 'm365 '), description e docs (percorso da passare a cli_m365_get_command_docs per i parametri esatti)."
+            input_schema = @{
+                type       = "object"
+                properties = @{ query = @{ type = "string"; description = "Parole chiave dell'operazione desiderata" } }
+                required   = @("query")
+            }
+        }
+        $fallbackTools += @{
+            name = "cli_m365_get_command_docs"
+            description = "Restituisce la documentazione completa (parametri, esempi) di UN comando CLI Microsoft 365 - usalo prima di eseguire o proporre un comando di cui non conosci gia' con certezza tutti i parametri, stesso principio di lookup_ms_docs per le cmdlet Exchange. Richiede ENTRAMBI commandName e docs, presi ESATTAMENTE dal risultato di una chiamata precedente a cli_m365_search_commands (mai indovinati) - chiama sempre prima cli_m365_search_commands se non li hai gia'."
+            input_schema = @{
+                type       = "object"
+                properties = @{
+                    commandName = @{ type = "string"; description = "Nome esatto del comando (campo 'name' di un risultato di cli_m365_search_commands), es. 'm365 spo site set'" }
+                    docs        = @{ type = "string"; description = "Percorso documentazione (campo 'docs' dello STESSO risultato di cli_m365_search_commands), es. 'spo/site/site-set.mdx'" }
+                }
+                required   = @("commandName", "docs")
+            }
+        }
+        $fallbackTools += @{
+            name = "propose_cli_m365_command"
+            description = "Proponi l'esecuzione di un comando CLI Microsoft 365 di SCRITTURA (o non riconosciuto con certezza come sola lettura). NON viene mai eseguita qui: la proposta torna all'utente per conferma esplicita prima che avvenga qualunque modifica reale. ATTENZIONE: i comandi 'spo' (SharePoint) NON funzionano su questa integrazione (vedi cli_m365_run_command) - per scritture SharePoint usa propose_sharepoint_write, mai questo strumento. Usa cli_m365_get_command_docs PRIMA se non conosci gia' con certezza la sintassi esatta."
+            input_schema = @{
+                type       = "object"
+                properties = @{
+                    command    = @{ type = "string"; description = "Comando completo CON il prefisso 'm365 ' (obbligatorio), es. 'm365 entra user set --userId ... --accountEnabled false'. NON aggiungere '--output'." }
+                    reason     = @{ type = "string"; description = "Spiegazione in italiano di cosa fa questo comando e perche', da mostrare all'utente" }
+                    stepNumber = @{ type = "integer"; description = "Solo per piani a piu' passaggi: numero di QUESTO passaggio, a partire da 1. Ometti per un'azione singola." }
+                    totalSteps = @{ type = "integer"; description = "Solo per piani a piu' passaggi: numero totale di passaggi previsti. Ometti per un'azione singola." }
+                }
+                required   = @("command", "reason")
+            }
+        }
+    }
+
     # Export diretto senza far transitare i dati grezzi nella conversazione (17/08/2026, bug
     # reale): il percorso normale exo_query -> generate_report fa passare OGNI riga due volte
     # nel contesto del modello (una come risultato di exo_query, una dentro l'input di
@@ -1282,6 +1357,41 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                                 Reason         = $block.input.reason
                                 StepNumber     = if ($block.input.stepNumber) { [int]$block.input.stepNumber } else { 1 }
                                 TotalSteps     = if ($block.input.totalSteps) { [int]$block.input.totalSteps } else { 1 }
+                            }
+                            "Proposta registrata. NON eseguirla, NON dire all'utente che e' stata fatta: nella tua risposta finale spiega chiaramente cosa proponi di fare e di che si aspetti una richiesta di conferma separata."
+                        }
+                    }
+                    "cli_m365_run_command" {
+                        # Test-M365OpsCliCommandReadOnly (Private) - classificazione per verbo
+                        # finale, difetto su scrittura per ogni verbo non riconosciuto. Un
+                        # comando NON riconosciuto come sola lettura viene rifiutato QUI, non
+                        # lasciato all'AI da rispettare per buona volonta' - stesso principio
+                        # gia' in uso per $exoReadAllowlist (mai fidarsi del solo prompt).
+                        if (-not (Test-M365OpsCliCommandReadOnly -Command $block.input.command)) {
+                            "Rifiutato: questo comando non e' riconosciuto come sola lettura (l'ultimo verbo non e' get/list/search/export/status). Usa propose_cli_m365_command invece, che richiede conferma esplicita dell'utente."
+                        } else {
+                            $cliResult = Invoke-M365OpsMcpServerTool -ServerName 'CLI-Microsoft365' -ToolName "m365_run_command" -Arguments @{ command = $block.input.command }
+                            (($cliResult.content | ForEach-Object { $_.text }) -join "`n")
+                        }
+                    }
+                    "cli_m365_search_commands" {
+                        $cliResult = Invoke-M365OpsMcpServerTool -ServerName 'CLI-Microsoft365' -ToolName "m365_search_commands" -Arguments @{ query = $block.input.query }
+                        (($cliResult.content | ForEach-Object { $_.text }) -join "`n")
+                    }
+                    "cli_m365_get_command_docs" {
+                        $cliResult = Invoke-M365OpsMcpServerTool -ServerName 'CLI-Microsoft365' -ToolName "m365_get_command_docs" -Arguments @{ commandName = $block.input.commandName; docs = $block.input.docs }
+                        (($cliResult.content | ForEach-Object { $_.text }) -join "`n")
+                    }
+                    "propose_cli_m365_command" {
+                        if ($pendingWrite) {
+                            "Rifiutato: e' gia' in sospeso un'altra proposta di scrittura in questa stessa risposta ('$($pendingWrite.Kind)'). Puoi proporne solo UNA per risposta - concludi qui spiegando la proposta gia' registrata, poi proponi questa in un messaggio separato dopo che la prima e' stata confermata ed eseguita."
+                        } else {
+                            $pendingWrite = @{
+                                Kind       = 'CliM365'
+                                Command    = $block.input.command
+                                Reason     = $block.input.reason
+                                StepNumber = if ($block.input.stepNumber) { [int]$block.input.stepNumber } else { 1 }
+                                TotalSteps = if ($block.input.totalSteps) { [int]$block.input.totalSteps } else { 1 }
                             }
                             "Proposta registrata. NON eseguirla, NON dire all'utente che e' stata fatta: nella tua risposta finale spiega chiaramente cosa proponi di fare e di che si aspetti una richiesta di conferma separata."
                         }

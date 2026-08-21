@@ -434,6 +434,24 @@ function Execute-PendingAction {
                 $noFixNote = if ($recovery) { " (l'AI ha provato a proporre una correzione ma non era ragionevolmente sicura: $($recovery.explanation))" } else { "" }
                 return @{ role = 'error'; text = "La scrittura NON e' andata a buon fine.$noFixNote`n$writeError" }
             }
+            'CliM365Write' {
+                # Nessun meccanismo di correzione automatica (a differenza di 'LokkaWrite',
+                # che lo ha per gli errori Graph tipici) - se il comando fallisce, l'errore
+                # grezzo di CLI Microsoft 365 torna cosi' com'e' all'utente, che puo' chiedere
+                # una correzione in chat come per qualunque altro errore.
+                $writeError = $null
+                try {
+                    $cliResult = Invoke-M365OpsMcpServerTool -ServerName 'CLI-Microsoft365' -ToolName "m365_run_command" -Arguments @{ command = $action.Command }
+                    $resultText = ($cliResult.content | ForEach-Object { $_.text }) -join "`n"
+                } catch {
+                    $writeError = $_.Exception.Message
+                }
+
+                if (-not $writeError) {
+                    return @{ role = 'system'; text = "Fatto.`n$resultText" }
+                }
+                return @{ role = 'error'; text = "Il comando CLI Microsoft 365 NON e' andato a buon fine.`n$writeError" }
+            }
             'ExoWrite' {
                 $params = @{}
                 if ($action.Parameters) { $action.Parameters.GetEnumerator() | ForEach-Object { $params[$_.Key] = $_.Value } }
@@ -1089,6 +1107,14 @@ function Handle-ChatMessage {
                         $confirmText = "$stepPrefix$($result.Text)`n`n--- Reset MFA proposto (non ancora eseguito) ---`nUtente: $($w.Upn)`nMotivo: $($w.Reason)`nATTENZIONE: rimuove i metodi MFA registrati (Authenticator, telefono, FIDO2, ecc.) - NON la password. L'utente dovra' riconfigurare l'MFA al prossimo accesso."
                         $script:PendingAction = @{ Type = 'MfaReset'; Upn = $w.Upn; ConfirmText = $confirmText }
                     }
+                    'CliM365' {
+                        # Stesso meccanismo generico di 'Exo'/'SharePoint'/'Teams' qui sopra
+                        # (26/08/2026, aggiunto insieme all'integrazione del server MCP
+                        # CLI-Microsoft365) - Execute-PendingAction esegue tramite
+                        # m365RunCommand, nessuna logica specifica per comando necessaria qui.
+                        $confirmText = "$stepPrefix$($result.Text)`n`n--- Comando CLI Microsoft 365 proposto (non ancora eseguito) ---`nComando: m365 $($w.Command)`nMotivo: $($w.Reason)"
+                        $script:PendingAction = @{ Type = 'CliM365Write'; Command = $w.Command; Reason = $w.Reason; ConfirmText = $confirmText }
+                    }
                     'EmailReport' {
                         # Invio email = azione visibile a un terzo (specie un indirizzo esterno
                         # al tenant) - conferma esplicita sempre richiesta, stesso meccanismo di
@@ -1587,6 +1613,12 @@ try {
                     $json = (@{
                         lokkaConnected         = $info.LokkaConnected
                         lokkaToolCount         = $info.LokkaToolCount
+                        # McpServerStatus (26/08/2026): un oggetto per OGNI server MCP
+                        # configurato per questo tenant (Lokka incluso), non solo Lokka -
+                        # vedi Get-M365OpsActiveTenantInfo.ps1. La GUI lo usa per mostrare lo
+                        # stato di server come CLI-Microsoft365, aggiunti dall'utente ma prima
+                        # sempre inerti (nessun codice li connetteva mai).
+                        mcpServers             = @($info.McpServerStatus | ForEach-Object { @{ name = $_.Name; builtIn = $_.BuiltIn; connected = $_.Connected; toolCount = $_.ToolCount } })
                         exchangeConfigured     = [bool]$info.ExchangeCertThumbprint
                         exchangeConnected      = $info.ExchangeConnected
                         exchangeThumbprint     = $info.ExchangeCertThumbprint
@@ -1609,6 +1641,22 @@ try {
                         $json = (@{ text = "Lokka riconnesso. Tool disponibili: $($tools.Count)." } | ConvertTo-Json -Compress)
                     } catch {
                         $json = (@{ text = "Errore riconnettendo Lokka: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/mcp-servers/connect" {
+                    # Generico (26/08/2026): a differenza di /api/lokka-reconnect (fisso su
+                    # Lokka), connette QUALUNQUE server MCP configurato per nome - usato dal
+                    # nuovo pulsante "Connetti/Test" per riga in "Altri server MCP" (prima
+                    # quella sezione era puramente informativa, nessun codice la collegava
+                    # mai al motore di ragionamento).
+                    $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                    $body = $reader.ReadToEnd() | ConvertFrom-Json
+                    try {
+                        $tools = Connect-M365OpsMcpServer -Name $body.name -Force
+                        $json = (@{ ok = $true; text = "Server MCP '$($body.name)' connesso. Tool disponibili: $($tools.Count)." } | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ ok = $false; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
                     }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
