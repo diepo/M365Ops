@@ -83,13 +83,39 @@ function Connect-M365OpsIntune {
         Connect-MSIntuneGraph -TenantID $script:M365OpsContext.TenantId -ClientID $script:M365OpsDeviceCodeClientId -Interactive | Out-Null
     }
     else {
-        if (-not $script:M365OpsContext.SecretEnvVar) {
-            throw "Il profilo '$($script:M365OpsContext.Name)' non ha un SecretEnvVar configurato."
+        # BUG REALE segnalato dal vivo il 25/08/2026 su una macchina di test nuova: un profilo
+        # AppOnly configurato SOLO con certificato (nessun SecretEnvVar - esattamente come
+        # Exchange/Teams/SharePoint, che accettano entrambi in alternativa, vedi Set-M365OpsTenant)
+        # falliva qui con "non ha un SecretEnvVar configurato", anche se un certificato era gia'
+        # configurato e gia' funzionante per Exchange sullo stesso profilo. Causa: questa funzione
+        # richiedeva SEMPRE il secret, mai il certificato come alternativa - unica cmdlet di
+        # connessione del progetto con questa asimmetria (Connect-MSIntuneGraph supporta
+        # -ClientCert da sempre, verificato dal vivo sul modulo installato: accetta un oggetto
+        # X509Certificate2, non solo il thumbprint). Corretto usando lo stesso certificato di
+        # Exchange (ExchangeCertThumbprint) quando il secret non e' configurato, stesso principio
+        # gia' usato ovunque nel progetto (un solo materiale segreto da gestire per tutto
+        # App-only) - cercato in Cert:\CurrentUser\My poi Cert:\LocalMachine\My, stessi due store
+        # gia' provati da Connect-ExchangeOnline -CertificateThumbprint (vedi anche
+        # New-M365OpsCertificateAssertion.ps1, stesso pattern di lookup).
+        if ($script:M365OpsContext.SecretEnvVar) {
+            $secret = Get-M365OpsSecret -Name $script:M365OpsContext.SecretEnvVar
+            if (-not $secret) { throw "Secret del tenant ('$($script:M365OpsContext.SecretEnvVar)') non trovato." }
+            Connect-MSIntuneGraph -TenantID $script:M365OpsContext.TenantId -ClientID $script:M365OpsContext.ClientId `
+                -ClientSecret $secret | Out-Null
         }
-        $secret = Get-M365OpsSecret -Name $script:M365OpsContext.SecretEnvVar
-        if (-not $secret) { throw "Secret del tenant ('$($script:M365OpsContext.SecretEnvVar)') non trovato." }
-        Connect-MSIntuneGraph -TenantID $script:M365OpsContext.TenantId -ClientID $script:M365OpsContext.ClientId `
-            -ClientSecret $secret | Out-Null
+        elseif ($script:M365OpsContext.ExchangeCertThumbprint) {
+            $thumbprint = $script:M365OpsContext.ExchangeCertThumbprint
+            $cert = Get-Item "Cert:\CurrentUser\My\$thumbprint" -ErrorAction SilentlyContinue
+            if (-not $cert) { $cert = Get-Item "Cert:\LocalMachine\My\$thumbprint" -ErrorAction SilentlyContinue }
+            if (-not $cert) {
+                throw "Certificato con thumbprint '$thumbprint' non trovato ne' in Cert:\CurrentUser\My ne' in Cert:\LocalMachine\My su questo PC - stesso certificato gia' usato per Exchange deve essere installato qui."
+            }
+            Connect-MSIntuneGraph -TenantID $script:M365OpsContext.TenantId -ClientID $script:M365OpsContext.ClientId `
+                -ClientCert $cert | Out-Null
+        }
+        else {
+            throw "Il profilo '$($script:M365OpsContext.Name)' non ha ne' un SecretEnvVar ne' un ExchangeCertThumbprint configurato - Intune App-only richiede uno dei due (stesso principio di Exchange/Teams/SharePoint). Usa Set-M365OpsTenant per impostarne uno."
+        }
     }
 
     if (-not (Test-M365OpsIntuneAuthValid)) {
