@@ -1,6 +1,6 @@
 @{
     RootModule        = 'M365Ops.psm1'
-    ModuleVersion     = '0.9.56'
+    ModuleVersion     = '0.9.57'
     GUID              = 'a3f1c2e0-4b8a-4e6f-9c1d-8e2f6a7b5c3d'
     Author            = 'diego'
     Description       = 'Automazione M365 Modern Workplace (Intune/Entra) con motore di ragionamento AI pluggable. Multi-tenant via profili in Config\tenants.json.'

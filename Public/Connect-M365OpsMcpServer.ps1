@@ -48,6 +48,15 @@ function Connect-M365OpsMcpServer {
     $commandName = $serverConfig.Command
     $commandArgs = $serverConfig.Args
 
+    # Assert-M365OpsCliMicrosoft365Installed (Private, 26/08/2026): il server MCP
+    # CLI-Microsoft365 e' solo un wrapper sottile che invoca il comando 'm365' esterno GIA'
+    # installato - a differenza di Lokka (npx -y lo scarica ed esegue al volo, nessuna
+    # installazione globale necessaria), qui npx scarica solo il WRAPPER, non anche la CLI
+    # vera. Chiamata PRIMA di spawnare il processo (fallisce/installa subito, invece di far
+    # partire un npx cold-start inutile solo per scoprire poi che manca un prerequisito) -
+    # stesso principio di Assert-M365OpsExoSafeVersion prima di Import-Module.
+    if ($Name -eq 'CLI-Microsoft365') { Assert-M365OpsCliMicrosoft365Installed }
+
     $resolvedCommand = (Get-Command "$commandName.cmd" -ErrorAction SilentlyContinue).Source
     if (-not $resolvedCommand) { $resolvedCommand = (Get-Command $commandName -ErrorAction SilentlyContinue).Source }
     if (-not $resolvedCommand) { throw "Comando '$commandName' non trovato (server MCP '$Name') - verifica che sia installato e nel PATH di questo PC." }
