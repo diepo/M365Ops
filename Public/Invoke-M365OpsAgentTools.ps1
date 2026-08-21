@@ -74,6 +74,12 @@ function Invoke-M365OpsAgentTools {
     $pendingWrite = $null
     $reportAttachments = $null
     $attemptedCalls = @()
+    # Sorgenti reali (Lokka/CLI Microsoft 365/moduli interni) usate in QUESTA risposta -
+    # richiesto esplicitamente dall'utente il 26/08/2026, mostrato all'utente in fondo alla
+    # risposta finale e loggato per ogni singola chiamata (vedi Get-M365OpsToolSourceLabel,
+    # Private) - lista, non hashset, per preservare l'ordine di primo utilizzo; deduplicata
+    # solo al momento di comporre la nota finale.
+    $sourceLabelsUsed = @()
 
     $systemPrompt = @"
 Per leggere dati dal tenant, usa 'graph_api_call' (via Lokka): e' lo strumento primario, copre qualunque endpoint Graph.
@@ -1105,6 +1111,13 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                     Write-M365OpsLog "Azure OpenAI: risposta finale vuota (finish_reason=$($response.choices[0].finish_reason), completion_tokens=$($response.usage.completion_tokens), reasoning_tokens=$($response.usage.completion_tokens_details.reasoning_tokens))" -Level Error
                     $azureFinalText = "Il modello non ha prodotto una risposta (motivo interno: $($response.choices[0].finish_reason)) - probabile esaurimento del budget di token su una richiesta complessa. Prova a riformulare in modo piu' semplice o a spezzarla in piu' passaggi."
                 }
+                # Nota sorgente (26/08/2026, richiesta esplicitamente dall'utente): SOLO se
+                # almeno un tool e' stato davvero chiamato in questa risposta - una risposta
+                # puramente conversazionale (nessun dato del tenant coinvolto) non ne ha
+                # bisogno.
+                if ($sourceLabelsUsed.Count -gt 0) {
+                    $azureFinalText += "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', ')._"
+                }
                 return [pscustomobject]@{ Text = $azureFinalText; PendingWrite = $pendingWrite; Attachments = $reportAttachments }
             }
 
@@ -1152,6 +1165,9 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                     Write-M365OpsLog "Claude: risposta finale vuota (stop_reason=$($response.stop_reason))" -Level Error
                     $claudeFinalText = "Il modello non ha prodotto una risposta (motivo interno: $($response.stop_reason)) - prova a riformulare in modo piu' semplice o a spezzarla in piu' passaggi."
                 }
+                if ($sourceLabelsUsed.Count -gt 0) {
+                    $claudeFinalText += "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', ')._"
+                }
                 return [pscustomobject]@{ Text = $claudeFinalText; PendingWrite = $pendingWrite; Attachments = $reportAttachments }
             }
 
@@ -1164,8 +1180,10 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
             $inputSummary = if ($block.input.path) { $block.input.path } elseif ($block.input.cmdlet) { $block.input.cmdlet } elseif ($block.input.topic) { $block.input.topic } elseif ($block.input.title) { $block.input.title }
             $callLabel = "$($block.name)$(if($inputSummary){" $inputSummary"})"
             $attemptedCalls += $callLabel
+            $sourceLabel = Get-M365OpsToolSourceLabel -ToolName $block.name -IsDelegatedTenant $isDelegatedTenant
+            $sourceLabelsUsed += $sourceLabel
             Write-Host "[AgentTools] chiamato: $callLabel" -ForegroundColor Cyan
-            Write-M365OpsLog "Tool AI chiamato: $callLabel"
+            Write-M365OpsLog "Tool AI chiamato: $callLabel [fonte: $sourceLabel]"
 
             $output = try {
                 switch ($block.name) {
