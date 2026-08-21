@@ -282,7 +282,12 @@
       </div>
     </div>
 
-    <h2 style="margin-top:20px;">Aggiungi / aggiorna profilo</h2>
+    <div style="margin-top:20px; display:flex; align-items:center; gap:10px;">
+      <h2 style="margin:0;">Aggiungi / aggiorna profilo</h2>
+      <button id="toggle-add-profile-btn" style="font-size:12.5px; padding:5px 10px;">+ Nuovo profilo</button>
+    </div>
+    <div id="add-profile-section" style="display:none; margin-top:8px;">
+    <p class="hint" id="editing-profile-hint" style="display:none; background:var(--accent-soft,#eef2ff); color:var(--accent); padding:8px 10px; border-radius:var(--radius-sm);"></p>
     <p class="hint">Il client secret NON viene mai scritto in un file — solo nella variabile d'ambiente del tuo utente Windows (stesso posto in cui lo mettevi con <code>setx</code>). Lascialo vuoto per non toccarlo.</p>
     <div id="settings-form">
       <div>
@@ -326,8 +331,10 @@
       </div>
       <div class="actions full">
         <button id="save-profile-btn">Salva profilo</button>
+        <button id="cancel-edit-profile-btn" style="display:none;">Annulla</button>
         <span id="settings-status"></span>
       </div>
+    </div>
     </div>
   </div>
 
@@ -976,9 +983,18 @@
           <span class="p-name">${p.name}</span>
           <span class="p-tenant">${p.tenantId} <span class="hint">(${modeTag})</span></span>
           <button data-name="${p.name}" class="activate-btn ${isActive ? 'active-btn' : ''}">${isActive ? 'Attivo' : 'Attiva'}</button>
+          <button data-name="${p.name}" class="edit-btn" title="Modifica questo profilo">Modifica</button>
           <button data-name="${p.name}" class="remove-btn" title="${isActive ? 'Non puoi rimuovere il tenant attivo - attivane prima un altro' : 'Rimuovi profilo (i dati gia\' salvati per questo tenant non vengono toccati)'}" ${isActive ? 'disabled' : ''} style="background:var(--critical-soft); color:var(--critical); border:1px solid var(--critical);">✕</button>
         `;
         row.querySelector('.activate-btn').addEventListener('click', () => activateProfile(p.name));
+        // Richiesto esplicitamente dall'utente il 26/08/2026: la sezione "Aggiungi/aggiorna
+        // profilo" da sola non lasciava capire come modificare un profilo gia' salvato (es.
+        // "vnsys") - non era chiaro se bastasse riscriverne il nome o altro. "Modifica"
+        // precompila il form qui sotto con i dati GIA' salvati di questo profilo (mai il
+        // valore del secret, che non e' salvato in nessun file - solo il suo nome variabile,
+        // vedi hint sopra il form) cosi' l'utente cambia solo cio' che serve e ri-salva,
+        // invece di dover ricostruire l'intero profilo a memoria.
+        row.querySelector('.edit-btn').addEventListener('click', () => startEditProfile(p));
         row.querySelector('.remove-btn').addEventListener('click', () => removeProfile(p.name));
 
         const detail = document.createElement('div');
@@ -1019,6 +1035,83 @@
     authModeDelegatedFields.style.display = isDelegated ? 'block' : 'none';
   }
   authModeSelect.addEventListener('change', updateAuthModeFieldVisibility);
+
+  // Sezione "Aggiungi/aggiorna profilo" collassata di default (26/08/2026, richiesto
+  // esplicitamente dall'utente: prima era sempre visibile, ingombrante quando si vuole solo
+  // guardare i profili gia' salvati) - un solo pulsante la apre/chiude sia per un profilo
+  // NUOVO (form vuoto) sia per la modifica di uno esistente (vedi startEditProfile sotto).
+  const addProfileSection = document.getElementById('add-profile-section');
+  const toggleAddProfileBtn = document.getElementById('toggle-add-profile-btn');
+  const editingProfileHint = document.getElementById('editing-profile-hint');
+  const cancelEditProfileBtn = document.getElementById('cancel-edit-profile-btn');
+  let editingProfileName = null;
+
+  function clearProfileForm() {
+    document.getElementById('f-name').value = '';
+    document.getElementById('f-tenant').value = '';
+    authModeSelect.value = 'AppOnly';
+    document.getElementById('f-clientid').value = '';
+    document.getElementById('f-secretvar').value = '';
+    document.getElementById('f-secretvalue').value = '';
+    document.getElementById('f-delegatedupn').value = '';
+    document.getElementById('f-exchangecert').value = '';
+    updateAuthModeFieldVisibility();
+  }
+
+  function closeAddProfileSection() {
+    addProfileSection.style.display = 'none';
+    toggleAddProfileBtn.textContent = '+ Nuovo profilo';
+    editingProfileName = null;
+    editingProfileHint.style.display = 'none';
+    cancelEditProfileBtn.style.display = 'none';
+    settingsStatus.textContent = '';
+  }
+
+  function openAddProfileSection() {
+    addProfileSection.style.display = 'block';
+    toggleAddProfileBtn.textContent = '− Chiudi';
+    addProfileSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  toggleAddProfileBtn.addEventListener('click', () => {
+    if (addProfileSection.style.display === 'none') {
+      clearProfileForm();
+      editingProfileName = null;
+      editingProfileHint.style.display = 'none';
+      cancelEditProfileBtn.style.display = 'none';
+      openAddProfileSection();
+    } else {
+      closeAddProfileSection();
+    }
+  });
+
+  cancelEditProfileBtn.addEventListener('click', () => {
+    clearProfileForm();
+    closeAddProfileSection();
+  });
+
+  // Precompila il form con i dati GIA' salvati del profilo (mai il valore del secret, non
+  // salvato in nessun file - solo il suo nome variabile, gia' spiegato nell'hint sopra il
+  // form) - l'utente cambia solo cio' che serve e ri-salva con lo stesso nome, che
+  // Set-M365OpsTenant (lato server) gia' tratta come un aggiornamento (upsert per nome),
+  // non una duplicazione.
+  function startEditProfile(p) {
+    document.getElementById('f-name').value = p.name || '';
+    document.getElementById('f-tenant').value = p.tenantId || '';
+    authModeSelect.value = p.authMode === 'Delegated' ? 'Delegated' : 'AppOnly';
+    document.getElementById('f-clientid').value = p.clientId || '';
+    document.getElementById('f-secretvar').value = p.secretEnvVar || '';
+    document.getElementById('f-secretvalue').value = '';
+    document.getElementById('f-delegatedupn').value = p.delegatedUpn || '';
+    document.getElementById('f-exchangecert').value = p.exchangeCertThumbprint || '';
+    updateAuthModeFieldVisibility();
+
+    editingProfileName = p.name;
+    editingProfileHint.style.display = 'block';
+    editingProfileHint.textContent = `Stai modificando il profilo '${p.name}' - il campo secret e' rimasto vuoto apposta (lascialo cosi' per non toccarlo), gli altri campi sono precompilati con i valori gia' salvati. Salva profilo per aggiornarlo.`;
+    cancelEditProfileBtn.style.display = 'inline-block';
+    openAddProfileSection();
+  }
 
   function statusDot(ok) {
     return `<span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:${ok ? 'var(--ok)' : 'var(--warn)'}; margin-right:6px;"></span>`;
@@ -1131,6 +1224,19 @@
       intuneStatus.innerHTML = data.intuneConnected
         ? `${statusDot(true)}Connesso${data.intuneConnectedUpn ? ` come <b>${data.intuneConnectedUpn}</b>` : ''}${data.intuneConnectedTenant ? ` (tenant: ${data.intuneConnectedTenant})` : ''} — verificato dal vivo con una chiamata Graph reale, non solo presunto.`
         : `${statusDot(false)}Non connesso.${isDelegated ? ' Necessario prima di pacchettizzare un\'app.' : ''}`;
+      // Stesso bug gemello del 17/08/2026 gia' corretto sopra per Exchange/SharePoint/
+      // Teams/Purview (messaggio vicino al pulsante rimasto bloccato su un vecchio
+      // successo/errore), segnalato dal vivo il 26/08/2026 specificamente per Intune: dopo
+      // essere tornati su un tenant Delegato gia' visto (Delegato -> App-only -> Delegato),
+      // il pallino sopra tornava correttamente rosso ("Non connesso" - il fix del
+      // 21/08/2026 su POST /api/tenants resetta il flag) ma il testo accanto al pulsante
+      // restava fermo su "Connesso a Intune." di una sessione precedente, mai ripulito qui
+      // a differenza degli altri quattro riquadri.
+      const intuneMsg = document.getElementById('intune-status-msg');
+      if (intuneMsg) {
+        if (data.intuneConnected && intuneMsg.textContent.startsWith('Errore')) { intuneMsg.textContent = ''; }
+        if (!data.intuneConnected && intuneMsg.textContent.startsWith('Connesso')) { intuneMsg.textContent = ''; }
+      }
     }
     const intuneWarning = document.getElementById('intune-warning');
     if (intuneWarning) { intuneWarning.style.display = isDelegated ? 'block' : 'none'; }
@@ -1298,10 +1404,17 @@
         body: JSON.stringify({ name, tenantId, authMode, clientId, secretEnvVar, secretValue, delegatedUpn, exchangeCertThumbprint })
       });
       const data = await res.json();
-      settingsStatus.textContent = data.text || 'Salvato.';
       document.getElementById('f-secretvalue').value = '';
       loadProfiles();
       refreshDelegatedLoginBox();
+      // Chiude la sezione dopo un salvataggio riuscito (26/08/2026) - lasciarla aperta col
+      // form ormai "consumato" invitava a ricliccare Salva per sbaglio o a pensare che non
+      // fosse andato a buon fine; il messaggio di conferma resta comunque leggibile perche'
+      // closeAddProfileSection() lo svuota SOLO al prossimo giro (Nuovo profilo/Modifica),
+      // non qui - mostrato per un istante prima che il pannello si chiuda.
+      const wasEditing = editingProfileName;
+      closeAddProfileSection();
+      settingsStatus.textContent = data.text || (wasEditing ? `Profilo '${wasEditing}' aggiornato.` : 'Salvato.');
     } catch (e) {
       settingsStatus.textContent = 'Errore: ' + e.message;
     }

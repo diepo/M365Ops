@@ -284,10 +284,21 @@ function Get-M365OpsTenantList {
     $raw = Get-Content $configPath -Raw | ConvertFrom-Json
     $list = @()
     foreach ($prop in $raw.PSObject.Properties) {
+        # Campi aggiunti il 26/08/2026 (richiesto dall'utente: "aggiungi/aggiorna profilo non
+        # fa capire come modificare un profilo esistente come vnsys") - servono a precompilare
+        # il form di modifica in GUI senza dover far riscrivere all'utente Tenant ID/Client
+        # ID/UPN/thumbprint a memoria. Il VALORE del secret non e' mai incluso qui: non e'
+        # nemmeno salvato in tenants.json (solo il NOME della variabile d'ambiente lo e', vedi
+        # Set-M365OpsTenant), coerente col principio "il secret non tocca mai un file" gia'
+        # documentato nella pagina.
         $list += [pscustomobject]@{
-            name     = $prop.Name
-            tenantId = $prop.Value.TenantId
-            authMode = if ($prop.Value.AuthMode) { $prop.Value.AuthMode } else { 'AppOnly' }
+            name                   = $prop.Name
+            tenantId               = $prop.Value.TenantId
+            authMode               = if ($prop.Value.AuthMode) { $prop.Value.AuthMode } else { 'AppOnly' }
+            clientId               = $prop.Value.ClientId
+            secretEnvVar           = $prop.Value.SecretEnvVar
+            delegatedUpn           = $prop.Value.DelegatedUpn
+            exchangeCertThumbprint = $prop.Value.ExchangeCertThumbprint
         }
     }
     return $list
