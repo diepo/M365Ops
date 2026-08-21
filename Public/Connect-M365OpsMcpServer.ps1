@@ -25,7 +25,11 @@ function Connect-M365OpsMcpServer {
     #>
     param(
         [Parameter(Mandatory)] [string]$Name,
-        [switch]$Force
+        [switch]$Force,
+        # Passato SOLO a Connect-M365OpsCliMicrosoft365 (server con un proprio login, vedi
+        # sopra) - su tenant Delegato quella funzione richiede un login a browser BLOCCANTE,
+        # concesso solo dietro questo switch esplicito, mai in un flusso composto automatico.
+        [switch]$AllowInteractive
     )
 
     if (-not $script:M365OpsMcpProcesses) { $script:M365OpsMcpProcesses = @{} }
@@ -99,7 +103,7 @@ function Connect-M365OpsMcpServer {
     # risponde, mai prima (un login su un processo che potrebbe non partire sarebbe uno
     # sforzo sprecato, oltre a lasciare un login orfano se l'handshake fallisce).
     if ($Name -eq 'CLI-Microsoft365') {
-        try { Connect-M365OpsCliMicrosoft365 }
+        try { Connect-M365OpsCliMicrosoft365 -AllowInteractive:$AllowInteractive }
         catch {
             if (-not $process.HasExited) { $process.Kill() }
             $script:M365OpsMcpProcesses.Remove($Name)

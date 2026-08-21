@@ -280,6 +280,16 @@
           <span id="intune-status-msg"></span>
         </div>
       </div>
+
+      <div id="cli-m365-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+        <h3 style="margin-top:0;">CLI Microsoft 365</h3>
+        <div id="mcp-cli-m365-status" class="hint">caricamento stato...</div>
+        <p class="hint">Secondo connettore AI oltre a Lokka - Entra ID, Outlook, Planner, OneDrive, Purview (ricerca conformità), Teams lato Graph (app/riunioni/chat, MAI criteri di riunione/chiamata). NON copre Exchange profondo né Intune (restano sui moduli esistenti); SharePoint richiede login a certificato, non ancora supportato con questo login. Sui tenant App-only la connessione riusa il client secret già configurato (silenziosa la prima volta, istantanea le successive). Sui tenant Delegati si apre un browser per il login: <b>il server resta bloccato per tutti</b> finché non lo completi — fallo qui PRIMA di chiedere qualcosa in chat, mai durante una richiesta composta. Richiede <code>npm install -g @pnp/cli-microsoft365</code> su questo PC (riavvio completo, non solo "Riavvia server", se lo installi ora per la prima volta).</p>
+        <div class="actions">
+          <button id="cli-m365-test-btn">Connetti CLI Microsoft 365</button>
+          <span id="cli-m365-status-msg"></span>
+        </div>
+      </div>
     </div>
 
     <div style="margin-top:20px; display:flex; align-items:center; gap:10px;">
@@ -1145,6 +1155,10 @@
     rows.push(`${statusDot(data.teamsConnected)}<b>Microsoft Teams:</b> ${data.teamsConnected ? 'connesso' : 'non connesso — vedi sotto'}`);
     rows.push(`${statusDot(data.complianceConnected)}<b>Purview/Compliance:</b> ${data.complianceConnected ? 'connesso' : 'non connesso — vedi sotto'}`);
     rows.push(`${statusDot(data.intuneConnected)}<b>Intune:</b> ${data.intuneConnected ? `connesso${data.intuneConnectedUpn ? ` (${data.intuneConnectedUpn})` : ''}` : 'non connesso — vedi sotto'}`);
+    const cliM365Row = (data.mcpServers || []).find(s => s.name === 'CLI-Microsoft365');
+    if (cliM365Row) {
+      rows.push(`${statusDot(cliM365Row.connected)}<b>CLI Microsoft 365:</b> ${cliM365Row.connected ? `connesso (${cliM365Row.toolCount} tool)` : 'non connesso — vedi sotto'}`);
+    }
     panel.innerHTML = rows.join('<br>');
 
     delegatedLoginBox.style.display = isDelegated ? 'block' : 'none';
@@ -1241,6 +1255,27 @@
     }
     const intuneWarning = document.getElementById('intune-warning');
     if (intuneWarning) { intuneWarning.style.display = isDelegated ? 'block' : 'none'; }
+
+    // CLI Microsoft 365 (26/08/2026): stesso schema dei riquadri sopra, letto dal nuovo
+    // campo generico data.mcpServers invece di un campo dedicato (vedi
+    // Get-M365OpsActiveTenantInfo.ps1 - un oggetto per OGNI server MCP configurato, non
+    // solo Lokka).
+    const cliM365Status = document.getElementById('mcp-cli-m365-status');
+    if (cliM365Status) {
+      const cliM365Entry = (data.mcpServers || []).find(s => s.name === 'CLI-Microsoft365');
+      if (!cliM365Entry) {
+        cliM365Status.innerHTML = `${statusDot(false)}Non configurato per questo tenant — aggiungilo dal tab MCP/Connettori.`;
+      } else {
+        cliM365Status.innerHTML = cliM365Entry.connected
+          ? `${statusDot(true)}Connesso — ${cliM365Entry.toolCount} tool disponibili.`
+          : `${statusDot(false)}Non connesso.${isDelegated ? ' Necessario prima di usarlo in chat su questo tenant.' : ''}`;
+        const cliM365Msg = document.getElementById('cli-m365-status-msg');
+        if (cliM365Msg) {
+          if (cliM365Entry.connected && cliM365Msg.textContent.startsWith('Errore')) { cliM365Msg.textContent = ''; }
+          if (!cliM365Entry.connected && cliM365Msg.textContent.startsWith('Connesso')) { cliM365Msg.textContent = ''; }
+        }
+      }
+    }
   }
   // Alias per compatibilità con chiamate esistenti nel resto dello script.
   const refreshDelegatedLoginBox = loadConnectionStatus;
@@ -1537,12 +1572,23 @@
           btn.addEventListener('click', async () => {
             const name = btn.dataset.mcpname;
             const statusSpan = listEl.querySelector(`.connect-mcp-status[data-mcpname="${CSS.escape(name)}"]`);
+            // CLI Microsoft 365 su tenant Delegato (26/08/2026): il primo login usa
+            // 'm365 login --authType browser', che apre un vero browser e BLOCCA l'intero
+            // server (a thread singolo) finche' l'utente non lo completa - stesso principio
+            // gia' applicato a Teams/SharePoint/Intune delegati, conferma esplicita PRIMA di
+            // avviarlo, mai un login automatico silenzioso.
+            let allowInteractive = false;
+            if (name === 'CLI-Microsoft365' && statusData.authMode === 'Delegated') {
+              const proceed = confirm('Si aprirà una finestra del browser per il login: il server resterà bloccato per tutti finché non lo completi (limite della CLI, non risolvibile come per Exchange). Necessario solo la prima volta per questo profilo - le volte successive riattiva la connessione già salvata senza bloccare nulla. Procedere?');
+              if (!proceed) return;
+              allowInteractive = true;
+            }
             btn.disabled = true;
-            statusSpan.textContent = 'connessione in corso...';
+            statusSpan.textContent = allowInteractive ? 'apertura browser in corso... il server è bloccato finché non completi il login nella finestra appena aperta' : 'connessione in corso...';
             try {
               const res = await fetch('/api/mcp-servers/connect', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name })
+                body: JSON.stringify({ name, allowInteractive })
               });
               const data = await res.json();
               statusSpan.textContent = data.text || (data.ok ? 'Fatto.' : 'Errore sconosciuto.');
@@ -1880,6 +1926,42 @@
       const res = await fetch('/api/intune-test', { method: 'POST' });
       const data = await res.json();
       status.textContent = data.text || 'Fatto.';
+      btn.disabled = false;
+      loadConnectionStatus();
+    } catch (e) {
+      status.textContent = 'Errore di comunicazione: ' + e.message;
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('cli-m365-test-btn').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const status = document.getElementById('cli-m365-status-msg');
+    btn.disabled = true;
+    try {
+      const statusRes = await fetch('/api/mcp-status');
+      const statusData = await statusRes.json();
+      let allowInteractive = false;
+
+      if (statusData.authMode === 'Delegated') {
+        // Stesso principio di Intune qui sopra: 'm365 login --authType browser' apre un
+        // vero browser e blocca il server a thread singolo finche' non completato - solo
+        // al primo login per questo profilo, le volte successive riattivano la connessione
+        // gia' salvata senza bloccare nulla.
+        const proceed = confirm('Si aprirà una finestra del browser per il login: il server resterà bloccato per tutti finché non lo completi (limite della CLI, non risolvibile come per Exchange). Necessario solo la prima volta per questo profilo. Procedere?');
+        if (!proceed) { btn.disabled = false; return; }
+        allowInteractive = true;
+        status.textContent = 'apertura browser in corso... il server è bloccato finché non completi il login nella finestra appena aperta';
+      } else {
+        status.textContent = 'connessione in corso...';
+      }
+
+      const res = await fetch('/api/mcp-servers/connect', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'CLI-Microsoft365', allowInteractive })
+      });
+      const data = await res.json();
+      status.textContent = data.text || (data.ok ? 'Fatto.' : 'Errore sconosciuto.');
       btn.disabled = false;
       loadConnectionStatus();
     } catch (e) {

@@ -44,10 +44,18 @@ function Connect-M365OpsCliMicrosoft365 {
         stesso identico secret gia' usato per Lokka/Exchange/Graph, nessuna configurazione
         aggiuntiva).
 
-        Tenant Delegato: non ancora supportato (vedi corpo della funzione) - 'm365 login
-        --authType deviceCode' e' bloccante (nessun flusso a due passi come
-        Start-/Complete-M365OpsExchangeDelegatedLogin esposto dalla CLI), da implementare in
-        un giro successivo se serve davvero su tenant Delegati.
+        Tenant Delegato (aggiunto il 26/08/2026, dopo un primo giro che lo escludeva del
+        tutto): 'm365 login --authType browser' apre un vero browser di sistema e BLOCCA il
+        comando finche' l'utente non completa il login - nessun flusso a due passi come
+        Start-/Complete-M365OpsExchangeDelegatedLogin esposto dalla CLI. Non e' pero' un
+        motivo per escluderlo: e' esattamente lo stesso identico limite gia' accettato in
+        questo progetto per Teams/SharePoint/Intune su tenant Delegati (login interattivo
+        bloccante, gestito dietro un parametro -AllowInteractive esplicito e un click
+        consapevole dell'utente in GUI, mai dentro un flusso composto automatico che
+        bloccherebbe il server senza preavviso). '--authType deviceCode' esiste anch'esso ma
+        e' ANCH'ESSO bloccante sulla CLI (nessun flusso a due passi neanche li') - scelto
+        browser sui due perche' e' l'esperienza gia' familiare all'utente per Teams/
+        SharePoint/Intune, non per una differenza tecnica reale tra i due.
 
         LIMITE REALE scoperto testando dal vivo (26/08/2026, non documentato da nessuna
         parte prima di provarlo): con '--authType secret' i comandi del gruppo 'spo'
@@ -62,6 +70,8 @@ function Connect-M365OpsCliMicrosoft365 {
         (Invoke-M365OpsAgentTools.ps1) cosi' l'AI non propone comandi 'spo' su un tenant con
         solo secret configurato aspettandosi che funzionino.
     #>
+    param([switch]$AllowInteractive)
+
     if (-not $script:M365OpsContext) { throw "Nessun tenant attivo. Usa Connect-M365Ops prima." }
 
     $mcpServerName = 'CLI-Microsoft365'
@@ -103,26 +113,33 @@ function Connect-M365OpsCliMicrosoft365 {
 
     # Nessuna connessione salvata per questo profilo - primo login.
     if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
-        # 'm365 login --authType deviceCode' BLOCCA il comando finche' l'utente non completa
-        # il login (nessun flusso a due passi come per Exchange/Graph e' esposto dalla CLI
-        # stessa) - non implementato per ora, accettabile solo dietro un click esplicito
-        # dell'utente in GUI, mai dentro un flusso composto automatico.
-        throw "CLI Microsoft 365 su un tenant Delegato richiede un primo login interattivo (codice dispositivo) non ancora implementato in questa funzione - per ora disponibile solo su tenant App-only con un client secret configurato."
+        if (-not $AllowInteractive) {
+            throw "Sessione CLI Microsoft 365 non ancora attiva per questo tenant delegato. Il server non avvia mai un login interattivo da solo (bloccherebbe l'intera app per tutti, essendo a thread singolo) - vai al tab MCP/Connettori (o Tenant, sezione Purview/CLI Microsoft 365) e clicca 'Connetti CLI Microsoft 365' per farlo esplicitamente, poi riprova."
+        }
+        # 'm365 login --authType browser' apre un vero browser di sistema e BLOCCA questo
+        # comando finche' l'utente non completa il login - arriva qui SOLO con
+        # -AllowInteractive esplicito (vedi sopra), stesso principio gia' usato per Teams/
+        # SharePoint/Intune: un click diretto e consapevole dell'utente, mai dentro un flusso
+        # composto automatico. Nessun --appId qui: --authType browser usa il client pubblico
+        # integrato della CLI stessa (non serve una App Registration dedicata), stesso
+        # principio del device-code Graph gia' usato altrove in questo progetto.
+        $loginCommand = "m365 login --authType browser --tenant `"$($script:M365OpsContext.TenantId)`" --connectionName `"$connectionName`" --output json"
     }
+    else {
+        if (-not $script:M365OpsContext.SecretEnvVar) {
+            throw "CLI Microsoft 365 richiede un client secret configurato per questo profilo ('$connectionName') - l'autenticazione a certificato non e' supportata da questa integrazione (vedi .NOTES di questa funzione). Usa Set-M365OpsTenant -SecretEnvVar per impostarne uno, oppure non collegare questo server MCP su questo profilo."
+        }
+        $secret = Get-M365OpsSecret -Name $script:M365OpsContext.SecretEnvVar
+        if (-not $secret) { throw "Secret del tenant ('$($script:M365OpsContext.SecretEnvVar)') non trovato." }
 
-    if (-not $script:M365OpsContext.SecretEnvVar) {
-        throw "CLI Microsoft 365 richiede un client secret configurato per questo profilo ('$connectionName') - l'autenticazione a certificato non e' supportata da questa integrazione (vedi .NOTES di questa funzione). Usa Set-M365OpsTenant -SecretEnvVar per impostarne uno, oppure non collegare questo server MCP su questo profilo."
+        # NOTA: il secret transita come argomento di riga di comando verso il processo figlio
+        # avviato dal server MCP (npx @pnp/cli-microsoft365-mcp-server, che a sua volta invoca
+        # 'm365') - e' il pattern di automazione DOCUMENTATO ufficialmente da CLI Microsoft 365
+        # per questo scenario (nessuna alternativa a env var esposta dal tool MCP, a differenza
+        # di Lokka), quindi non una scelta nostra evitabile - il secret e' comunque visibile solo
+        # per l'istante di avvio del processo, non scritto mai su disco.
+        $loginCommand = "m365 login --authType secret --secret `"$secret`" --appId `"$($script:M365OpsContext.ClientId)`" --tenant `"$($script:M365OpsContext.TenantId)`" --connectionName `"$connectionName`" --output json"
     }
-    $secret = Get-M365OpsSecret -Name $script:M365OpsContext.SecretEnvVar
-    if (-not $secret) { throw "Secret del tenant ('$($script:M365OpsContext.SecretEnvVar)') non trovato." }
-
-    # NOTA: il secret transita come argomento di riga di comando verso il processo figlio
-    # avviato dal server MCP (npx @pnp/cli-microsoft365-mcp-server, che a sua volta invoca
-    # 'm365') - e' il pattern di automazione DOCUMENTATO ufficialmente da CLI Microsoft 365
-    # per questo scenario (nessuna alternativa a env var esposta dal tool MCP, a differenza
-    # di Lokka), quindi non una scelta nostra evitabile - il secret e' comunque visibile solo
-    # per l'istante di avvio del processo, non scritto mai su disco.
-    $loginCommand = "m365 login --authType secret --secret `"$secret`" --appId `"$($script:M365OpsContext.ClientId)`" --tenant `"$($script:M365OpsContext.TenantId)`" --connectionName `"$connectionName`" --output json"
     $loginResult = Invoke-M365OpsMcpRequest -Process $process -Method "tools/call" -Params @{
         name      = "m365_run_command"
         arguments = @{ command = $loginCommand }

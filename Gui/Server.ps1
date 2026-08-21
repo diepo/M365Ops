@@ -1659,7 +1659,12 @@ try {
                     $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
                     $body = $reader.ReadToEnd() | ConvertFrom-Json
                     try {
-                        $tools = Connect-M365OpsMcpServer -Name $body.name -Force
+                        # allowInteractive (26/08/2026): richiesto SOLO dal client quando l'utente
+                        # ha gia' confermato esplicitamente un login a browser bloccante (tenant
+                        # Delegato su CLI-Microsoft365, vedi Connect-M365OpsCliMicrosoft365.ps1) -
+                        # ignorato senza effetto da qualunque altro server MCP.
+                        $allowInteractive = [bool]$body.allowInteractive
+                        $tools = Connect-M365OpsMcpServer -Name $body.name -Force -AllowInteractive:$allowInteractive
                         $json = (@{ ok = $true; text = "Server MCP '$($body.name)' connesso. Tool disponibili: $($tools.Count)." } | ConvertTo-Json -Compress)
                     } catch {
                         $json = (@{ ok = $false; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
