@@ -1618,7 +1618,13 @@ try {
                         # vedi Get-M365OpsActiveTenantInfo.ps1. La GUI lo usa per mostrare lo
                         # stato di server come CLI-Microsoft365, aggiunti dall'utente ma prima
                         # sempre inerti (nessun codice li connetteva mai).
-                        mcpServers             = @($info.McpServerStatus | ForEach-Object { @{ name = $_.Name; builtIn = $_.BuiltIn; connected = $_.Connected; toolCount = $_.ToolCount } })
+                        # Where-Object { $_ } PRIMA del ForEach-Object (26/08/2026): senza,
+                        # quando $info e' $null (nessun tenant attivo, Get-M365OpsActiveTenantInfo
+                        # ritorna $null) "$null | ForEach-Object {...}" non produce zero
+                        # iterazioni come per una collezione vuota - ne produce UNA con $_ = $null,
+                        # una voce fantasma {name=null;...} - stesso identico bug di scope gia'
+                        # documentato e corretto altrove in questo file per lo storico chat vuoto.
+                        mcpServers             = @($info.McpServerStatus | Where-Object { $_ } | ForEach-Object { @{ name = $_.Name; builtIn = $_.BuiltIn; connected = $_.Connected; toolCount = $_.ToolCount } })
                         exchangeConfigured     = [bool]$info.ExchangeCertThumbprint
                         exchangeConnected      = $info.ExchangeConnected
                         exchangeThumbprint     = $info.ExchangeCertThumbprint
