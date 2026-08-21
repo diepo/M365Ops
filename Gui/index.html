@@ -1592,6 +1592,14 @@
             status.textContent = 'Errore: ' + result.Message;
             codeBox.style.display = 'none';
             btn.disabled = false;
+            // Bug reale del 21/08/2026: un poll "in piu'" (fetch precedente andato in timeout
+            // lato browser mentre il server, sincrono, stava ancora completando con successo)
+            // poteva mostrare questo errore anche a connessione gia' riuscita - il pannello in
+            // alto non si aggiornava mai da solo in questo ramo, restava sbagliato finche' non
+            // si cambiava tab per caso. Ora si aggiorna sempre: se la connessione era comunque
+            // riuscita, lo stato vero lo smentisce subito invece di lasciare un errore fantasma.
+            loadConnectionStatus();
+            loadSetupStatus();
             return;
           }
         } catch (e) { /* riprova al prossimo giro */ }

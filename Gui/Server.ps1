@@ -1277,6 +1277,23 @@ try {
                         if ($body.secretValue -and $body.secretEnvVar) {
                             [System.Environment]::SetEnvironmentVariable($body.secretEnvVar, $body.secretValue, [System.EnvironmentVariableTarget]::User)
                         }
+                        # Bug reale segnalato dal vivo il 21/08/2026: modificando (via "Salva
+                        # profilo") il tenant GIA' ATTIVO - es. cambiando modalita' di
+                        # autenticazione o altri campi - $script:M365OpsContext restava quello
+                        # vecchio in memoria, e nessuno dei flag di connessione (Intune, Exchange,
+                        # Teams, SharePoint, Purview) veniva resettato, perche' solo Connect-M365Ops
+                        # lo fa (vedi il commento li' dentro) e questo handler non lo richiamava
+                        # mai dopo il salvataggio - a differenza del gemello "POST
+                        # /api/email-settings" poco sopra, che lo fa gia' correttamente. Sintomo
+                        # osservato: Intune mostrato ancora "connesso" nella GUI dopo aver
+                        # modificato/riattivato il profilo attivo con impostazioni diverse. Se il
+                        # profilo salvato e' quello attivo, lo riattivano qui per lo stesso motivo
+                        # per cui /api/tenants/activate lo fa sempre: ricaricare il contesto dal
+                        # file appena scritto e chiudere/azzerare ogni sessione residua invece di
+                        # lasciarla sopravvivere con dati ormai vecchi.
+                        if ($script:ActiveTenantProfile -eq $body.name) {
+                            Connect-M365Ops -TenantProfile $body.name
+                        }
                         $json = (@{ text = "Profilo '$($body.name)' salvato [$authMode]." } | ConvertTo-Json -Compress)
                     } catch {
                         $json = (@{ text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)

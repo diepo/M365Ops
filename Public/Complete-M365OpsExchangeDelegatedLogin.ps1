@@ -15,6 +15,24 @@ function Complete-M365OpsExchangeDelegatedLogin {
 
     $pending = $script:M365OpsPendingExoDeviceCode[$tenantName]
     if (-not $pending) {
+        # Bug reale segnalato dal vivo il 21/08/2026, test pulito (nessun riavvio server nel
+        # mezzo): l'utente incolla il codice, la GUI resta "in attesa" e poi mostra proprio
+        # questo errore - ma cambiando tab la connessione risultava GIA' attiva. Causa: il
+        # server e' single-thread/sincrono (Gui\Server.ps1, $listener.GetContext() in un unico
+        # ciclo) - se UNA chiamata di poll impiega piu' del solito (qui dentro si chiama anche
+        # Connect-ExchangeOnline, l'unico punto per cui questa funzione puo' richiedere qualche
+        # secondo in piu', vedi .SYNOPSIS) e il fetch lato browser va in timeout/si interrompe
+        # (rete/proxy/antivirus locali, non sotto il nostro controllo) PRIMA che la risposta
+        # arrivi, il browser pianifica un poll successivo - che pero' il server processa SOLO
+        # dopo aver finito il primo, ormai riuscito e con la voce pending gia' rimossa. Il poll
+        # "in piu'" trovava quindi nessuna voce pending e restituiva questo errore, anche se la
+        # connessione era gia' a buon fine. Invece di assumere "nessun login mai iniziato",
+        # controlliamo lo stato REALE prima di dichiarare errore - stesso principio gia' usato
+        # per Intune in Test-M365OpsIntuneAuthValid: mai fidarsi ciecamente dell'assenza di un
+        # flag interno quando lo stato vero e' verificabile.
+        if ($script:M365OpsExchangeConnected) {
+            return [pscustomobject]@{ Status = 'Completed'; Message = 'Gia connesso (un tentativo di verifica precedente era andato a buon fine).' }
+        }
         return [pscustomobject]@{ Status = 'Error'; Message = "Nessun login Exchange in corso per '$tenantName' - avvialo prima con Start-M365OpsExchangeDelegatedLogin." }
     }
     if ((Get-Date) -gt $pending.ExpiresAt) {

@@ -53,13 +53,25 @@ function Get-M365OpsSetupStatus {
             Detail = if ($ctx.DelegatedUpn) { $ctx.DelegatedUpn } else { 'Non impostato.' }
             Fix = 'Tab Tenant -> campo UPN (modalita Delegata) -> Salva profilo.'
         }
+        # Bug reale segnalato dal vivo il 21/08/2026: chiamata "Sessione delegata", generica -
+        # un utente che aveva appena completato con successo il login DELEGATO SPECIFICO di
+        # Exchange (tab Tenant -> riquadro Exchange Online -> codice dispositivo, vedi
+        # Complete-M365OpsExchangeDelegatedLogin.ps1) continuava a vedere questa voce come
+        # "Missing", sembrando contraddittorio ("ho appena fatto login, perche' dice ancora di
+        # no?"). Sono in realta' DUE sessioni indipendenti: questa e' quella di Microsoft Graph
+        # generico (pulsante "Accedi con il mio utente", usata per utenti/gruppi/licenze/ecc via
+        # Graph/Lokka), Exchange PowerShell ha la propria sessione separata (device code sotto il
+        # riquadro Exchange, verificabile in "Stato connessioni" -> Exchange Online) - restare
+        # senza login su Graph mentre Exchange e' gia' connesso e' uno stato normale e valido,
+        # non un problema a meta'. Rinominata per chiarire la distinzione invece di lasciare
+        # "sessione delegata" ambiguo tra le due.
         $delegatedSession = $script:M365OpsTokenCache[$ctx.Name].Delegated
         $sessionActive = [bool]($delegatedSession -and $delegatedSession.ExpiresAt -gt (Get-Date))
         $items += [pscustomobject]@{
-            Name = 'Sessione delegata'
+            Name = 'Sessione Microsoft Graph delegata (generale)'
             Status = if ($sessionActive) { 'OK' } else { 'Missing' }
-            Detail = if ($sessionActive) { 'Attiva.' } else { 'Nessuna sessione attiva su questo PC - il login non si sposta mai, va sempre rifatto dopo un riavvio o su un PC nuovo.' }
-            Fix = 'Tab Tenant -> "Accedi con il mio utente".'
+            Detail = if ($sessionActive) { 'Attiva.' } else { "Nessuna sessione attiva su questo PC - il login non si sposta mai, va sempre rifatto dopo un riavvio o su un PC nuovo. Nota: questa e' la sessione Graph generica (utenti/gruppi/licenze), SEPARATA da quella di Exchange PowerShell - se hai gia' fatto il login delegato di Exchange (riquadro Exchange Online), questa voce puo' restare 'Missing' senza che sia un problema." }
+            Fix = 'Tab Tenant -> "Accedi con il mio utente" (solo se ti serve anche questa, es. per gestire utenti/gruppi via Graph).'
         }
     }
 
