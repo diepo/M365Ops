@@ -48,10 +48,10 @@ function Connect-M365OpsExchange {
         # tutto cio' che serve a questo progetto: -CertificateThumbprint/-Certificate (App-only,
         # verificato) e -AccessToken (login delegato, verificato) sono entrambi presenti.
         # Assert-M365OpsExoSafeVersion (Private) disinstalla anche attivamente una eventuale
-        # versione >= 3.10.0 gia' presente sul disco, non solo installa la 3.9.0 se manca.
+        # versione >= 3.10.0 gia' presente sul disco, installa la 3.9.0 se manca, la IMPORTA
+        # (i chiamanti non lo fanno piu' separatamente) e ripara da sola un'installazione locale
+        # corrotta se ne trova una (25/08/2026) - vedi quel file per il dettaglio completo.
         Assert-M365OpsExoSafeVersion
-        Import-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -ErrorAction Stop
-        $script:M365OpsExchangeModuleImported = $true
 
         if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
             if (-not $script:M365OpsContext.DelegatedUpn) {
@@ -66,7 +66,12 @@ function Connect-M365OpsExchange {
             # accorga (esattamente l'incidente di sezione 10.6, seconda occorrenza). Il device
             # code invece stampa sempre un codice+URL utilizzabile da QUALSIASI browser, e scade
             # da solo dopo un tempo limitato invece di restare appeso per sempre.
-            Connect-ExchangeOnline -UserPrincipalName $script:M365OpsContext.DelegatedUpn -Device -ShowBanner:$false
+            # Invoke-M365OpsWithExoRepairRetry (Private, 25/08/2026): se questa chiamata fallisce
+            # con un errore tipico di installazione ExchangeOnlineManagement danneggiata (non il
+            # conflitto Teams, escluso perche' controlla $script:M365OpsTeamsModuleImported da
+            # solo), ripara la 3.9.0 da zero e riprova UNA volta - vedi quel file per il dettaglio
+            # completo, incluso perche' la verifica non puo' vivere dentro Assert-M365OpsExoSafeVersion.
+            Invoke-M365OpsWithExoRepairRetry { Connect-ExchangeOnline -UserPrincipalName $script:M365OpsContext.DelegatedUpn -Device -ShowBanner:$false }
             $script:M365OpsExchangeConnected = $true
             return
         }
@@ -75,11 +80,13 @@ function Connect-M365OpsExchange {
             throw "Il profilo '$($script:M365OpsContext.Name)' non ha un ExchangeCertThumbprint configurato. Usa Set-M365OpsTenant -ExchangeCertThumbprint per impostarlo."
         }
 
-        Connect-ExchangeOnline `
-            -AppId $script:M365OpsContext.ClientId `
-            -CertificateThumbprint $script:M365OpsContext.ExchangeCertThumbprint `
-            -Organization $script:M365OpsContext.TenantId `
-            -ShowBanner:$false
+        Invoke-M365OpsWithExoRepairRetry {
+            Connect-ExchangeOnline `
+                -AppId $script:M365OpsContext.ClientId `
+                -CertificateThumbprint $script:M365OpsContext.ExchangeCertThumbprint `
+                -Organization $script:M365OpsContext.TenantId `
+                -ShowBanner:$false
+        }
 
         $script:M365OpsExchangeConnected = $true
     }

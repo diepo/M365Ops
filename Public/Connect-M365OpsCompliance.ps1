@@ -26,16 +26,18 @@ function Connect-M365OpsCompliance {
     try {
         # Versione FISSATA a 3.9.0 - vedi Connect-M365OpsExchange.ps1 per il dettaglio completo.
         # Assert-M365OpsExoSafeVersion (Private) disinstalla anche attivamente una eventuale
-        # versione >= 3.10.0 gia' presente sul disco, non solo installa la 3.9.0 se manca.
+        # versione >= 3.10.0 gia' presente sul disco, installa la 3.9.0 se manca, la IMPORTA (i
+        # chiamanti non lo fanno piu' separatamente) e ripara da sola un'installazione locale
+        # corrotta se ne trova una - vedi quel file per il dettaglio completo.
         Assert-M365OpsExoSafeVersion
-        Import-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -ErrorAction Stop
-        $script:M365OpsExchangeModuleImported = $true
 
         if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
             if (-not $script:M365OpsContext.DelegatedUpn) {
                 throw "Il profilo '$($script:M365OpsContext.Name)' e' in modalita' Delegated ma non ha un DelegatedUpn configurato. Usa Set-M365OpsTenant -DelegatedUpn per impostarlo."
             }
-            Connect-IPPSSession -UserPrincipalName $script:M365OpsContext.DelegatedUpn -Device -ShowBanner:$false
+            # Invoke-M365OpsWithExoRepairRetry (Private, 25/08/2026) - vedi
+            # Connect-M365OpsExchange.ps1 per il dettaglio completo.
+            Invoke-M365OpsWithExoRepairRetry { Connect-IPPSSession -UserPrincipalName $script:M365OpsContext.DelegatedUpn -Device -ShowBanner:$false }
             $script:M365OpsComplianceConnected = $true
             return
         }
@@ -44,11 +46,13 @@ function Connect-M365OpsCompliance {
             throw "Il profilo '$($script:M365OpsContext.Name)' non ha un ExchangeCertThumbprint configurato. Usa Set-M365OpsTenant -ExchangeCertThumbprint per impostarlo."
         }
 
-        Connect-IPPSSession `
-            -AppId $script:M365OpsContext.ClientId `
-            -CertificateThumbprint $script:M365OpsContext.ExchangeCertThumbprint `
-            -Organization $script:M365OpsContext.TenantId `
-            -ShowBanner:$false
+        Invoke-M365OpsWithExoRepairRetry {
+            Connect-IPPSSession `
+                -AppId $script:M365OpsContext.ClientId `
+                -CertificateThumbprint $script:M365OpsContext.ExchangeCertThumbprint `
+                -Organization $script:M365OpsContext.TenantId `
+                -ShowBanner:$false
+        }
 
         $script:M365OpsComplianceConnected = $true
     }

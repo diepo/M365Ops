@@ -44,13 +44,13 @@ function Complete-M365OpsExchangeDelegatedLogin {
             # - vedi Connect-M365OpsExchange.ps1 per il dettaglio completo della verifica dal
             # vivo (con -AccessToken, il percorso usato proprio qui sotto, gia' testato presente
             # su 3.9.0). Assert-M365OpsExoSafeVersion (Private) disinstalla anche attivamente una
-            # eventuale versione >= 3.10.0 gia' presente sul disco, non solo installa la 3.9.0 se
-            # manca.
-            $script:M365OpsExoSafeVersion = '3.9.0'
+            # eventuale versione >= 3.10.0 gia' presente sul disco, installa/importa la 3.9.0 (i
+            # chiamanti non lo fanno piu' separatamente) e ripara da sola un'installazione locale
+            # corrotta se ne trova una.
             Assert-M365OpsExoSafeVersion
-            Import-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -ErrorAction Stop
-            $script:M365OpsExchangeModuleImported = $true
-            Connect-ExchangeOnline -AccessToken $result.AccessToken -UserPrincipalName $script:M365OpsContext.DelegatedUpn -ShowBanner:$false -ErrorAction Stop
+            # Invoke-M365OpsWithExoRepairRetry (Private, 25/08/2026) - vedi
+            # Connect-M365OpsExchange.ps1 per il dettaglio completo.
+            Invoke-M365OpsWithExoRepairRetry { Connect-ExchangeOnline -AccessToken $result.AccessToken -UserPrincipalName $script:M365OpsContext.DelegatedUpn -ShowBanner:$false -ErrorAction Stop }
             $script:M365OpsExchangeConnected = $true
             Write-Host "Exchange Online (delegato) connesso per '$tenantName'." -ForegroundColor Green
         }

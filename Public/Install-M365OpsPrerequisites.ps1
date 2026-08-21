@@ -179,7 +179,12 @@ function Install-M365OpsPrerequisites {
     # il ciclo generico, disinstalla ATTIVAMENTE anche una eventuale versione >= 3.10.0 gia'
     # presente sul disco (nota per andare in conflitto con MicrosoftTeams, vedi
     # Connect-M365OpsExchange.ps1 e guida sezione 6.6).
-    $exoResult = Assert-M365OpsExoSafeVersion
+    # -InstallOnly: questa funzione gira ad OGNI avvio del server, prima che l'utente scelga se
+    # gli serve Teams o Exchange - importare il modulo qui (comportamento di default della
+    # funzione, usato invece dalle cmdlet di connessione vere) caricherebbe
+    # ExchangeOnlineManagement nel processo del server anche per chi vuole usare SOLO Teams in
+    # quella sessione, vedi Assert-M365OpsExoSafeVersion.ps1 per il dettaglio completo.
+    $exoResult = Assert-M365OpsExoSafeVersion -InstallOnly
     if ($exoResult.RemovedVersions.Count -gt 0) { $installedSomething = $true }
     if ($exoResult.Installed) { $installedSomething = $true }
     $exoNowPresent = [bool](Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object Version -eq '3.9.0')
