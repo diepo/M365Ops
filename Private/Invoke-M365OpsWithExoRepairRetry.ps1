@@ -34,7 +34,16 @@ function Invoke-M365OpsWithExoRepairRetry {
     param([Parameter(Mandatory)] [scriptblock]$Action)
 
     try {
-        & $Action
+        # Out-Null aggiunto il 26/08/2026: nessuno dei chiamanti cattura ne' usa il valore
+        # restituito da $Action (sempre una chiamata bare a Connect-ExchangeOnline/
+        # Connect-IPPSSession) - senza sopprimerlo qui, un'eventuale emissione non
+        # silenziosa di quei cmdlet finirebbe sull'output pipeline di QUESTA funzione e, a
+        # cascata, su quello dei chiamanti (esattamente il bug di leak trovato dal vivo lo
+        # stesso giorno in Complete-M365OpsExchangeDelegatedLogin.ps1 con
+        # Assert-M365OpsExoSafeVersion, stessa causa - un valore di ritorno non voluto non
+        # soppresso). Soppresso qui una volta sola invece che in ognuno dei quattro punti
+        # di chiamata.
+        & $Action | Out-Null
     }
     catch {
         $msg = $_.Exception.Message

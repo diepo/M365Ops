@@ -44,6 +44,16 @@ function Complete-M365OpsExchangeDelegatedLogin {
 
     if ($result.Status -eq 'Completed') {
         $script:M365OpsPendingExoDeviceCode.Remove($tenantName)
+        # BUG DI SICUREZZA reale trovato dal vivo il 26/08/2026 (stesso giro del bug sopra):
+        # $result qui contiene AccessToken/RefreshToken VERI (Receive-M365OpsDeviceCodeToken li
+        # popola per poterli passare a Connect-ExchangeOnline -AccessToken subito sotto) - la
+        # vecchia versione di questa funzione restituiva $result COSI' COM'E' come output,
+        # che Gui\Server.ps1 serializza direttamente in JSON e spedisce al browser: il
+        # refresh token (che permette di ottenere nuovi access token senza rifare login,
+        # quindi il "materiale" piu' sensibile di tutti) finiva quindi leggibile nella
+        # risposta HTTP e nella console del browser, senza che servisse mai fuori da questo
+        # processo server. Da qui in poi la funzione costruisce sempre esplicitamente un
+        # oggetto Status/Message pulito, mai piu' $result grezzo.
         # Conflitto noto MicrosoftTeams/ExchangeOnlineManagement, riprodotto dal vivo il
         # 22/08/2026 esattamente su QUESTA funzione (il messaggio d'errore dell'utente -
         # "Could not load file or assembly ...Microsoft.IdentityModel.Abstractions...
@@ -64,13 +74,25 @@ function Complete-M365OpsExchangeDelegatedLogin {
             # confermato funzionante nel test dal vivo). Assert-M365OpsExoSafeVersion (Private)
             # disinstalla anche attivamente una eventuale versione >= 3.10.0 gia' presente sul
             # disco, installa/importa la 3.4.0 (i chiamanti non lo fanno piu' separatamente) e
-            # ripara da sola un'installazione locale corrotta se ne trova una.
-            Assert-M365OpsExoSafeVersion
+            # ripara da sola un'installazione locale corrotta se ne trova una. Output SEMPRE
+            # scartato (-> Out-Null): BUG SERIO trovato dal vivo il 26/08/2026 durante il
+            # riverifica di questo stesso login - il valore restituito da questa chiamata
+            # (pscustomobject RemovedVersions/Installed) non era mai stato catturato ne'
+            # soppresso, quindi finiva anch'esso sull'output pipeline di QUESTA funzione,
+            # trasformando il risultato atteso (un singolo oggetto Status/Message) in un
+            # ARRAY di due oggetti - lato client (Gui\index.html) result.Status risultava
+            # quindi sempre undefined su un login riuscito, ne' "Completed" ne' "Error"
+            # venivano mai riconosciuti, e il poll continuava a ripetersi all'infinito
+            # mostrando "in attesa" anche a connessione gia' avvenuta (root cause reale
+            # dietro il sintomo "Nessun login Exchange in corso" via una voce pending gia'
+            # rimossa da un poll successivo che invece TROVAVA questo stato malformato).
+            Assert-M365OpsExoSafeVersion | Out-Null
             # Invoke-M365OpsWithExoRepairRetry (Private, 25/08/2026) - vedi
             # Connect-M365OpsExchange.ps1 per il dettaglio completo.
             Invoke-M365OpsWithExoRepairRetry { Connect-ExchangeOnline -AccessToken $result.AccessToken -UserPrincipalName $script:M365OpsContext.DelegatedUpn -ShowBanner:$false -ErrorAction Stop }
             $script:M365OpsExchangeConnected = $true
             Write-Host "Exchange Online (delegato) connesso per '$tenantName'." -ForegroundColor Green
+            return [pscustomobject]@{ Status = 'Completed'; Message = 'Connesso.' }
         }
         catch {
             $hint = Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Exchange Online' -OtherService 'Microsoft Teams'
@@ -82,5 +104,12 @@ function Complete-M365OpsExchangeDelegatedLogin {
         $script:M365OpsPendingExoDeviceCode.Remove($tenantName)
     }
 
-    $result
+    # Solo Status='Pending' (l'utente non ha ancora completato il login) o Status='Error'
+    # arrivano qui (il caso Completed esce sempre prima con un return esplicito, sopra) -
+    # ricostruito esplicitamente invece di restituire $result cosi' com'e' per non
+    # ripetere l'errore di sicurezza appena corretto: anche se OGGI Receive-
+    # M365OpsDeviceCodeToken non mette mai token nei rami Pending/Error, un domani non e'
+    # garantito, e qui non c'e' modo per chi legge questa riga di saperlo senza andare a
+    # controllare l'altra funzione.
+    [pscustomobject]@{ Status = $result.Status; Message = $result.Message }
 }
