@@ -18,39 +18,43 @@ function Connect-M365OpsCompliance {
         throw "Sessione Security & Compliance (Purview) non ancora attiva per questo tenant delegato. Il server non avvia mai un login interattivo da solo (bloccherebbe l'intera app per tutti, essendo a thread singolo) - vai al tab Tenant (sezione 'Stato connessioni'), Purview/Compliance, e clicca 'Connetti / Test connessione Purview' per farlo esplicitamente, poi riprova."
     }
 
-    # GUARDIA RIMOSSA QUI il 24/08/2026 (vedi Connect-M365OpsExchange.ps1 per il dettaglio
-    # completo): il conflitto MicrosoftTeams/ExchangeOnlineManagement non e' bidirezionale,
-    # Teams-poi-Exchange/Purview e' sicuro con il pin 3.9.0 sotto (verificato dal vivo anche su
-    # Connect-IPPSSession specificamente, non solo Connect-ExchangeOnline) - l'ordine inverso
-    # resta rotto e la sua guardia vive in Connect-M365OpsTeams.ps1.
-    #
-    # Versione FISSATA a 3.9.0, confermata conflict-free con MicrosoftTeams (23/08/2026) - vedi
-    # Connect-M365OpsExchange.ps1 per il dettaglio completo della verifica dal vivo.
-    # Assert-M365OpsExoSafeVersion (Private) disinstalla anche attivamente una eventuale
-    # versione >= 3.10.0 gia' presente sul disco, non solo installa la 3.9.0 se manca.
+    # Nessuna guardia preventiva (vedi Connect-M365OpsExchange.ps1 per la storia completa e il
+    # perche': un blocco a priori boccerebbe anche tentativi che su questo PC funzionerebbero -
+    # si prova sempre, l'eventuale conflitto viene rivestito con un messaggio chiaro solo se
+    # scatta davvero).
     $script:M365OpsExoSafeVersion = '3.9.0'
-    Assert-M365OpsExoSafeVersion
-    Import-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -ErrorAction Stop
-    $script:M365OpsExchangeModuleImported = $true
+    try {
+        # Versione FISSATA a 3.9.0 - vedi Connect-M365OpsExchange.ps1 per il dettaglio completo.
+        # Assert-M365OpsExoSafeVersion (Private) disinstalla anche attivamente una eventuale
+        # versione >= 3.10.0 gia' presente sul disco, non solo installa la 3.9.0 se manca.
+        Assert-M365OpsExoSafeVersion
+        Import-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -ErrorAction Stop
+        $script:M365OpsExchangeModuleImported = $true
 
-    if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
-        if (-not $script:M365OpsContext.DelegatedUpn) {
-            throw "Il profilo '$($script:M365OpsContext.Name)' e' in modalita' Delegated ma non ha un DelegatedUpn configurato. Usa Set-M365OpsTenant -DelegatedUpn per impostarlo."
+        if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
+            if (-not $script:M365OpsContext.DelegatedUpn) {
+                throw "Il profilo '$($script:M365OpsContext.Name)' e' in modalita' Delegated ma non ha un DelegatedUpn configurato. Usa Set-M365OpsTenant -DelegatedUpn per impostarlo."
+            }
+            Connect-IPPSSession -UserPrincipalName $script:M365OpsContext.DelegatedUpn -Device -ShowBanner:$false
+            $script:M365OpsComplianceConnected = $true
+            return
         }
-        Connect-IPPSSession -UserPrincipalName $script:M365OpsContext.DelegatedUpn -Device -ShowBanner:$false
+
+        if (-not $script:M365OpsContext.ExchangeCertThumbprint) {
+            throw "Il profilo '$($script:M365OpsContext.Name)' non ha un ExchangeCertThumbprint configurato. Usa Set-M365OpsTenant -ExchangeCertThumbprint per impostarlo."
+        }
+
+        Connect-IPPSSession `
+            -AppId $script:M365OpsContext.ClientId `
+            -CertificateThumbprint $script:M365OpsContext.ExchangeCertThumbprint `
+            -Organization $script:M365OpsContext.TenantId `
+            -ShowBanner:$false
+
         $script:M365OpsComplianceConnected = $true
-        return
     }
-
-    if (-not $script:M365OpsContext.ExchangeCertThumbprint) {
-        throw "Il profilo '$($script:M365OpsContext.Name)' non ha un ExchangeCertThumbprint configurato. Usa Set-M365OpsTenant -ExchangeCertThumbprint per impostarlo."
+    catch {
+        $hint = Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Purview' -OtherService 'Microsoft Teams'
+        if ($hint) { throw $hint }
+        throw
     }
-
-    Connect-IPPSSession `
-        -AppId $script:M365OpsContext.ClientId `
-        -CertificateThumbprint $script:M365OpsContext.ExchangeCertThumbprint `
-        -Organization $script:M365OpsContext.TenantId `
-        -ShowBanner:$false
-
-    $script:M365OpsComplianceConnected = $true
 }

@@ -21,23 +21,16 @@ function Connect-M365OpsTeams {
         throw "Sessione Teams non ancora attiva per questo tenant delegato. Il server non avvia mai un login interattivo da solo (bloccherebbe l'intera app per tutti, essendo a thread singolo) - vai al tab Tenant (non MCP/Connettori), sezione 'Stato connessioni', Microsoft Teams, e clicca 'Connetti / Test connessione Teams' per farlo esplicitamente (si apre una finestra per il login, il server resta bloccato per tutti finche' non completi il login - fallo PRIMA di chiedere dati in chat, mai durante una richiesta composta). Se sembra che non succeda nulla dopo il click, la finestra di login potrebbe essersi aperta DIETRO il browser invece che in primo piano - controlla con Alt+Tab o la barra delle applicazioni prima di pensare che sia bloccato (bug reale segnalato dal vivo il 22/08/2026)."
     }
 
-    # BUG STRUTTURALE DI TERZE PARTI, trovato il 22/08/2026, RIDIMENSIONATO il 24/08/2026 dopo
-    # aver fissato ExchangeOnlineManagement a 3.9.0 (v0.9.41/42): il conflitto NON e' piu'
-    # bidirezionale come inizialmente creduto. Verificato dal vivo (Connect-ExchangeOnline/
-    # -MicrosoftTeams reali, credenziali finte - l'assembly conflict scatta prima di qualunque
-    # validazione di rete): Teams importato PRIMA e poi ExchangeOnlineManagement 3.9.0 importato
-    # DOPO non va mai in conflitto (guardia rimossa dal lato Exchange/Purview/login delegato,
-    # vedi Connect-M365OpsExchange.ps1) - ma l'ordine INVERSO, cioe' proprio questo caso
-    # (Exchange gia' importato, Teams che tenta di importare dopo), resta rotto anche con la
-    # 3.9.0, testato anche con la 2.0.5 (la piu' vecchia disponibile) e con piu' versioni di
-    # Teams (7.3.1, 7.9.0) - sempre fallisce su Microsoft.Identity.Client, causa non ancora
-    # isolata oltre "l'ordine di caricamento conta". Questa guardia resta quindi necessaria SOLO
-    # in questa direzione. Messaggio aggiornato con l'unica mitigazione nota, oltre al riavvio:
-    # la PROSSIMA volta connettere Teams per primo evita del tutto il problema.
-    if ($script:M365OpsExchangeModuleImported) {
-        throw "Impossibile connettersi a Teams: il modulo ExchangeOnlineManagement e' gia' stato caricato in questo stesso processo server prima di Teams, e in QUESTO ordine specifico i due moduli portano ancora versioni incompatibili delle stesse librerie di autenticazione (conflitto noto di Microsoft, non un bug di M365Ops - vedi guida sezione 6.6). Riavvia il server (pulsante Manutenzione, o 'M365Ops - Termina e riavvia' sul Desktop se non risponde) per liberare il processo, poi connetti PRIMA Teams e SOLO DOPO Exchange/Purview in questa sessione - in quest'altro ordine il conflitto non si presenta piu'."
-    }
-
+    # BUG STRUTTURALE DI TERZE PARTI, trovato il 22/08/2026 - vedi Connect-M365OpsExchange.ps1
+    # per la storia completa dei tentativi (guardia preventiva aggiunta, rimossa, ripristinata,
+    # rimossa di nuovo in modo definitivo). Conclusione finale: nessun ordine di connessione e'
+    # affidabilmente sicuro o rotto in modo prevedibile (dipende da quali versioni esatte dei due
+    # moduli sono installate su QUESTO PC, verificato con una matrice di test che ha dato
+    # risultati diversi per Teams 7.1.0 vs 7.3.1/7.9.0), quindi non si blocca piu' nulla a
+    # priori - si prova sempre, e il try/catch sotto riveste l'eventuale conflitto con un
+    # messaggio chiaro SOLO se scatta davvero (Get-M365OpsModuleConflictHint, Private), invece
+    # di bloccare un tentativo che su questo PC potrebbe funzionare benissimo.
+    try {
     if (-not (Get-Module -ListAvailable -Name MicrosoftTeams)) {
         # BUG STRUTTURALE trovato il 22/08/2026: segnalato dal vivo un secondo blocco DOPO
         # il fix -DisableWAM (v0.9.35), stavolta senza NEMMENO la riga di log "Import-Module
@@ -147,4 +140,10 @@ function Connect-M365OpsTeams {
         -ErrorAction Stop
 
     $script:M365OpsTeamsConnected = $true
+    }
+    catch {
+        $hint = Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Microsoft Teams' -OtherService 'Exchange Online'
+        if ($hint) { throw $hint }
+        throw
+    }
 }

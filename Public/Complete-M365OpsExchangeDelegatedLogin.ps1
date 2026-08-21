@@ -29,12 +29,10 @@ function Complete-M365OpsExchangeDelegatedLogin {
         # Conflitto noto MicrosoftTeams/ExchangeOnlineManagement, riprodotto dal vivo il
         # 22/08/2026 esattamente su QUESTA funzione (il messaggio d'errore dell'utente -
         # "Could not load file or assembly ...Microsoft.IdentityModel.Abstractions...
-        # manifest definition does not match" - corrisponde esattamente). GUARDIA RIMOSSA
-        # QUI il 24/08/2026 (vedi Connect-M365OpsExchange.ps1 per il dettaglio completo): con
-        # il pin a 3.9.0 sotto, Teams-poi-Exchange e' sicuro - verificato dal vivo anche con
-        # -AccessToken specificamente (il percorso usato proprio qui sotto), non solo con
-        # certificato. L'ordine inverso resta rotto, guardia ancora attiva in
-        # Connect-M365OpsTeams.ps1.
+        # manifest definition does not match" - corrisponde esattamente). Nessuna guardia
+        # preventiva (vedi Connect-M365OpsExchange.ps1 per la storia completa e il perche') - si
+        # prova sempre, il catch sotto riveste l'eventuale conflitto con un messaggio chiaro solo
+        # se scatta davvero, invece di bloccare a priori un tentativo che potrebbe funzionare.
         try {
             # Fallback di auto-installazione (22/08/2026, bug reale segnalato dal vivo: login
             # delegato riuscito, poi fallito qui con "no valid module file was found" su un PC
@@ -57,7 +55,9 @@ function Complete-M365OpsExchangeDelegatedLogin {
             Write-Host "Exchange Online (delegato) connesso per '$tenantName'." -ForegroundColor Green
         }
         catch {
-            return [pscustomobject]@{ Status = 'Error'; Message = "Token ottenuto ma la connessione a Exchange e' fallita: $($_.Exception.Message)" }
+            $hint = Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Exchange Online' -OtherService 'Microsoft Teams'
+            $msg = if ($hint) { $hint } else { "Token ottenuto ma la connessione a Exchange e' fallita: $($_.Exception.Message)" }
+            return [pscustomobject]@{ Status = 'Error'; Message = $msg }
         }
     }
     elseif ($result.Status -eq 'Error') {

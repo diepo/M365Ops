@@ -21,76 +21,71 @@ function Connect-M365OpsExchange {
         throw "Sessione Exchange Online non ancora attiva per questo tenant delegato. Il server non avvia mai un login interattivo da solo (bloccherebbe l'intera app per tutti, essendo a thread singolo) - vai al tab Tenant (non MCP/Connettori), sezione 'Stato connessioni', Exchange Online, e clicca 'Connetti / Test connessione Exchange' per farlo esplicitamente, poi riprova."
     }
 
-    # BUG STRUTTURALE DI TERZE PARTI (22/08/2026) - GUARDIA RIMOSSA QUI il 24/08/2026, letta
-    # con attenzione prima di toccarla: il conflitto MicrosoftTeams/ExchangeOnlineManagement
-    # NON e' bidirezionale come inizialmente creduto. Verificato dal vivo (non a memoria) con
-    # Connect-ExchangeOnline/-MicrosoftTeams REALI (credenziali finte, l'assembly conflict
-    # scatta PRIMA di qualunque validazione di rete) su entrambi gli ordini: Teams importato
-    # PRIMA e poi Exchange 3.9.0 (il pin sotto) importato dopo -> NESSUN conflitto, in nessuna
-    # combinazione testata di Teams (7.3.1, 7.9.0). L'ordine INVERSO (Exchange prima, Teams
-    # dopo) rimane invece rotto anche con la 3.9.0 (e persino con la 2.0.5, la piu' vecchia
-    # disponibile) - quella guardia vive ancora in Connect-M365OpsTeams.ps1, dove appartiene
-    # davvero. Questa guardia qui era rimasta com'era dal fix precedente (v0.9.41/42, il pin di
-    # versione) per puro dimenticato - bloccava SEMPRE Exchange se Teams era gia' connesso,
-    # anche nell'ordine ormai sicuro, riproducendo esattamente il sintomo segnalato dal vivo
-    # dall'utente su v0.9.42 ("i due moduli sembra non convivere") nonostante il pin di
-    # versione fosse gia' corretto e sufficiente per quell'ordine specifico.
-    #
-    # Versione FISSATA a 3.9.0 (23/08/2026), non "l'ultima disponibile": l'utente ha fatto
-    # notare giustamente che il conflitto con MicrosoftTeams (blocco commento sopra) non gli
-    # tornava - "ieri ho connesso tutti i servizi uno dopo l'altro senza errori", ipotizzando
-    # una dipendenza dalla versione dei moduli. Aveva ragione: verificato dal vivo (non a
-    # memoria) con Connect-ExchangeOnline reale (credenziali finte, l'assembly conflict scatta
-    # PRIMA di qualunque validazione di rete) che il conflitto NON dipende dalla versione di
-    # MicrosoftTeams installata (riprodotto identico sia con 7.3.1 sia con 7.9.0), ma dalla
-    # versione di ExchangeOnlineManagement: 3.9.0 non va MAI in conflitto con Teams (testato
-    # con entrambe le versioni Teams sopra), 3.10.0+ va SEMPRE in conflitto (riprodotto anche
-    # l'errore esatto dell'utente, stesso "Microsoft.Identity.Client.dll... manifest
-    # definition does not match", con Teams 7.9.0 + Exchange 3.10.1). 3.9.0 supporta comunque
-    # tutto cio' che serve a questo progetto: -CertificateThumbprint/-Certificate (App-only,
-    # verificato) e -AccessToken (login delegato, verificato) sono entrambi presenti. Un
-    # aggiornamento futuro a una versione piu' recente e conflict-free andrebbe verificato allo
-    # stesso modo prima di cambiare questo numero, mai per assunzione.
-    #
-    # Assert-M365OpsExoSafeVersion (Private, aggiunta il 23/08/2026 su richiesta esplicita
-    # dell'utente dopo il primo giro di questo fix: "se e' installata la 3.10 allora la
-    # disinstalla e mette la 3.9") non si limita a installare la 3.9.0 se manca - disinstalla
-    # ATTIVAMENTE qualunque versione >= 3.10.0 gia' presente sul disco, invece di lasciarla li'
-    # accanto. Il pin -RequiredVersion qui sotto protegge gia' QUESTO progetto da solo, ma una
-    # versione in conflitto lasciata sul disco resta un rischio per qualunque altro
-    # script/Import-Module senza pin esplicito.
+    # BUG STRUTTURALE DI TERZE PARTI (22/08/2026), gestito con approcci diversi nel tempo -
+    # storia completa perche' il ragionamento conta quanto il codice qui: (1) guardia
+    # PREVENTIVA aggiunta il 22/08/2026 ("l'altro modulo e' gia' caricato, blocco a priori");
+    # (2) rimossa il 24/08/2026 credendo, su due sole versioni Teams testate, che Teams-poi-
+    # Exchange fosse sempre sicuro col pin a 3.9.0 sotto; (3) ripristinata poche ore dopo quando
+    # una matrice di test piu' ampia (Teams 7.1.0/7.3.1/7.9.0 x Exchange 2.0.5/3.9.0) ha mostrato
+    # che NESSUN ordine e' affidabilmente sicuro - dipende da combinazioni di versione non
+    # prevedibili; (4) RIMOSSA DI NUOVO, stavolta in modo definitivo, su richiesta esplicita
+    # dell'utente: "non voglio il safe guard, nelle versioni vecchie funzionava in qualunque
+    # direzione". Aveva ragione sul principio, non solo sul ricordo specifico: dato che nessun
+    # ordine si e' dimostrato ne' sempre sicuro ne' sempre rotto, bloccare A PRIORI un tentativo
+    # che su QUESTO PC, con QUESTE versioni installate, magari funzionerebbe benissimo, e' un
+    # danno certo per evitare un rischio incerto - l'esatto opposto di quello che vuole l'utente.
+    # Il modulo NON viene piu' bloccato prima di provare: si prova sempre, e SOLO se l'eccezione
+    # e' davvero quel conflitto specifico (Get-M365OpsModuleConflictHint, Private) viene
+    # rivestita con un messaggio leggibile invece del criptico ".NET FileLoadException" nativo -
+    # qualunque altro errore (incluso il successo) passa inalterato.
     $script:M365OpsExoSafeVersion = '3.9.0'
-    Assert-M365OpsExoSafeVersion
-    Import-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -ErrorAction Stop
-    $script:M365OpsExchangeModuleImported = $true
+    try {
+        # Versione FISSATA a 3.9.0, non "l'ultima disponibile": dalla 3.10.0 in poi il conflitto
+        # sopra e' SEMPRE presente, in entrambe le direzioni, con ogni versione di Teams testata
+        # (riprodotto l'errore esatto originariamente segnalato dall'utente con Teams 7.9.0 +
+        # Exchange 3.10.1) - quella soglia e' certa e va sempre evitata, a differenza dell'esito
+        # sotto la 3.10.0 che dipende dalla combinazione di versioni. 3.9.0 supporta comunque
+        # tutto cio' che serve a questo progetto: -CertificateThumbprint/-Certificate (App-only,
+        # verificato) e -AccessToken (login delegato, verificato) sono entrambi presenti.
+        # Assert-M365OpsExoSafeVersion (Private) disinstalla anche attivamente una eventuale
+        # versione >= 3.10.0 gia' presente sul disco, non solo installa la 3.9.0 se manca.
+        Assert-M365OpsExoSafeVersion
+        Import-Module ExchangeOnlineManagement -RequiredVersion $script:M365OpsExoSafeVersion -ErrorAction Stop
+        $script:M365OpsExchangeModuleImported = $true
 
-    if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
-        if (-not $script:M365OpsContext.DelegatedUpn) {
-            throw "Il profilo '$($script:M365OpsContext.Name)' e' in modalita' Delegated ma non ha un DelegatedUpn configurato. Usa Set-M365OpsTenant -DelegatedUpn per impostarlo."
+        if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
+            if (-not $script:M365OpsContext.DelegatedUpn) {
+                throw "Il profilo '$($script:M365OpsContext.Name)' e' in modalita' Delegated ma non ha un DelegatedUpn configurato. Usa Set-M365OpsTenant -DelegatedUpn per impostarlo."
+            }
+            # Login interattivo con l'utenza reale - usa i ruoli admin delegati gia' assegnati a
+            # quell'utente su questo tenant, nessuna App Registration necessaria. Arriva qui SOLO
+            # se -AllowInteractive e' stato passato esplicitamente (vedi sopra).
+            # -Device (device code, non un popup): il server gira come processo in background,
+            # senza una sessione desktop interattiva propria - un popup non avrebbe dove
+            # comparire e la chiamata resterebbe bloccata all'infinito senza che nessuno se ne
+            # accorga (esattamente l'incidente di sezione 10.6, seconda occorrenza). Il device
+            # code invece stampa sempre un codice+URL utilizzabile da QUALSIASI browser, e scade
+            # da solo dopo un tempo limitato invece di restare appeso per sempre.
+            Connect-ExchangeOnline -UserPrincipalName $script:M365OpsContext.DelegatedUpn -Device -ShowBanner:$false
+            $script:M365OpsExchangeConnected = $true
+            return
         }
-        # Login interattivo con l'utenza reale - usa i ruoli admin delegati gia' assegnati a
-        # quell'utente su questo tenant, nessuna App Registration necessaria. Arriva qui SOLO
-        # se -AllowInteractive e' stato passato esplicitamente (vedi sopra).
-        # -Device (device code, non un popup): il server gira come processo in background,
-        # senza una sessione desktop interattiva propria - un popup non avrebbe dove
-        # comparire e la chiamata resterebbe bloccata all'infinito senza che nessuno se ne
-        # accorga (esattamente l'incidente di sezione 10.6, seconda occorrenza). Il device
-        # code invece stampa sempre un codice+URL utilizzabile da QUALSIASI browser, e scade
-        # da solo dopo un tempo limitato invece di restare appeso per sempre.
-        Connect-ExchangeOnline -UserPrincipalName $script:M365OpsContext.DelegatedUpn -Device -ShowBanner:$false
+
+        if (-not $script:M365OpsContext.ExchangeCertThumbprint) {
+            throw "Il profilo '$($script:M365OpsContext.Name)' non ha un ExchangeCertThumbprint configurato. Usa Set-M365OpsTenant -ExchangeCertThumbprint per impostarlo."
+        }
+
+        Connect-ExchangeOnline `
+            -AppId $script:M365OpsContext.ClientId `
+            -CertificateThumbprint $script:M365OpsContext.ExchangeCertThumbprint `
+            -Organization $script:M365OpsContext.TenantId `
+            -ShowBanner:$false
+
         $script:M365OpsExchangeConnected = $true
-        return
     }
-
-    if (-not $script:M365OpsContext.ExchangeCertThumbprint) {
-        throw "Il profilo '$($script:M365OpsContext.Name)' non ha un ExchangeCertThumbprint configurato. Usa Set-M365OpsTenant -ExchangeCertThumbprint per impostarlo."
+    catch {
+        $hint = Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Exchange Online' -OtherService 'Microsoft Teams'
+        if ($hint) { throw $hint }
+        throw
     }
-
-    Connect-ExchangeOnline `
-        -AppId $script:M365OpsContext.ClientId `
-        -CertificateThumbprint $script:M365OpsContext.ExchangeCertThumbprint `
-        -Organization $script:M365OpsContext.TenantId `
-        -ShowBanner:$false
-
-    $script:M365OpsExchangeConnected = $true
 }
