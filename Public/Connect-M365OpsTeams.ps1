@@ -22,48 +22,21 @@ function Connect-M365OpsTeams {
     }
 
     # BUG STRUTTURALE DI TERZE PARTI, trovato il 22/08/2026 - vedi Connect-M365OpsExchange.ps1
-    # per la storia completa dei tentativi (guardia preventiva aggiunta, rimossa, ripristinata,
-    # rimossa di nuovo in modo definitivo). Conclusione finale: nessun ordine di connessione e'
-    # affidabilmente sicuro o rotto in modo prevedibile (dipende da quali versioni esatte dei due
-    # moduli sono installate su QUESTO PC, verificato con una matrice di test che ha dato
-    # risultati diversi per Teams 7.1.0 vs 7.3.1/7.9.0), quindi non si blocca piu' nulla a
-    # priori - si prova sempre, e il try/catch sotto riveste l'eventuale conflitto con un
-    # messaggio chiaro SOLO se scatta davvero (Get-M365OpsModuleConflictHint, Private), invece
-    # di bloccare un tentativo che su questo PC potrebbe funzionare benissimo.
+    # per la storia completa dei tentativi. Conclusione finale (25/08/2026): fissate ENTRAMBE le
+    # versioni dei due moduli come coppia verificata (ExchangeOnlineManagement 3.1.0 +
+    # MicrosoftTeams 6.5.0, Exchange connesso PRIMA) - vedi Assert-M365OpsTeamsSafeVersion.ps1 e
+    # Assert-M365OpsExoSafeVersion.ps1 per il dettaglio completo di come si e' arrivati a questa
+    # coppia specifica. Il try/catch sotto resta comunque come rete di sicurezza per l'ordine
+    # inverso (Teams connesso senza Exchange gia' connesso prima) o per PC con altre versioni
+    # residue - riveste l'eventuale conflitto con un messaggio chiaro invece del criptico errore
+    # .NET nativo (Get-M365OpsModuleConflictHint, Private).
     try {
-    if (-not (Get-Module -ListAvailable -Name MicrosoftTeams)) {
-        # BUG STRUTTURALE trovato il 22/08/2026: segnalato dal vivo un secondo blocco DOPO
-        # il fix -DisableWAM (v0.9.35), stavolta senza NEMMENO la riga di log "Import-Module
-        # MicrosoftTeams avviato" (la primissima diagnostica aggiunta, PRIMA di questo blocco
-        # nel codice) - prova che il blocco vero scattava ancora PIU' in alto, proprio qui:
-        # Install-Module senza -SkipPublisherCheck ne' TLS1.2/provider NuGet forzati (stesso
-        # irrobustimento gia' applicato altrove nel progetto - Bootstrap-Winget.ps1,
-        # Install-M365OpsPrerequisites.ps1, Show-M365OpsPrereqInstaller.ps1 - ma MAI qui, un
-        # fallback "al primo uso" scritto prima di quella disciplina) puo' restare in attesa
-        # di un prompt di conferma repository non attendibile mai mostrato in un processo
-        # server senza finestra visibile - bloccato per sempre, senza nessun errore ne' log,
-        # esattamente il sintomo descritto ("come prima il log non dice nulla"). Puo' capitare
-        # anche se il modulo era gia' stato installato dal GUI installer in un passaggio
-        # precedente, se per qualunque motivo quel passaggio non fosse riuscito per Teams
-        # specificamente su quel PC.
-        Write-M365OpsLog "Modulo MicrosoftTeams non trovato, lo installo (Install-Module)..."
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
-        if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
-            try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch {}
-        }
-        Install-Module MicrosoftTeams -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
-        Write-M365OpsLog "Modulo MicrosoftTeams installato."
-    }
-    # Log PRIMA dell'import (22/08/2026): un blocco segnalato dal vivo non aveva scritto
-    # NEMMENO la riga di diagnostica messa subito prima di Connect-MicrosoftTeams (vedi sotto)
-    # - possibile che il blocco vero scattasse gia' qui, dentro Import-Module stesso (il
-    # modulo MicrosoftTeams puo' inizializzare componenti nativi del broker WAM all'import,
-    # non solo alla connessione). Questa riga isola quale dei due e' il vero punto di blocco,
-    # la prossima volta che ricapita.
-    Write-M365OpsLog "Import-Module MicrosoftTeams avviato..."
-    Import-Module MicrosoftTeams -ErrorAction Stop
-    Write-M365OpsLog "Import-Module MicrosoftTeams completato."
-    $script:M365OpsTeamsModuleImported = $true
+    # Assert-M365OpsTeamsSafeVersion (Private) disinstalla/reinstalla se danneggiata, installa se
+    # mancante, la IMPORTA (i chiamanti non lo fanno piu' separatamente) e imposta
+    # $script:M365OpsTeamsModuleImported - stesso pattern di Assert-M365OpsExoSafeVersion.ps1,
+    # incluso il controllo di integrita' dei file (non solo la presenza del manifest) aggiunto
+    # dopo il bug reale "The given assembly name was invalid" trovato sul lato Exchange.
+    Assert-M365OpsTeamsSafeVersion
 
     if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
         if (-not $script:M365OpsContext.DelegatedUpn) {

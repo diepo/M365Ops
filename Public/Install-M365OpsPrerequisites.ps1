@@ -164,33 +164,33 @@ function Install-M365OpsPrerequisites {
     # "ma i moduli teams sharepoint graph etc ci sono????" - Graph non serve un modulo, questo
     # progetto lo chiama sempre via REST puro (Invoke-M365OpsGraphRequest), ma Teams/SharePoint/
     # PDF si', trovati con lo stesso grep sistematico gia' usato per Exchange/Excel/Intune):
-    # ExchangeOnlineManagement ha una RequiredVersion fissata (23/08/2026): 3.9.0 e' l'unica
-    # versione verificata dal vivo come conflict-free con MicrosoftTeams nello stesso processo
-    # (vedi Connect-M365OpsExchange.ps1 per il dettaglio completo della verifica) - dalla 3.10.0
-    # in poi il conflitto e' sistematico, indipendentemente dalla versione di Teams installata.
-    # Senza pin qui, questa funzione avrebbe installato "l'ultima disponibile" (quasi certamente
-    # 3.10.x+ su un'installazione nuova oggi), vanificando il pin gia' messo nelle cmdlet di
-    # connessione: PowerShell tiene versioni diverse dello stesso modulo in cartelle separate,
-    # ma Import-Module senza -RequiredVersion sceglie sempre la piu' recente installata - avere
-    # SOLO 3.10.x su disco avrebbe reso quel pin inutile (nessuna 3.9.0 da caricare).
-    # ExchangeOnlineManagement gestita a parte, PRIMA del ciclo generico sotto (23/08/2026,
-    # richiesto esplicitamente dall'utente: "se e' installata la 3.10 allora la disinstalla e
-    # mette la 3.9") - Assert-M365OpsExoSafeVersion non si limita a controllare/installare come
-    # il ciclo generico, disinstalla ATTIVAMENTE anche una eventuale versione >= 3.10.0 gia'
-    # presente sul disco (nota per andare in conflitto con MicrosoftTeams, vedi
-    # Connect-M365OpsExchange.ps1 e guida sezione 6.6).
+    # ExchangeOnlineManagement E MicrosoftTeams hanno ENTRAMBI una RequiredVersion fissata come
+    # COPPIA (25/08/2026: 3.1.0 + 6.5.0, Exchange connesso prima - vedi
+    # Assert-M365OpsExoSafeVersion.ps1/Assert-M365OpsTeamsSafeVersion.ps1 per il dettaglio
+    # completo di come si e' arrivati a questi due numeri specifici, dopo che un pin sulla sola
+    # ExchangeOnlineManagement 3.9.0 si era rivelato insufficiente). Senza pin qui, questa
+    # funzione avrebbe installato "l'ultima disponibile" per entrambi, vanificando il pin gia'
+    # messo nelle cmdlet di connessione: PowerShell tiene versioni diverse dello stesso modulo in
+    # cartelle separate, ma Import-Module senza -RequiredVersion sceglie sempre la piu' recente
+    # installata - avere SOLO l'ultima su disco avrebbe reso quel pin inutile.
+    # Gestiti a parte, PRIMA del ciclo generico sotto - Assert-M365Ops*SafeVersion non si limita
+    # a controllare/installare come il ciclo generico, verifica anche l'INTEGRITA' dei file (non
+    # solo la presenza del manifest, bug reale trovato il 25/08/2026) e, solo per Exchange,
+    # disinstalla ATTIVAMENTE anche una eventuale versione >= 3.10.0 gia' presente sul disco
+    # (nota per andare SEMPRE in conflitto con MicrosoftTeams, indipendentemente dalla sua
+    # versione - vedi guida sezione 6.6).
     # -InstallOnly: questa funzione gira ad OGNI avvio del server, prima che l'utente scelga se
-    # gli serve Teams o Exchange - importare il modulo qui (comportamento di default della
-    # funzione, usato invece dalle cmdlet di connessione vere) caricherebbe
-    # ExchangeOnlineManagement nel processo del server anche per chi vuole usare SOLO Teams in
-    # quella sessione, vedi Assert-M365OpsExoSafeVersion.ps1 per il dettaglio completo.
+    # gli serve Teams o Exchange - importare i moduli qui (comportamento di default di entrambe
+    # le funzioni, usato invece dalle cmdlet di connessione vere) caricherebbe entrambi nel
+    # processo del server anche per chi ne vuole usare SOLO uno in quella sessione, vedi
+    # Assert-M365OpsExoSafeVersion.ps1 per il dettaglio completo.
     $exoResult = Assert-M365OpsExoSafeVersion -InstallOnly
     if ($exoResult.RemovedVersions.Count -gt 0) { $installedSomething = $true }
     if ($exoResult.Installed) { $installedSomething = $true }
-    $exoNowPresent = [bool](Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object Version -eq '3.9.0')
+    $exoNowPresent = [bool](Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object Version -eq '3.1.0')
     $exoDetailParts = @()
     if ($exoResult.RemovedVersions.Count -gt 0) { $exoDetailParts += "Versione/i in conflitto rimossa/e: $($exoResult.RemovedVersions -join ', ')." }
-    $exoDetailParts += if ($exoNowPresent) { 'Versione 3.9.0 presente (fissata, vedi guida sezione 6.6).' } else { 'Versione 3.9.0 non rilevata dopo il tentativo di installazione - riprova o installa manualmente.' }
+    $exoDetailParts += if ($exoNowPresent) { 'Versione 3.1.0 presente (fissata, vedi guida sezione 6.6).' } else { 'Versione 3.1.0 non rilevata dopo il tentativo di installazione - riprova o installa manualmente.' }
     $results += [pscustomobject]@{
         Name   = 'Modulo ExchangeOnlineManagement (connessione Exchange Online)'
         Status = if ($exoNowPresent) { 'OK' } else { 'Failed' }
@@ -198,10 +198,19 @@ function Install-M365OpsPrerequisites {
         Detail = $exoDetailParts -join ' '
     }
 
+    $teamsResult = Assert-M365OpsTeamsSafeVersion -InstallOnly
+    if ($teamsResult.Installed) { $installedSomething = $true }
+    $teamsNowPresent = [bool](Get-Module -ListAvailable -Name MicrosoftTeams | Where-Object Version -eq '6.5.0')
+    $results += [pscustomobject]@{
+        Name   = 'Modulo MicrosoftTeams (connessione Teams)'
+        Status = if ($teamsNowPresent) { 'OK' } else { 'Failed' }
+        Action = if ($teamsResult.Installed) { 'Installazione/pulizia tentata (Assert-M365OpsTeamsSafeVersion).' } else { 'Gia'' presente nella versione corretta, nessuna azione necessaria.' }
+        Detail = if ($teamsNowPresent) { 'Versione 6.5.0 presente (fissata in coppia con ExchangeOnlineManagement 3.1.0, vedi guida sezione 6.6).' } else { 'Versione 6.5.0 non rilevata dopo il tentativo di installazione - riprova o installa manualmente.' }
+    }
+
     $moduleChecks = @(
         @{ Name = 'ImportExcel'; FriendlyName = 'Modulo ImportExcel (export report .xlsx)' }
         @{ Name = 'IntuneWin32App'; FriendlyName = 'Modulo IntuneWin32App (packaging app Win32 per Intune)' }
-        @{ Name = 'MicrosoftTeams'; FriendlyName = 'Modulo MicrosoftTeams (connessione Teams)' }
         @{ Name = 'PnP.PowerShell'; FriendlyName = 'Modulo PnP.PowerShell (connessione SharePoint)' }
         @{ Name = 'PdfLexer'; FriendlyName = 'Modulo PdfLexer (estrazione testo da PDF caricati nella Knowledge Base)' }
     )

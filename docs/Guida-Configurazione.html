@@ -214,10 +214,10 @@ Modulo M365Ops (Public/*.ps1, Private/*.ps1)                    │
 <tr><td>PowerShell 7+</td><td>esecuzione del modulo e del server web</td><td><code>pwsh -v</code></td><td><span class="badge done">sì</span> — <code>M365Ops.bat</code> lo controlla PRIMA di avviare qualsiasi altra cosa e lo installa da solo via winget se manca, con una finestra grafica dedicata (sezione 3.1)</td></tr>
 <tr><td>Node.js + npx</td><td>avvio del server MCP Lokka (<code>npx -y @merill/lokka</code>)</td><td><code>npx -v</code></td><td><span class="badge done">sì</span> — stessa finestra grafica di PowerShell 7, oppure pulsante "Installa automaticamente" nel banner delle Impostazioni (sezione 3.1)</td></tr>
 <tr><td>Modulo <code>ImportExcel</code></td><td>export report in formato .xlsx</td><td><code>Get-Module -ListAvailable ImportExcel</code></td><td><span class="badge done">sì</span> — stessa finestra grafica (sezione 3.1), fallback al primo uso se saltata</td></tr>
-<tr><td>Modulo <code>ExchangeOnlineManagement</code> — <span style="color:var(--warn);">⚠ VERSIONE FISSATA A 3.9.0</span></td><td>connessione a Exchange Online (app-only e delegata)</td><td><code>Get-Module -ListAvailable ExchangeOnlineManagement</code></td><td><span class="badge done">sì</span> — stessa finestra grafica (sezione 3.1), fallback al primo uso se saltata. <strong>Unico modulo di questa tabella con una versione fissata invece dell'ultima disponibile</strong>: dalla 3.10.0 in poi va in conflitto con <code>MicrosoftTeams</code> nello stesso processo server (sezione 6.6) — M365Ops installa/reinstalla sempre la 3.9.0 e rimuove attivamente qualunque versione ≥3.10.0 trovata sul disco ad ogni connessione. <strong>Non aggiornarlo mai manualmente</strong> (<code>Update-Module</code> o simili) senza prima ripetere la verifica di sezione 6.6 su una copia separata — vedi il riquadro sotto.</td></tr>
+<tr><td>Modulo <code>ExchangeOnlineManagement</code> — <span style="color:var(--warn);">⚠ VERSIONE FISSATA A 3.1.0</span></td><td>connessione a Exchange Online (app-only e delegata)</td><td><code>Get-Module -ListAvailable ExchangeOnlineManagement</code></td><td><span class="badge done">sì</span> — stessa finestra grafica (sezione 3.1), fallback al primo uso se saltata. <strong>Fissata in COPPIA con MicrosoftTeams 6.5.0</strong> (vedi sotto): verificata dal vivo priva del conflitto di sezione 6.6 quando Exchange si connette PRIMA di Teams — M365Ops installa/ripara sempre la 3.1.0 e rimuove attivamente qualunque versione ≥3.10.0 trovata sul disco ad ogni connessione. <strong>Non aggiornarlo mai manualmente</strong> (<code>Update-Module</code> o simili) senza prima ripetere la verifica di sezione 6.6 su una copia separata — vedi il riquadro sotto.</td></tr>
 <tr><td>Microsoft Edge</td><td>generazione PDF (report ed export, incl. questo documento) via <code>--headless --print-to-pdf</code></td><td>presente di default su Windows 11</td><td><span class="badge done">sì</span> — stessa finestra grafica di PowerShell 7/Node.js, utile solo su PC senza Edge preinstallato (raro su Windows 11)</td></tr>
 <tr><td>Modulo <code>IntuneWin32App</code></td><td>solo per <code>New-M365OpsWin32App</code> (packaging app Win32)</td><td><code>Get-Module -ListAvailable IntuneWin32App</code></td><td><span class="badge done">sì</span> — stessa finestra grafica (sezione 3.1), fallback al primo uso se saltata</td></tr>
-<tr><td>Modulo <code>MicrosoftTeams</code></td><td>connessione a Microsoft Teams</td><td><code>Get-Module -ListAvailable MicrosoftTeams</code></td><td><span class="badge done">sì</span> — stessa finestra grafica (sezione 3.1), fallback al primo uso se saltata</td></tr>
+<tr><td>Modulo <code>MicrosoftTeams</code> — <span style="color:var(--warn);">⚠ VERSIONE FISSATA A 6.5.0</span></td><td>connessione a Microsoft Teams</td><td><code>Get-Module -ListAvailable MicrosoftTeams</code></td><td><span class="badge done">sì</span> — stessa finestra grafica (sezione 3.1), fallback al primo uso se saltata. <strong>Fissata in COPPIA con ExchangeOnlineManagement 3.1.0</strong> (vedi sopra e sezione 6.6) — non aggiornarlo mai manualmente per lo stesso motivo.</td></tr>
 <tr><td>Modulo <code>PnP.PowerShell</code></td><td>connessione a SharePoint Online</td><td><code>Get-Module -ListAvailable PnP.PowerShell</code></td><td><span class="badge done">sì</span> — stessa finestra grafica (sezione 3.1), fallback al primo uso se saltata</td></tr>
 <tr><td>Modulo <code>PdfLexer</code></td><td>estrazione testo da PDF caricati nella Knowledge Base</td><td><code>Get-Module -ListAvailable PdfLexer</code></td><td><span class="badge done">sì</span> — stessa finestra grafica (sezione 3.1), fallback al primo uso se saltata</td></tr>
 </table>
@@ -228,26 +228,34 @@ da <code>Invoke-M365OpsGraphRequest</code>, un wrapper REST puro (<code>Invoke-R
 <div class="note">Tutti i moduli PowerShell mancanti vengono installati automaticamente al primo
 uso dalle rispettive cmdlet (<code>Install-Module ... -Scope CurrentUser</code>), non serve
 preinstallarli manualmente.</div>
-<div class="warn"><strong>⚠ Procedura per una futura versione di ExchangeOnlineManagement
-(leggere prima di cambiare il pin 3.9.0):</strong> non aggiornare mai il pin per assunzione o
-perche' "e' uscita una versione nuova". Prima di cambiarlo: (1) installare la nuova versione IN
-AFFIANCAMENTO a quella attuale su una macchina di test, mai sostituendola; (2) importare
-<code>MicrosoftTeams</code> e poi la nuova versione di <code>ExchangeOnlineManagement</code> nello
-STESSO processo PowerShell, e chiamare <code>Connect-ExchangeOnline</code> con un
-<code>-AppId</code>/<code>-CertificateThumbprint</code> anche finti (l'eventuale conflitto di
-assembly si manifesta PRIMA di qualunque validazione di rete, quindi non serve un tenant vero -
-vedi sezione 6.6 per il test esatto usato l'ultima volta); (3) solo se NESSUN errore
-"Could not load file or assembly" compare, aggiornare il numero <code>'3.9.0'</code> ovunque
-compaia nel codice (<code>Connect-M365OpsExchange.ps1</code>,
-<code>Connect-M365OpsCompliance.ps1</code>, <code>Complete-M365OpsExchangeDelegatedLogin.ps1</code>,
-<code>Assert-M365OpsExoSafeVersion.ps1</code>, <code>Install-M365OpsPrerequisites.ps1</code>,
+<div class="warn"><strong>⚠ Procedura per cambiare la coppia di versioni fissate ExchangeOnlineManagement
+3.1.0 / MicrosoftTeams 6.5.0 (leggere prima di toccare uno dei due pin):</strong> non aggiornare mai
+un pin per assunzione o perche' "e' uscita una versione nuova" - i due moduli vanno sempre
+riverificati INSIEME, mai uno alla volta (sezione 6.6: nessuna coppia di versioni condivide la
+stessa build della libreria di autenticazione condivisa, quindi ogni combinazione va testata dal
+vivo, non dedotta dai numeri di versione). Prima di cambiare: (1) installare le nuove versioni IN
+AFFIANCAMENTO a quelle attuali su una macchina di test, mai sostituendole; (2) in un processo
+PowerShell isolato, importare <code>ExchangeOnlineManagement</code> (nuova versione) e chiamare
+<code>Connect-ExchangeOnline</code>/<code>Connect-IPPSSession</code> con parametri anche finti
+(<code>-AppId</code>/<code>-CertificateThumbprint</code> e, separatamente,
+<code>-AccessToken</code> finto per il login delegato - l'eventuale conflitto di assembly si
+manifesta PRIMA di qualunque validazione di rete, quindi non serve un tenant vero); (3) SOLO se
+nessun errore "Could not load file or assembly"/"The given assembly name was invalid" compare in
+nessuno dei passaggi, importare <code>MicrosoftTeams</code> (nuova versione) DOPO Exchange e
+chiamare <code>Connect-MicrosoftTeams</code>, verificando che sia anch'esso pulito; (4) verificare
+anche che <code>-CertificateThumbprint</code>/<code>-Certificate</code>,
+<code>-AccessToken</code> e <code>-CertificateThumbprint</code> su
+<code>Connect-IPPSSession</code> esistano ancora come parametri nella nuova versione Exchange (in
+3.1.0, <code>Connect-IPPSSession</code> non supporta ancora nessun flusso delegato device-code -
+verificare se questo e' cambiato); (5) solo a questo punto aggiornare i numeri di versione ovunque
+compaiano nel codice (<code>Assert-M365OpsExoSafeVersion.ps1</code>,
+<code>Assert-M365OpsTeamsSafeVersion.ps1</code>, <code>Install-M365OpsPrerequisites.ps1</code>,
 <code>Show-M365OpsPrereqInstaller.ps1</code> - e la soglia <code>3.10.0</code> nella logica di
-disinstallazione attiva, se la nuova versione sicura non e' piu' quella immediatamente successiva);
-(4) verificare anche che <code>-CertificateThumbprint</code>/<code>-Certificate</code> e
-<code>-AccessToken</code> esistano ancora come parametri di <code>Connect-ExchangeOnline</code>
-nella nuova versione. Richiesto esplicitamente dall'utente il 23/08/2026, dopo aver trovato lui
-stesso l'errore nella prima diagnosi ("non e' che dipende da versioni diverse dei moduli?"): un
-processo scritto una volta, da ripetere identico ogni volta, invece di rifidarsi della memoria.</div>
+disinstallazione attiva di Exchange, se la nuova versione sicura non e' piu' quella immediatamente
+successiva). Richiesto esplicitamente dall'utente il 23/08/2026 e ribadito il 25/08/2026, dopo aver
+trovato lui stesso l'errore nella diagnosi due volte di seguito ("non e' che dipende da versioni
+diverse dei moduli?", poi "trova una soluzione con moduli piu' vecchi"): un processo scritto una
+volta, da ripetere identico ogni volta, invece di rifidarsi della memoria.</div>
 
 <h3>3.1 Controllo e installazione automatica (17/08/2026, unificata in una GUI il 22/08/2026)</h3>
 <p>Su richiesta esplicita, l'app non si limita a segnalare i prerequisiti mancanti: li installa
@@ -706,60 +714,79 @@ sessione del tenant precedente rimasto attivo per sbaglio (comunque corretto di 
 e' una soluzione completa al conflitto di assembly sopra. Se il problema si ripresenta passando
 da un tenant all'altro con AuthMode diversa, il riavvio del server resta l'unico rimedio certo.</div>
 
-<h3>6.6 Conflitto DIVERSO: MicrosoftTeams e ExchangeOnlineManagement - dipende dal PC, nessun ordine e' garantito, non piu' bloccato a priori (22/08/2026, storia completa fino al 24/08/2026)</h3>
+<h3>6.6 Conflitto DIVERSO: MicrosoftTeams e ExchangeOnlineManagement - RISOLTO fissando la coppia di versioni 3.1.0/6.5.0, Exchange connesso PRIMA (22/08/2026, risolto definitivamente 25/08/2026)</h3>
 <p>Un secondo conflitto di assembly, distinto da 6.5 (quello sopra e' fra due MODALITA' di
 autenticazione dello STESSO modulo Exchange; questo e' fra DUE MODULI diversi, indipendente
 dalla modalita' Delegata/App-only): connettersi a Microsoft Teams e poi a Exchange Online nello
-STESSO processo server (o viceversa) puo' fallire con un errore analogo -
+STESSO processo server (o viceversa) poteva fallire con un errore analogo -
 <code>Microsoft.IdentityModel.Abstractions</code> se Teams e' stato connesso per primo,
 <code>Microsoft.Identity.Client</code> se Exchange e' stato connesso per primo.</p>
-<div class="warn"><strong>Non c'e' un ordine di connessione ne' una versione (sotto 3.10.0) che sia
-affidabilmente sicura su ogni PC - dipende dalla combinazione esatta di versioni installate,
-diversa da macchina a macchina.</strong> Storia degli errori di diagnosi in questo punto, lasciata
-visibile perche' istruttiva: (1) creduto inizialmente un conflitto Microsoft inevitabile, in
-ENTRAMBE le direzioni, con qualunque versione; (2) l'utente ha corretto questa diagnosi ("ieri ho
-connesso tutto senza errori, non dipende dalla versione dei moduli?") - verificato che dalla
-versione <strong>3.10.0</strong> di ExchangeOnlineManagement in poi il conflitto e' effettivamente
-SEMPRE presente, in entrambe le direzioni, qualunque versione di Teams - quella parte resta vera e
-fissare la versione a 3.9.0 la elimina; (3) su due sole versioni di Teams testate (7.3.1, 7.9.0),
-l'ordine Teams-poi-Exchange sembrava invece SEMPRE sicuro con la 3.9.0 - una prima versione del
-codice rimuoveva quindi la guardia in quella direzione; (4) una matrice di test piu' ampia (Teams
-7.1.0/7.3.1/7.9.0 &times; Exchange 2.0.5/3.9.0, entrambi gli ordini, processi isolati separati) ha
-smentito anche questo: con Teams 7.1.0 + Exchange 3.9.0, ANCHE Teams-poi-Exchange va in conflitto.
-Nessuna regola basata solo sui numeri di versione ha retto a test piu' ampi - e l'utente stesso
-ricorda un'asimmetria OPPOSTA sulla propria macchina reale rispetto a quella riprodotta in fase di
-test, ulteriore conferma che il risultato dipende da fattori specifici del singolo PC (altre
-versioni installate, ordine storico di installazione, possibili installazioni residue in scope
-diversi - una delle macchine di test aveva scoperto un'installazione AllUsers preesistente e non
-rimovibile per permessi, un fattore di disturbo in piu' non replicabile a comando).</div>
-<div class="ok"><strong>Decisione finale, su richiesta esplicita dell'utente: MAI piu' bloccare un
-tentativo di connessione a priori.</strong> "Non voglio il safe guard, nelle versioni vecchie
-funzionava" - aveva ragione sul principio: dato che nessun ordine si e' dimostrato ne' sempre sicuro
-ne' sempre rotto, bloccare in anticipo un tentativo che su QUESTO PC, con QUESTE versioni
-installate, potrebbe funzionare benissimo e' un danno certo per evitare un rischio incerto.
-<code>Connect-M365OpsExchange.ps1</code>, <code>Connect-M365OpsCompliance.ps1</code>,
-<code>Complete-M365OpsExchangeDelegatedLogin.ps1</code> e <code>Connect-M365OpsTeams.ps1</code> non
-controllano piu' se l'altro modulo e' gia' caricato prima di provare - si tenta sempre la
-connessione vera. Se e SOLO se l'eccezione risultante e' davvero quel conflitto specifico
-(<code>Get-M365OpsModuleConflictHint</code>, funzione condivisa in <code>Private\</code> che
-riconosce il pattern "Could not load file or assembly" nel messaggio), viene rivestita con un
-messaggio leggibile e l'indicazione di riavviare il server - qualunque altro errore (incluso il
-successo) passa inalterato, senza filtri aggiuntivi. La versione di ExchangeOnlineManagement resta
-comunque FISSATA a 3.9.0 (<code>Assert-M365OpsExoSafeVersion</code>, che disinstalla anche
-attivamente qualunque versione &ge;3.10.0 trovata sul disco): quella soglia e' l'unica certezza
-solida di questo intero conflitto, e riduce il rischio anche se non lo azzera del tutto.</div>
-<div class="note"><strong>Cosa aspettarsi in pratica:</strong> su molti PC, Teams ed Exchange/Purview
-funzioneranno insieme nello stesso avvio del server senza mai vedere questo problema. Se lo vedi, il
-messaggio d'errore lo dice esplicitamente (nomina il conflitto e suggerisce il riavvio) invece di
-mostrare il criptico errore .NET nativo - riavvia il server (tab Manutenzione) e riprova, in
-qualunque ordine: non c'e' un ordine "giusto" da preferire, solo il riavvio che libera davvero il
-processo. Se hai gia' installato questo progetto e aggiorni da una versione precedente alla v0.9.41,
-la prima connessione Exchange/Teams dopo l'aggiornamento allinea da sola i moduli sul disco
-(installa/reinstalla la 3.9.0, rimuove una eventuale &ge;3.10.0) - <strong>ma serve un riavvio
-COMPLETO del processo server, non solo un refresh del browser</strong>: la pagina
-<code>index.html</code> (compresi questi avvisi) viene letta una sola volta all'avvio del server e
-tenuta in memoria per tutta la sua vita (sezione 12.2) - se dopo un aggiornamento non vedi ancora gli
-avvisi aggiornati qui sopra o nella GUI, il server non e' stato davvero riavviato dopo l'update.</div>
+<div class="warn"><strong>Storia completa della diagnosi, lasciata visibile perche' istruttiva -
+il percorso e' stato lungo e con piu' false piste corrette man mano dall'utente:</strong> (1)
+creduto inizialmente un conflitto Microsoft inevitabile, in ENTRAMBE le direzioni, con qualunque
+versione; (2) l'utente ha corretto questa diagnosi ("ieri ho connesso tutto senza errori, non
+dipende dalla versione dei moduli?") - confermato che dalla versione <strong>3.10.0</strong> di
+ExchangeOnlineManagement in poi il conflitto e' effettivamente SEMPRE presente, in entrambe le
+direzioni, qualunque versione di Teams - quella soglia resta vera; (3) un primo pin a 3.9.0 (senza
+pin su Teams) e' sembrato risolvere il problema su due versioni Teams testate, poi smentito da una
+matrice piu' ampia (Teams 7.1.0/7.3.1/7.9.0) - nessun ordine era affidabilmente sicuro con quel
+pin; (4) rimossa ogni guardia preventiva su richiesta dell'utente, sostituita con un messaggio
+reattivo; (5) l'utente ha insistito, correttamente, che "fino all'altro giorno" tutto funzionava
+in delegato/device-code, e ha guidato la ricerca verso versioni piu' vecchie di ENTRAMBI i moduli -
+analizzata la libreria di autenticazione condivisa (<code>Microsoft.Identity.Client.dll</code>)
+bundled in OGNI versione rilasciata di entrambi i moduli (16 versioni Exchange, 16 versioni Teams):
+nessuna coppia condivide la build esatta in nessun punto della storia di nessuno dei due moduli, ma
+la coppia <strong>ExchangeOnlineManagement 3.1.0 + MicrosoftTeams 6.5.0</strong>, con Exchange
+connesso PRIMA di Teams, e' risultata verificata come sicura in un test dal vivo completo di tutti
+i flussi del progetto (App-only, login delegato device-code via <code>-AccessToken</code>, Purview
+App-only, poi Teams App-only connesso dopo tutti e tre) - nessun conflitto in nessuno dei quattro
+passaggi, ripetuto due volte.</div>
+<div class="ok"><strong>Fissata la coppia di versioni, non solo una delle due</strong> (v0.9.47):
+<code>Assert-M365OpsExoSafeVersion</code> (ExchangeOnlineManagement 3.1.0) e
+<code>Assert-M365OpsTeamsSafeVersion</code> (MicrosoftTeams 6.5.0, nuova funzione) garantiscono
+entrambe che la propria versione sia installata E integra (stesso controllo di integrita' dei file,
+non solo del manifest, introdotto dopo il bug "The given assembly name was invalid" - vedi sotto),
+la importano e riparano da sole un'installazione danneggiata quando e' ancora possibile farlo (PRIMA
+di qualunque <code>Import-Module</code>). <code>Assert-M365OpsExoSafeVersion</code> disinstalla
+anche attivamente qualunque versione &ge;3.10.0 trovata sul disco - quella soglia resta l'unica
+certezza universale di questo conflitto, indipendente dalla versione di Teams. 3.1.0 e' stata scelta
+deliberatamente come la piu' vecchia versione ExchangeOnlineManagement che supporta TUTTO cio' che
+serve al progetto (<code>-CertificateThumbprint</code> per App-only, <code>-AccessToken</code> per
+il login delegato device-code, <code>-CertificateThumbprint</code> su <code>Connect-IPPSSession</code>
+per Purview App-only) - non e' stata scelta a caso, e' la piu' lontana possibile (in termini di
+eta'/dipendenze) dalla soglia 3.10.0. 6.5.0 e' stata preferita a 5.0.0 (anch'essa verificata sicura
+nella stessa coppia) perche' piu' recente a parita' di <code>Microsoft.Identity.Client</code>
+bundled (condiviso da tutte le versioni Teams 4.0.0-6.5.0) - piu' bugfix, e predata anche il
+passaggio di <code>Connect-MicrosoftTeams</code> a WAM come broker di default (sezione 10.6/17.14,
+introdotto in 7.8.1-preview), quindi non ne soffre per costruzione. La guardia preventiva resta
+rimossa (decisione dell'utente: "non voglio il safe guard, nelle versioni vecchie funzionava") -
+<code>Get-M365OpsModuleConflictHint</code> (Private) resta come rete di sicurezza reattiva per
+l'ordine inverso o per PC con versioni residue diverse.</div>
+<div class="warn"><strong>Limite reale scoperto durante la verifica, non un bug:</strong>
+<code>Connect-IPPSSession</code> (Purview) su ExchangeOnlineManagement 3.1.0 NON supporta nessun
+flusso delegato device-code/token (solo <code>-UserPrincipalName</code>/<code>-Credential</code> o i
+parametri App-only) - a differenza di <code>Connect-ExchangeOnline</code>, che sulla stessa versione
+supporta gia' <code>-AccessToken</code> perfettamente. Se provi Purview in modalita' Delegata su
+questa versione fissata, <code>Connect-M365OpsCompliance.ps1</code> lo segnala subito con un
+messaggio chiaro invece del criptico errore di parametro mancante - usa Purview in modalita' App-only
+se ti serve, oppure valuta se ti serve davvero Delegata per quello specifico servizio.</div>
+<div class="note"><strong>Regola pratica:</strong> connetti sempre Exchange (o Purview) PRIMA di
+Teams nella stessa sessione del server - in questo ordine, con questa coppia di versioni, funziona
+senza conflitti in ogni modalita' testata. Se hai gia' installato questo progetto e aggiorni da una
+versione precedente, la prima connessione Exchange/Teams dopo l'aggiornamento allinea da sola i
+moduli sul disco (installa/ripara le versioni corrette, rimuove una eventuale &ge;3.10.0) - <strong>
+ma serve un riavvio COMPLETO del processo server, non solo un refresh del browser</strong>: la
+pagina <code>index.html</code> (compresi questi avvisi) viene letta una sola volta all'avvio del
+server e tenuta in memoria per tutta la sua vita (sezione 12.2).</div>
+<div class="note"><strong>BUG DISTINTO scoperto durante questa indagine, gia' corretto:</strong>
+un errore separato, "The given assembly name was invalid.", poteva comparire anche SENZA alcun
+coinvolgimento di Teams - un'installazione locale di ExchangeOnlineManagement danneggiata
+(<code>Get-Module -ListAvailable</code> legge solo il manifest, non verifica che ogni DLL
+referenziata esista e sia integra). Entrambe le funzioni <code>Assert-M365Ops*SafeVersion</code> ora
+verificano l'integrita' dei file critici PRIMA di importare, quando e' ancora possibile ripararla -
+una volta che <code>Import-Module</code> ha caricato l'assembly nel processo, Windows blocca quei
+file a livello di file system e nemmeno <code>Remove-Item</code> puo' piu' toccarli, verificato dal
+vivo.</div>
 </section>
 
 <!-- ============================== 7 ============================== -->
@@ -1628,6 +1655,7 @@ Tutti e 5 verificati dal vivo dopo la correzione: profilo solo-certificato salva
 <tr><td>BUG REALE trovato dopo il fix precedente: la guardia anti-crash del 22/08/2026 era rimasta attiva anche nella direzione ormai sicura (Teams poi Exchange), bloccando esattamente quello che il pin 3.9.0 aveva appena risolto; scoperto anche che l'ordine INVERSO (Exchange poi Teams) resta rotto anche con la 3.9.0 (v0.9.43, 24/08/2026)</td><td><span class="badge done">corretto</span></td><td>L'utente ha segnalato dal vivo su v0.9.42: "sono alla 0.9.42 ma non vedo nella GUI l'avviso che dici e i due moduli sembra non convivere". Investigato prima di rispondere, non per ipotesi: (1) testato per la prima volta l'ordine INVERSO rispetto a tutti i test precedenti - Exchange 3.9.0 importato PRIMA, poi <code>Import-Module MicrosoftTeams</code> - risultato: <strong>fallisce comunque</strong> ("Could not load file or assembly Microsoft.Identity.Client... manifest definition does not match"), riprodotto anche con la 2.0.5 (la piu' vecchia disponibile) e con Teams 7.3.1/7.9.0 - il fix v0.9.41/42 copriva solo la direzione Teams-poi-Exchange, mai testata nell'altro verso. (2) Rileggendo <code>Connect-M365OpsExchange.ps1</code>/<code>Connect-M365OpsCompliance.ps1</code>/<code>Complete-M365OpsExchangeDelegatedLogin.ps1</code> con questo in mente: la guardia del 22/08/2026 (blocca SEMPRE se l'altro modulo e' gia' caricato, in QUALUNQUE direzione) era rimasta li' intatta anche dopo aver fissato la versione - bloccava quindi ANCHE la direzione Teams-poi-Exchange, ormai sicura, con lo stesso messaggio "nessuna soluzione lato modulo" che pero' non era piu' vero per quella direzione. Root cause reale del sintomo segnalato: non un problema di versione moduli ne' di GUI non aggiornata, ma una guardia dimenticata che bloccava un caso ormai risolto. Rimossa la guardia da tutti e tre i punti che importano ExchangeOnlineManagement (verificato dal vivo, non solo letto: chiamate reali a <code>Connect-M365OpsTeams</code> poi <code>Connect-M365OpsExchange</code> attraverso il modulo vero, con un tenant finto - nessun blocco, fallisce pulito solo sul certificato finto). La guardia RESTA invece, aggiornata con un messaggio piu' azionabile ("riavvia e riparti da Teams"), nell'UNICA direzione dove serve davvero: <code>Connect-M365OpsTeams.ps1</code>, quando Exchange e' gia' stato caricato prima (verificato che continua a bloccare correttamente in quel caso). Avvisi in GUI e sezione 6.6 riscritti per riflettere lo stato reale: ordine Teams-poi-Exchange sicuro senza riavvii, ordine inverso richiede ancora un riavvio. <strong>Sulla domanda "non vedo l'avviso in GUI"</strong>: <code>index.html</code> viene letto una sola volta all'avvio del server e tenuto in memoria per tutta la sua vita (sezione 12.2, gia' documentato) - un aggiornamento dei file da solo non basta, serve un riavvio COMPLETO del processo server (tab Manutenzione o "M365Ops - Termina e riavvia") perche' la pagina rilegga il file aggiornato; probabile spiegazione di quel sintomo specifico, ora esplicitata anche in guida.</td></tr>
 <tr><td>CORREZIONE della correzione precedente, stesso giorno: nessun ordine di connessione si e' rivelato affidabilmente sicuro - rimossa OGNI guardia preventiva, sostituita con un messaggio chiaro SOLO se il conflitto scatta davvero (v0.9.44, 24/08/2026)</td><td><span class="badge done">corretto</span></td><td>L'utente ha messo in dubbio la v0.9.43 subito dopo averla vista: "non c'e' magari una versione un po' piu' vecchia che non soffre di sto problema? prima sulla mia macchina funzionava in qualunque direzione, tra l'altro il problema prima era inverso (Exchange-poi-Teams funzionava, Teams-poi-Exchange no)". Prima di rispondere, eseguita una matrice di test molto piu' ampia della precedente: 2 versioni Exchange (2.0.5, 3.9.0) &times; 3 versioni Teams (7.1.0, 7.3.1, 7.9.0) &times; 2 ordini = 12 combinazioni, ciascuna in un processo pwsh.exe isolato separato, con chiamate REALI a <code>Connect-ExchangeOnline</code>/<code>Connect-MicrosoftTeams</code> (credenziali finte). Risultato inatteso: con Teams 7.1.0 + Exchange 3.9.0, ANCHE l'ordine Teams-poi-Exchange (quello su cui si basava tutta la v0.9.43) va in conflitto - la regola "Teams prima e' sempre sicuro col pin 3.9.0" non regge, smentita da una terza versione di Teams mai testata prima. Scoperta anche una causa di disturbo concreta sulla macchina di sviluppo: un'installazione AllUsers di ExchangeOnlineManagement preesistente sotto <code>C:\Program Files\WindowsPowerShell\Modules\</code>, non rimovibile per permessi insufficienti, mescolata con le installazioni CurrentUser fatte durante i test - un fattore ambientale che rende ancora meno affidabile fidarsi di un singolo ordine come regola universale. L'utente ha risposto con nettezza quando ha visto la guardia bidirezionale ripristinata: "non voglio il safe guard, nelle versioni vecchie funzionava" - aveva ragione sul principio, non solo sul ricordo: dato che nessun ordine si e' dimostrato ne' sempre sicuro ne' sempre rotto, bloccare A PRIORI un tentativo che su un PC specifico potrebbe funzionare e' un danno certo per evitare un rischio incerto. <strong>Cambio di approccio, non solo di soglia</strong>: rimossa ogni guardia preventiva ("l'altro modulo e' gia' caricato, blocco senza nemmeno provare") da tutti e quattro i punti di connessione (<code>Connect-M365OpsExchange.ps1</code>, <code>Connect-M365OpsCompliance.ps1</code>, <code>Complete-M365OpsExchangeDelegatedLogin.ps1</code>, <code>Connect-M365OpsTeams.ps1</code>) - si tenta sempre la connessione vera, in qualunque ordine. Nuova funzione condivisa <code>Get-M365OpsModuleConflictHint</code> (<code>Private/Get-M365OpsModuleConflictHint.ps1</code>): riconosce il pattern "Could not load file or assembly" nel messaggio di un'eccezione REALE (non prevista in anticipo) e lo riveste con un messaggio leggibile + indicazione di riavviare il server, SOLO quando il conflitto scatta davvero - qualunque altro errore (incluso il successo) passa inalterato. La versione FISSATA a 3.9.0 resta invariata (unica certezza solida: dalla 3.10.0 in poi il conflitto e' sempre presente, senza eccezioni in nessun test) insieme alla disinstallazione attiva di versioni &ge;3.10.0 gia' presenti. Verificato dal vivo: chiamate reali a <code>Connect-M365OpsTeams</code> poi <code>Connect-M365OpsExchange</code> e viceversa attraverso il modulo vero (tenant finto) - in entrambi gli ordini nessun blocco preventivo, fallisce pulito solo sulle credenziali finte; <code>Get-M365OpsModuleConflictHint</code> testata a parte con un messaggio sintetico che replica esattamente il pattern del conflitto reale, riconosciuto correttamente, e con un messaggio di errore non correlato, ignorato correttamente. Avvisi in GUI e sezione 6.6 riscritti un'ultima volta per riflettere questo: nessun ordine "giusto" da consigliare, solo "se vedi questo errore specifico, riavvia e riprova".</td></tr>
 <tr><td>BUG DISTINTO trovato lo stesso giorno: "The given assembly name was invalid." su Exchange dopo un riavvio pulito, SENZA Teams coinvolto - non era il conflitto Teams/Exchange ma un'installazione locale di ExchangeOnlineManagement danneggiata, ora rilevata e riparata PRIMA che diventi irreparabile (v0.9.46, 25/08/2026)</td><td><span class="badge done">corretto</span></td><td>L'utente ha segnalato dal vivo: "connesso teams, vado su exch e ho questo errore: The given assembly name was invalid." - poi, dopo un riavvio del server SENZA mai toccare Teams, lo stesso identico errore su Exchange da solo, dimostrando che NON era (sempre) il conflitto di sezione 6.6. Riprodotto dal vivo su questa macchina di sviluppo cancellando deliberatamente <code>Microsoft.Identity.Client.dll</code> dalla cartella di installazione di ExchangeOnlineManagement 3.9.0: <code>Get-Module -ListAvailable</code> continuava a segnalare la versione come "presente" (legge solo il manifest .psd1, non verifica che ogni DLL referenziata esista), e perfino <code>Import-Module</code> riusciva SENZA errori (non carica ogni DLL referenziata, solo l'assembly principale) - l'errore compariva SOLO al vero tentativo di <code>Connect-ExchangeOnline</code>, quando il modulo tenta di caricare pigramente quella dipendenza per l'autenticazione. Un primo tentativo di riparazione "in-process" (rilevare l'errore dentro il blocco catch della connessione, cancellare e reinstallare, poi riprovare) e' stato scritto, testato dal vivo e SCARTATO lo stesso giorno: una volta che <code>Import-Module</code> ha caricato l'assembly principale nel processo, Windows blocca quei file a livello di file system - nemmeno <code>Remove-Item</code> riesce piu' a toccarli (stesso identico vincolo gia' visto per il conflitto Teams/Exchange: un assembly caricato non si puo' piu' scaricare, ma qui il blocco e' ancora piu' basso, a livello di file, non solo di AppDomain .NET). <strong>Fix vero, spostato PRIMA del problema invece di provare a inseguirlo dopo</strong>: <code>Assert-M365OpsExoSafeVersion</code> (chiamata SEMPRE da tutti i punti di connessione PRIMA di qualunque <code>Import-Module</code>, quando i file non sono ancora bloccati da nessuno) ora verifica l'INTEGRITA' dei file critici (il modulo principale e <code>Microsoft.Identity.Client.dll</code>, non solo la presenza del manifest) - se mancano o sono vuoti, tratta l'installazione come "da reinstallare" esattamente come farebbe per una versione assente, cancellandola e installandola di nuovo PRIMA che qualunque <code>Import-Module</code> possa bloccarla. Nuova funzione <code>Private/Invoke-M365OpsWithExoRepairRetry.ps1</code> aggiunta come rete di sicurezza SECONDARIA (avvolge le chiamate reali <code>Connect-ExchangeOnline</code>/<code>Connect-IPPSSession</code>) per il caso raro in cui il danno avvenga DOPO che il modulo e' gia' stato importato in quella sessione - li' una riparazione vera non e' possibile (stesso motivo sopra), il messaggio segnala chiaramente il problema e la necessita' di un riavvio invece del criptico errore .NET nativo. Bug collaterale corretto nello stesso giro: il messaggio composto da questa rete di sicurezza veniva a sua volta intercettato e sovrascritto da <code>Get-M365OpsModuleConflictHint</code> (perche' conteneva anch'esso la frase-innesco come sottostringa) - aggiunta una frase-sentinella per evitare il doppio rivestimento. <strong>Verificato dal vivo, non per lettura del codice</strong>, con un ciclo di test completo: cancellato il file critico, chiamata la funzione vera <code>Connect-M365OpsExchange</code> attraverso il modulo in un processo fresco (non ancora importato) - rilevato e riparato PRIMA dell'import, connessione proseguita fino al normale errore di certificato finto invece del criptico errore di assembly.</td></tr>
+<tr><td>RISOLTO DAVVERO il conflitto MicrosoftTeams/ExchangeOnlineManagement: fissata la coppia ExchangeOnlineManagement 3.1.0 + MicrosoftTeams 6.5.0 (Exchange connesso prima), verificata dal vivo priva del conflitto in ogni flusso del progetto incluso il login delegato device-code (v0.9.47, 25/08/2026)</td><td><span class="badge done">corretto</span></td><td>L'utente ha rifiutato la conclusione precedente ("nessuna coppia e' affidabile, si gestisce solo l'errore quando capita"), insistendo correttamente: "l'abbiamo usato fino all'altro giorno! qualche versione supporta il device code? hai eseguito test reali con moduli exchange 3 e teams leggermente piu' vecchi?" Aveva ragione a insistere - non erano ancora stati testati Exchange "serie 3" con Teams di eta' comparabile, solo Exchange serie 2/3.9 contro Teams molto piu' recente. Prima di implementare, una domanda intermedia dell'utente ("puo' essere un problema di ORDINE DI IMPORT, non di connessione?" dopo aver letto un suggerimento online) e' stata verificata dal vivo e scartata: import Exchange poi Teams, ma CONNECT in ordine inverso (Teams prima) - fallisce comunque, confermando che conta l'ordine con cui si CONNETTE (si tocca per la prima volta la libreria di autenticazione condivisa), non l'ordine con cui si IMPORTA il modulo. Trovato poi che ExchangeOnlineManagement 3.1.0 e' la piu' vecchia versione con TUTTO cio' che serve (<code>-AccessToken</code> per il device-code, aggiunto fra 3.0.0 e 3.1.0; <code>-CertificateThumbprint</code> su <code>Connect-IPPSSession</code> per Purview, presente da 3.0.0) - testata dal vivo in coppia con Teams 5.0.0 e 6.5.0 (stesso <code>Microsoft.Identity.Client</code> 4.29.0.0 bundled in tutta la fascia Teams 4.0.0-6.5.0): con Exchange connesso PRIMA, tutti e quattro i passaggi del progetto (App-only certificato, delegato device-code via <code>-AccessToken</code>, Purview App-only via <code>Connect-IPPSSession</code>, poi Teams App-only connesso dopo tutti e tre) risultano puliti, senza alcun conflitto - ripetuto due volte per escludere un caso fortuito, poi ripetuto una terza volta con Teams 6.5.0 (preferita a 5.0.0 per piu' bugfix a parita' di libreria condivisa, e perche' predata il passaggio a WAM come broker di default in Teams 7.8.1-preview, sezione 10.6/17.14). <strong>Fissata la COPPIA di versioni, non solo una</strong>: nuova funzione <code>Private/Assert-M365OpsTeamsSafeVersion.ps1</code> (stesso pattern di <code>Assert-M365OpsExoSafeVersion.ps1</code>, incluso il controllo di integrita' dei file introdotto nel fix precedente) garantisce che MicrosoftTeams 6.5.0 sia installata, integra e importata prima di ogni connessione - richiamata da <code>Connect-M365OpsTeams.ps1</code> e, in modalita' solo-installazione, da <code>Install-M365OpsPrerequisites.ps1</code>. <strong>Limite reale scoperto durante la verifica, non un bug</strong>: <code>Connect-IPPSSession</code> su 3.1.0 non supporta ALCUN flusso delegato device-code/token (solo <code>-UserPrincipalName</code>/<code>-Credential</code> o i parametri App-only) - <code>Connect-M365OpsCompliance.ps1</code> ora lo rileva e lo segnala con un messaggio chiaro invece del criptico errore di parametro mancante, invece di fingere che funzioni. Bug collaterale corretto nello stesso giro: <code>-ShowBanner</code> non esiste su <code>Connect-IPPSSession</code> in 3.1.0 (esiste invece su <code>Connect-ExchangeOnline</code>, da sempre) - controllato dinamicamente come gia' fatto per <code>-DisableWAM</code> in <code>Connect-M365OpsTeams.ps1</code>, invece di assumere che ogni cmdlet del modulo condivida lo stesso set di parametri. <strong>Verificato dal vivo end-to-end attraverso le funzioni reali del modulo</strong> (non solo con chiamate dirette alle cmdlet Microsoft): <code>Connect-M365OpsExchange</code> (App-only), <code>Connect-M365OpsCompliance</code> (App-only e delegato), <code>Complete-M365OpsExchangeDelegatedLogin</code> (percorso <code>-AccessToken</code> esatto usato in produzione), poi <code>Connect-M365OpsTeams</code> connesso DOPO tutti e tre - nessun blocco, nessun conflitto, ogni chiamata fallisce pulita solo sulle credenziali finte usate per il test. Macchina di sviluppo riallineata alla coppia corretta (rimossa ogni altra versione installata durante l'indagine).</td></tr>
 </table>
 </section>
 

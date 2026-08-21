@@ -25,32 +25,31 @@ function Connect-M365OpsExchange {
     # storia completa perche' il ragionamento conta quanto il codice qui: (1) guardia
     # PREVENTIVA aggiunta il 22/08/2026 ("l'altro modulo e' gia' caricato, blocco a priori");
     # (2) rimossa il 24/08/2026 credendo, su due sole versioni Teams testate, che Teams-poi-
-    # Exchange fosse sempre sicuro col pin a 3.9.0 sotto; (3) ripristinata poche ore dopo quando
-    # una matrice di test piu' ampia (Teams 7.1.0/7.3.1/7.9.0 x Exchange 2.0.5/3.9.0) ha mostrato
-    # che NESSUN ordine e' affidabilmente sicuro - dipende da combinazioni di versione non
-    # prevedibili; (4) RIMOSSA DI NUOVO, stavolta in modo definitivo, su richiesta esplicita
-    # dell'utente: "non voglio il safe guard, nelle versioni vecchie funzionava in qualunque
-    # direzione". Aveva ragione sul principio, non solo sul ricordo specifico: dato che nessun
-    # ordine si e' dimostrato ne' sempre sicuro ne' sempre rotto, bloccare A PRIORI un tentativo
-    # che su QUESTO PC, con QUESTE versioni installate, magari funzionerebbe benissimo, e' un
-    # danno certo per evitare un rischio incerto - l'esatto opposto di quello che vuole l'utente.
-    # Il modulo NON viene piu' bloccato prima di provare: si prova sempre, e SOLO se l'eccezione
-    # e' davvero quel conflitto specifico (Get-M365OpsModuleConflictHint, Private) viene
-    # rivestita con un messaggio leggibile invece del criptico ".NET FileLoadException" nativo -
-    # qualunque altro errore (incluso il successo) passa inalterato.
-    $script:M365OpsExoSafeVersion = '3.9.0'
+    # Exchange fosse sempre sicuro col pin a 3.9.0; (3) ripristinata poche ore dopo quando una
+    # matrice di test piu' ampia (Teams 7.1.0/7.3.1/7.9.0 x Exchange 2.0.5/3.9.0) ha mostrato che
+    # NESSUN ordine era affidabilmente sicuro CON QUELLA VERSIONE - dipendeva da combinazioni di
+    # versione non prevedibili; (4) rimossa di nuovo su richiesta esplicita dell'utente ("non
+    # voglio il safe guard, nelle versioni vecchie funzionava"), sostituita con un messaggio
+    # reattivo (Get-M365OpsModuleConflictHint) invece di un blocco preventivo; (5) FISSATA LA
+    # COPPIA GIUSTA il 25/08/2026, dopo che l'utente ha insistito correttamente che "fino
+    # all'altro giorno" tutto funzionava - Exchange 3.1.0 + Teams 6.5.0 (Exchange connesso
+    # PRIMA) verificata dal vivo come priva del conflitto in ogni flusso del progetto (vedi
+    # Assert-M365OpsExoSafeVersion.ps1 per il dettaglio completo di come si e' arrivati a questa
+    # coppia). Il try/catch sotto resta comunque come rete di sicurezza per l'ordine inverso o
+    # per PC con altre versioni residue - qualunque altro errore (incluso il successo) passa
+    # inalterato.
     try {
-        # Versione FISSATA a 3.9.0, non "l'ultima disponibile": dalla 3.10.0 in poi il conflitto
-        # sopra e' SEMPRE presente, in entrambe le direzioni, con ogni versione di Teams testata
-        # (riprodotto l'errore esatto originariamente segnalato dall'utente con Teams 7.9.0 +
-        # Exchange 3.10.1) - quella soglia e' certa e va sempre evitata, a differenza dell'esito
-        # sotto la 3.10.0 che dipende dalla combinazione di versioni. 3.9.0 supporta comunque
-        # tutto cio' che serve a questo progetto: -CertificateThumbprint/-Certificate (App-only,
-        # verificato) e -AccessToken (login delegato, verificato) sono entrambi presenti.
+        # Versione FISSATA a 3.1.0 - vedi Assert-M365OpsExoSafeVersion.ps1 per il dettaglio
+        # completo del perche' questa versione specifica (in coppia con MicrosoftTeams 6.5.0,
+        # connesso dopo). Dalla 3.10.0 in poi il conflitto e' SEMPRE presente, in entrambe le
+        # direzioni, con ogni versione di Teams testata - quella soglia va sempre evitata. 3.1.0
+        # supporta tutto cio' che serve a questo progetto: -CertificateThumbprint/-Certificate
+        # (App-only), -AccessToken (login delegato device-code) e CertificateThumbprint su
+        # Connect-IPPSSession (Purview) - tutti verificati dal vivo.
         # Assert-M365OpsExoSafeVersion (Private) disinstalla anche attivamente una eventuale
-        # versione >= 3.10.0 gia' presente sul disco, installa la 3.9.0 se manca, la IMPORTA
+        # versione >= 3.10.0 gia' presente sul disco, installa la 3.1.0 se manca, la IMPORTA
         # (i chiamanti non lo fanno piu' separatamente) e ripara da sola un'installazione locale
-        # corrotta se ne trova una (25/08/2026) - vedi quel file per il dettaglio completo.
+        # corrotta se ne trova una - vedi quel file per il dettaglio completo.
         Assert-M365OpsExoSafeVersion
 
         if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
