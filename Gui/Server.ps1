@@ -1999,7 +1999,13 @@ try {
             # non uccideva mai realmente il sottoprocesso Lokka (npx), lasciandolo orfano.
             # Corretto usando la funzione ponte gia' esistente (stesso pattern di
             # Get-M365OpsActiveTenantInfo) invece di leggere la variabile fuori scope.
-            Disconnect-M365OpsLokka
+            # Disconnect-M365OpsAllMcpServers, non solo Disconnect-M365OpsLokka (26/08/2026):
+            # da quando i processi MCP sono isolati per tenant e restano vivi in background
+            # tra un cambio profilo e l'altro (vedi Connect-M365OpsMcpServer.ps1), un riavvio
+            # vero del server deve comunque fermarli TUTTI (di ogni tenant visitato in questa
+            # sessione, non solo quello attivo ora) prima di uscire dal processo, altrimenti
+            # restano orfani esattamente come il bug originale che questo blocco correggeva.
+            Disconnect-M365OpsAllMcpServers
             $listener.Stop()
             $exePath = (Get-Process -Id $PID).Path
             # BUG corretto: passava sempre $TenantProfile (il parametro di avvio originale,

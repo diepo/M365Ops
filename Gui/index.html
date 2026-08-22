@@ -420,8 +420,7 @@
     </div>
 
     <h2 style="margin-top:20px;">Altri server MCP</h2>
-    <p class="hint">Ogni server qui sotto è collegato al motore di ragionamento in chat con lo stesso livello di sicurezza di Lokka — le letture sono dirette, ogni scrittura passa sempre da una proposta con conferma esplicita dell'utente. Clicca "Connetti/Test" dopo averne salvato uno nuovo (o dopo aver cambiato tenant) per verificarlo e vederne i tool disponibili.</p>
-    <p class="hint"><b>CLI Microsoft 365</b> — copre Entra ID, Outlook, Planner, OneDrive, Purview (ricerca conformità), Teams lato Graph (app/riunioni/chat, MAI criteri di riunione/chiamata). NON copre Exchange profondo (mailbox/gruppi/regole) né Intune (resta tutto sui moduli esistenti) — SharePoint richiede login a certificato, non ancora supportato qui (il login a client secret di questo tenant lo rifiuta sempre). M365Ops installa da solo il prerequisito (<code>npm install -g @pnp/cli-microsoft365</code>) al primo "Connetti/Test" se manca — ma essendo un programma npm, la primissima volta serve comunque un riavvio COMPLETO dopo l'installazione: chiudi tutto e riapri dal collegamento sul Desktop, non basta "Riavvia server" (Windows non rende visibile un programma npm appena installato a un processo già in esecuzione). <b>Il server è a thread singolo</b>: mentre "Connetti/Test" è in corso (può richiedere parecchi secondi al primo utilizzo, tra installazione ed eventuale scaricamento npx) il resto dell'app resta bloccato per chiunque lo stia usando — clicca e aspetta senza ricaricare la pagina, stesso principio già valido per Teams/SharePoint/Intune su tenant Delegati.</p>
+    <p class="hint">Configurazione (nome/comando/argomenti) di ogni server MCP oltre a Lokka, specifica del TENANT ATTIVO come tutto il resto di questa pagina. Ogni server è collegato al motore di ragionamento in chat con lo stesso livello di sicurezza di Lokka — le letture sono dirette, ogni scrittura passa sempre da una proposta con conferma esplicita dell'utente. <b>Per connetterti/testare</b> vai al tab Tenant, sezione "Stato connessioni" — essendo specifico del tenant attivo, il pulsante "Connetti/Test" vive là insieme a Exchange/SharePoint/Teams/Purview/Intune, non qui.</p>
     <div id="other-mcp-list" class="hint">nessun altro server configurato</div>
     <div id="new-mcp-form">
       <div>
@@ -1560,50 +1559,18 @@
       if (others.length === 0) {
         listEl.textContent = 'nessun altro server configurato';
       } else {
+        // Nessun pulsante "Connetti/Test" qui (26/08/2026, rimosso su richiesta esplicita
+        // dell'utente: "il server MCP è specifico del tenant, mettilo sotto la GUI Tenant non
+        // sotto Connettori") - solo stato di sola lettura + rimozione configurazione. Il
+        // pulsante per connettersi davvero vive nel tab Tenant (sezione Stato connessioni),
+        // insieme a Exchange/SharePoint/Teams/Purview/Intune, con cui condivide lo stesso
+        // principio "specifico del tenant attivo".
         listEl.innerHTML = others.map(s => {
           const st = statusByName[s.name];
           const statusText = st && st.connected ? `${statusDot(true)}connesso — ${st.toolCount} tool` : `${statusDot(false)}non connesso`;
           return `<div class="status-row"><strong>${s.name}</strong> — ${s.command} ${s.args}<br>${statusText}
-            <button data-mcpname="${s.name}" class="connect-mcp-btn" style="margin-left:8px; font-size:11px; padding:2px 8px;">Connetti/Test</button>
-            <button data-mcpname="${s.name}" class="remove-mcp-btn" style="margin-left:4px; font-size:11px; padding:2px 8px;">Rimuovi</button>
-            <span class="connect-mcp-status" data-mcpname="${s.name}" style="margin-left:6px;"></span></div>`;
+            <button data-mcpname="${s.name}" class="remove-mcp-btn" style="margin-left:8px; font-size:11px; padding:2px 8px;">Rimuovi</button></div>`;
         }).join('');
-        listEl.querySelectorAll('.connect-mcp-btn').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            const name = btn.dataset.mcpname;
-            const statusSpan = listEl.querySelector(`.connect-mcp-status[data-mcpname="${CSS.escape(name)}"]`);
-            // CLI Microsoft 365 su tenant Delegato (26/08/2026): il primo login usa
-            // 'm365 login --authType browser', che apre un vero browser e BLOCCA l'intero
-            // server (a thread singolo) finche' l'utente non lo completa - stesso principio
-            // gia' applicato a Teams/SharePoint/Intune delegati, conferma esplicita PRIMA di
-            // avviarlo, mai un login automatico silenzioso.
-            let allowInteractive = false;
-            if (name === 'CLI-Microsoft365' && statusData.authMode === 'Delegated') {
-              const proceed = confirm('Si aprirà una finestra del browser per il login: il server resterà bloccato per tutti finché non lo completi (limite della CLI, non risolvibile come per Exchange). Necessario solo la prima volta per questo profilo - le volte successive riattiva la connessione già salvata senza bloccare nulla. Procedere?');
-              if (!proceed) return;
-              allowInteractive = true;
-            }
-            btn.disabled = true;
-            statusSpan.textContent = allowInteractive ? 'apertura browser in corso... il server è bloccato finché non completi il login nella finestra appena aperta' : 'connessione in corso...';
-            try {
-              const res = await fetch('/api/mcp-servers/connect', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, allowInteractive })
-              });
-              const data = await res.json();
-              statusSpan.textContent = data.text || (data.ok ? 'Fatto.' : 'Errore sconosciuto.');
-            } catch (e) {
-              statusSpan.textContent = 'Errore: ' + e.message;
-            }
-            btn.disabled = false;
-            // Bug reale trovato dal vivo il 26/08/2026: loadMcpServers() rigenera l'INTERA
-            // lista (listEl.innerHTML = ...), quindi chiamarla subito dopo aver scritto il
-            // messaggio di esito lo cancellava all'istante, prima che l'utente potesse
-            // leggerlo - un ritardo breve lascia il messaggio visibile un momento prima che
-            // il pallino di stato si aggiorni.
-            setTimeout(loadMcpServers, 2500);
-          });
-        });
         listEl.querySelectorAll('.remove-mcp-btn').forEach(btn => {
           btn.addEventListener('click', async () => {
             if (!confirm(`Rimuovere il server MCP "${btn.dataset.mcpname}"?`)) return;

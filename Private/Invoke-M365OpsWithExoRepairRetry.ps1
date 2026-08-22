@@ -52,10 +52,15 @@ function Invoke-M365OpsWithExoRepairRetry {
             throw
         }
 
+        # $safeVersion RIMOSSO (26/08/2026): era rimasta una '3.9.0' hardcoded, gia' allora
+        # disallineata dal pin reale in vigore (3.4.0) - da quando Assert-M365OpsExoSafeVersion
+        # non pinna piu' una versione specifica (installa/tiene sempre l'ultima disponibile,
+        # vedi quel file per il perche'), qualunque versione fissata qui sarebbe comunque
+        # sbagliata per definizione. Ripara rimuovendo OGNI copia installata (non solo una
+        # versione specifica) e reinstallando l'ultima disponibile, stessa filosofia.
         Write-M365OpsLog "Connessione Exchange fallita con un errore tipico di installazione danneggiata ($msg), e MicrosoftTeams non e' caricato in questa sessione (quindi non puo' essere il conflitto noto) - riparo l'installazione su disco per il prossimo tentativo (un retry immediato nello stesso processo non puo' funzionare, .NET non scarica mai un assembly gia' caricato)."
-        $safeVersion = [version]'3.9.0'
         Remove-Module -Name ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
-        $copies = @(Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object Version -eq $safeVersion)
+        $copies = @(Get-Module -ListAvailable -Name ExchangeOnlineManagement)
         $removalFailed = $false
         foreach ($copy in $copies) {
             try { Remove-Item -Path $copy.ModuleBase -Recurse -Force -ErrorAction Stop }
@@ -69,12 +74,12 @@ function Invoke-M365OpsWithExoRepairRetry {
         if (-not $removalFailed) {
             try {
                 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
-                Install-Module ExchangeOnlineManagement -RequiredVersion $safeVersion -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
-                Write-M365OpsLog "ExchangeOnlineManagement $safeVersion reinstallato sul disco - servira' un riavvio del server per usarlo in questo processo."
+                Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+                Write-M365OpsLog "ExchangeOnlineManagement reinstallato sul disco (ultima versione disponibile) - servira' un riavvio del server per usarlo in questo processo."
             }
             catch {
                 $repairOk = $false
-                Write-M365OpsLog "Reinstallazione di ExchangeOnlineManagement $safeVersion fallita: $($_.Exception.Message)"
+                Write-M365OpsLog "Reinstallazione di ExchangeOnlineManagement fallita: $($_.Exception.Message)"
             }
         }
         else {
@@ -85,8 +90,8 @@ function Invoke-M365OpsWithExoRepairRetry {
             throw "Connessione a Exchange Online fallita per un'installazione locale del modulo ExchangeOnlineManagement danneggiata (errore .NET: $msg) - probabilmente un file mancante o incompleto, non il conflitto con Teams (Teams non e' caricato in questa sessione). Il modulo e' stato reinstallato pulito sul disco, ma .NET non puo' scaricare un assembly gia' caricato in QUESTO processo: riavvia il server (pulsante Manutenzione, o 'M365Ops - Termina e riavvia' sul Desktop se non risponde) e riprova - la connessione dovrebbe funzionare nel nuovo processo."
         }
         else {
-            $manualCmd1 = "Get-Module -ListAvailable ExchangeOnlineManagement | Where-Object Version -eq '3.9.0' | ForEach-Object { Remove-Item `$_.ModuleBase -Recurse -Force }"
-            $manualCmd2 = "Install-Module ExchangeOnlineManagement -RequiredVersion 3.9.0 -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck"
+            $manualCmd1 = "Get-Module -ListAvailable ExchangeOnlineManagement | ForEach-Object { Remove-Item `$_.ModuleBase -Recurse -Force }"
+            $manualCmd2 = "Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck"
             throw "Connessione a Exchange Online fallita per un'installazione locale del modulo ExchangeOnlineManagement probabilmente danneggiata (errore .NET: $msg), e il tentativo automatico di ripararla e' anch'esso fallito. Prova a farlo manualmente: chiudi il server, apri PowerShell 7 ed esegui questi due comandi in sequenza - '$manualCmd1' poi '$manualCmd2' - infine riavvia il server."
         }
     }

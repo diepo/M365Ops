@@ -191,18 +191,11 @@ foreach (`$spec in ('$specsJoined' -split ';')) {
     `$name = `$parts[0]
     `$ver = if (`$parts.Count -gt 1 -and `$parts[1]) { `$parts[1] } else { `$null }
     try {
-        # ExchangeOnlineManagement: disinstalla ATTIVAMENTE ogni versione >= 3.10.0 gia'
-        # presente sul disco prima di installare quella fissata (23/08/2026, richiesto
-        # esplicitamente dall'utente: "se e' installata la 3.10 allora la disinstalla e mette
-        # la 3.9" - nota per andare in conflitto con MicrosoftTeams, vedi
-        # Connect-M365OpsExchange.ps1 e guida sezione 6.6. Stessa logica di
-        # Assert-M365OpsExoSafeVersion (Private, modulo M365Ops) - duplicata qui perche' questo
-        # script gira in un processo pwsh.exe figlio PRIMA che il modulo M365Ops sia importato).
-        if (`$name -eq 'ExchangeOnlineManagement') {
-            Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object { `$_.Version -ge [version]'3.10.0' } | ForEach-Object {
-                try { Uninstall-Module -Name ExchangeOnlineManagement -RequiredVersion `$_.Version -Force -ErrorAction Stop } catch {}
-            }
-        }
+        # Nessuna disinstallazione mirata di versioni "in conflitto" qui (26/08/2026, rimossa
+        # insieme al pin fisso 3.4.0/6.5.0 - vedi commento sopra `$moduleChecks): la pulizia di
+        # versioni vecchie/multiple e' ora responsabilita' di Assert-M365OpsExoSafeVersion/
+        # Assert-M365OpsTeamsSafeVersion, chiamate dal vero modulo M365Ops al primo uso reale
+        # (che qui non e' ancora importato) - questo script installa solo "qualcosa", se manca.
         `$installParams = @{ Name = `$name; Scope = 'CurrentUser'; Force = `$true; AllowClobber = `$true; SkipPublisherCheck = `$true; ErrorAction = 'Stop' }
         if (`$ver) { `$installParams.RequiredVersion = `$ver }
         Install-Module @installParams
@@ -302,13 +295,61 @@ $form.Add_Shown({
     if (Test-M365OpsWingetPresent) {
         $wingetPath = Get-M365OpsWingetPath
 
-        Write-InstallerLog "=== Node.js (richiesto da Lokka) ==="
+        Write-InstallerLog "=== Node.js (richiesto da Lokka e CLI Microsoft 365) ==="
         $hasNode = (Get-Command 'npx.cmd' -ErrorAction SilentlyContinue) -or (Get-Command 'npx' -ErrorAction SilentlyContinue)
         if ($hasNode) {
             Write-InstallerLog "  Gia' presente."
         } else {
             $statusLabel.Text = 'Installazione di Node.js...'
             Invoke-M365OpsWingetInstall -WingetPath $wingetPath -PackageId 'OpenJS.NodeJS.LTS' -FriendlyName 'Node.js' | Out-Null
+        }
+
+        # CLI Microsoft 365 (26/08/2026, richiesto esplicitamente dall'utente dopo un test su
+        # PC nuovo: "la CLI 365 MCP non arriva preconfigurata... rendila disponibile out of the
+        # box, installala al primo avvio col .bat esattamente come Lokka"). A differenza di
+        # Lokka (npx -y scarica ed esegue il pacchetto al volo, nessuna installazione globale
+        # necessaria), il server MCP CLI-Microsoft365 e' solo un wrapper sottile che invoca
+        # internamente il comando 'm365' come processo ESTERNO gia' installato - va installato
+        # GLOBALMENTE (npm install -g @pnp/cli-microsoft365) prima che possa funzionare.
+        # Installato qui, PRIMA che il server parta per la primissima volta, cosi' il PRIMO
+        # processo server mai avviato su questo PC ha gia' 'm365' visibile sul PATH - evita
+        # del tutto il "funziona solo dopo un riavvio completo" gia' documentato per
+        # l'installazione lazy dentro Assert-M365OpsCliMicrosoft365Installed (Private, che
+        # resta comunque come rete di sicurezza per chi salta questo installer, es. sviluppo
+        # locale diretto da Server.ps1).
+        Write-InstallerLog "=== CLI Microsoft 365 (richiesta dal connettore AI CLI-Microsoft365) ==="
+        $hasNodeNow = (Get-Command 'npx.cmd' -ErrorAction SilentlyContinue) -or (Get-Command 'npx' -ErrorAction SilentlyContinue)
+        if (-not $hasNodeNow) {
+            Write-InstallerLog "  Saltata: richiede Node.js/npm, non ancora disponibile in questo momento (M365Ops la installera' comunque al primo utilizzo del connettore, se serve)."
+        } else {
+            $npmCmd = (Get-Command 'npm.cmd' -ErrorAction SilentlyContinue).Source
+            if (-not $npmCmd) { $npmCmd = (Get-Command 'npm' -ErrorAction SilentlyContinue).Source }
+            $hasM365 = (Get-Command 'm365.cmd' -ErrorAction SilentlyContinue) -or (Get-Command 'm365' -ErrorAction SilentlyContinue)
+            if ($hasM365) {
+                Write-InstallerLog "  Gia' presente."
+            } elseif (-not $npmCmd) {
+                Write-InstallerLog "  Saltata: comando 'npm' non risolvibile subito dopo l'installazione di Node.js - M365Ops la installera' comunque al primo utilizzo del connettore."
+            } else {
+                $statusLabel.Text = 'Installazione di CLI Microsoft 365...'
+                Write-InstallerLog "  npm install -g @pnp/cli-microsoft365 in corso..."
+                $tmpOut = [System.IO.Path]::GetTempFileName()
+                try {
+                    $proc = Start-Process -FilePath $npmCmd -ArgumentList @('install', '-g', '@pnp/cli-microsoft365') -PassThru -WindowStyle Hidden -RedirectStandardOutput $tmpOut -RedirectStandardError $tmpOut
+                    Wait-ProcessWithLiveOutput -Process $proc -OutputFile $tmpOut -BaseStatusText 'Installazione di CLI Microsoft 365...'
+                    if ($proc.ExitCode -eq 0) {
+                        Write-InstallerLog "  CLI Microsoft 365 installata."
+                    } else {
+                        Write-InstallerLog "  Installazione fallita (npm exit code $($proc.ExitCode)) - M365Ops la ritentera' comunque al primo utilizzo del connettore."
+                    }
+                } finally {
+                    Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue
+                }
+                # Aggiorna il PATH del processo corrente dal registro - stesso motivo gia'
+                # documentato altrove in questo file per winget: senza, un comando appena
+                # installato da un processo figlio non e' visibile a QUESTO processo finche'
+                # non viene riavviato manualmente.
+                $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+            }
         }
         $progressBar.Value = 2
 
@@ -340,35 +381,37 @@ $form.Add_Shown({
             # graph etc ci sono????" - vedi lo stesso elenco/commento in
             # Install-M365OpsPrerequisites.ps1 per il dettaglio del perche' Graph non serve un
             # modulo qui).
-            # ExchangeOnlineManagement + MicrosoftTeams -> RequiredVersion fissata come COPPIA
-            # (25/08/2026: 3.4.0 + 6.5.0, Exchange connesso prima) - vedi
-            # Assert-M365OpsExoSafeVersion.ps1/Assert-M365OpsTeamsSafeVersion.ps1 per il dettaglio
-            # completo di come si e' arrivati a questi due numeri specifici. Senza questo pin
-            # anche qui, questa GUI avrebbe installato "l'ultima disponibile" per entrambi,
-            # rendendo il pin nelle cmdlet di connessione inutile (nessuna versione sicura su
-            # disco da caricare).
+            # ExchangeOnlineManagement + MicrosoftTeams NON hanno piu' una RequiredVersion
+            # fissata qui (26/08/2026, sostituisce il pin a coppia 3.4.0/6.5.0 introdotto il
+            # 25/08/2026) - vedi Assert-M365OpsExoSafeVersion.ps1/
+            # Assert-M365OpsTeamsSafeVersion.ps1 per il perche' completo: con l'isolamento
+            # reattivo dei processi ora in vigore per il conflitto di sezione 6.6, non serve
+            # piu' restare su una coppia di versioni "verificata sicura" - un eventuale
+            # conflitto viene gestito isolando la connessione al bisogno, non evitandolo a
+            # monte scegliendo con cura una versione. Questa GUI installa quindi "l'ultima
+            # disponibile" per entrambi, come per ogni altro modulo qui sotto - la pulizia di
+            # eventuali versioni vecchie gia' presenti (installate a mano, o da una versione
+            # precedente di M365Ops con un pin diverso) avviene al primo uso reale, dentro
+            # Assert-M365OpsExoSafeVersion/Assert-M365OpsTeamsSafeVersion (il vero modulo
+            # M365Ops non e' ancora importato in questo processo figlio, quindi non puo'
+            # farlo direttamente da qui).
             $moduleChecks = @(
-                @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'ExchangeOnlineManagement'; RequiredVersion = '3.4.0' }
+                @{ Name = 'ExchangeOnlineManagement'; FriendlyName = 'ExchangeOnlineManagement' }
                 @{ Name = 'ImportExcel'; FriendlyName = 'ImportExcel' }
                 @{ Name = 'IntuneWin32App'; FriendlyName = 'IntuneWin32App' }
-                @{ Name = 'MicrosoftTeams'; FriendlyName = 'MicrosoftTeams'; RequiredVersion = '6.5.0' }
+                @{ Name = 'MicrosoftTeams'; FriendlyName = 'MicrosoftTeams' }
                 @{ Name = 'PnP.PowerShell'; FriendlyName = 'PnP.PowerShell (SharePoint)' }
                 @{ Name = 'PdfLexer'; FriendlyName = 'PdfLexer (estrazione testo PDF)' }
             )
             # Un solo processo pwsh.exe per controllare la presenza di TUTTI i moduli insieme
             # (non uno per modulo) - stesso principio del fix qui sotto per l'installazione:
             # meno processi separati che toccano PackageManagement/PowerShellGet in sequenza
-            # ravvicinata, meno rischio di collisione sugli stessi file. "Nome=Versione" per
-            # verificare la versione ESATTA quando e' fissata, non solo "e' presente qualcosa".
-            # ExchangeOnlineManagement: "presente" richiede la 3.4.0 esatta E nessuna versione
-            # >= 3.10.0 in conflitto affiancata (23/08/2026, soglia invariata dopo il cambio di
-            # pin del 25/08/2026: dalla 3.10.0 in poi il conflitto e' sempre presente
-            # indipendentemente da quale Teams sia installato) - se una 3.10.x e' comunque
-            # presente accanto alla 3.4.0 (es. installata a mano), va comunque trattata come
-            # "MISSING" cosi' finisce nel percorso di installazione qui sotto, che la disinstalla
-            # attivamente invece di lasciarla li'.
-            $specsForCheck = ($moduleChecks | ForEach-Object { "$($_.Name)=$($_.RequiredVersion)" }) -join ';'
-            $checkCmd = "foreach (`$spec in ('$specsForCheck' -split ';')) { `$p = `$spec -split '=',2; `$n = `$p[0]; `$v = if (`$p.Count -gt 1 -and `$p[1]) { `$p[1] } else { `$null }; `$found = if (`$v) { [bool](Get-Module -ListAvailable -Name `$n | Where-Object Version -eq `$v) } else { [bool](Get-Module -ListAvailable -Name `$n) }; if (`$n -eq 'ExchangeOnlineManagement' -and (Get-Module -ListAvailable -Name `$n | Where-Object { `$_.Version -ge [version]'3.10.0' })) { `$found = `$false }; if (`$found) { Write-Output ('PRESENT:' + `$n) } else { Write-Output ('MISSING:' + `$n) } }"
+            # ravvicinata, meno rischio di collisione sugli stessi file. Nessun modulo qui ha
+            # piu' una versione fissata (vedi sopra) - "presente" significa solo "e' installata
+            # QUALUNQUE versione", la scelta di quale tenere/rimuovere e' del vero modulo
+            # M365Ops al primo uso reale.
+            $specsForCheck = ($moduleChecks | ForEach-Object { "$($_.Name)=" }) -join ';'
+            $checkCmd = "foreach (`$spec in ('$specsForCheck' -split ';')) { `$p = `$spec -split '=',2; `$n = `$p[0]; `$found = [bool](Get-Module -ListAvailable -Name `$n); if (`$found) { Write-Output ('PRESENT:' + `$n) } else { Write-Output ('MISSING:' + `$n) } }"
             $checkOutput = (& $pwshPath -NoProfile -Command $checkCmd 2>$null | Out-String)
             $missingModules = @()
             foreach ($m in $moduleChecks) {

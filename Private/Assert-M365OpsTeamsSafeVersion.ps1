@@ -1,61 +1,39 @@
 function Assert-M365OpsTeamsSafeVersion {
     <#
     .SYNOPSIS
-        Garantisce che MicrosoftTeams 6.5.0 - la versione verificata dal vivo, in coppia con
-        ExchangeOnlineManagement 3.4.0 (connesso PRIMA), come priva del conflitto di sezione 6.6
-        in OGNI modalita' d'uso del progetto (App-only, login delegato Exchange via device-code,
-        Purview) - sia installata E integra, poi la importa (i chiamanti non lo fanno piu'
-        separatamente) e imposta <code>$script:M365OpsTeamsModuleImported</code> al successo.
+        Garantisce che MicrosoftTeams sia installato (l'ULTIMA versione disponibile, vedi
+        PERCHE' sotto) E integro, poi lo importa (i chiamanti non lo fanno piu' separatamente)
+        e imposta <code>$script:M365OpsTeamsModuleImported</code> al successo. Rimuove
+        attivamente ogni ALTRA versione trovata sul disco. Gemella di
+        Assert-M365OpsExoSafeVersion.ps1, stessa logica, stesso motivo (vedi li' per la storia
+        completa del perche' non e' piu' un pin fisso a una coppia di versioni "verificata").
 
-        STORIA COMPLETA di come si e' arrivati a questa coppia specifica (25/08/2026), perche' il
-        percorso conta quanto il numero di versione: prima si era pinnata solo
-        ExchangeOnlineManagement a 3.9.0 (senza pin su Teams), poi si era scoperto che NESSUN
-        ordine di connessione era affidabilmente sicuro con quel pin, indipendentemente dalla
-        versione di Teams installata (matrice di test su Teams 7.1.0/7.3.1/7.9.0). L'utente ha
-        pero' insistito, ricordando correttamente che "fino all'altro giorno" tutto funzionava,
-        e ha guidato la ricerca verso versioni piu' vecchie di ENTRAMBI i moduli. Analizzando la
-        libreria di autenticazione condivisa (Microsoft.Identity.Client.dll) bundled in ogni
-        versione rilasciata di entrambi i moduli (16 versioni Exchange, 16 versioni Teams): NESSUNA
-        coppia condivide la build ESATTA in nessun punto della storia di nessuno dei due moduli -
-        quindi non esiste una versione "perfettamente compatibile" in senso stretto. La coppia
-        3.4.0/6.5.0 (Microsoft.Identity.Client 4.44.0.0 vs 4.29.0.0, non identiche) e' pero'
-        risultata VERIFICATA COME SICURA in un ordine specifico (Exchange connesso prima di
-        Teams) attraverso un test dal vivo completo di TUTTI i flussi usati da questo progetto:
-        Exchange App-only (certificato), Exchange delegato (device-code, -AccessToken - quello che
-        l'utente ha confermato di usare attivamente), Purview App-only (Connect-IPPSSession), e
-        infine Teams App-only connesso DOPO tutti e tre - nessun conflitto in nessuno dei quattro
-        passaggi, verificato due volte per escludere un risultato casuale.
-
-        3.4.0 e' anche la prima versione di ExchangeOnlineManagement con TUTTO cio' che serve
-        (CertificateThumbprint aggiunto in 2.0.3, AccessToken aggiunto tra 3.0.0 e 3.4.0,
-        CertificateThumbprint su Connect-IPPSSession aggiunto in 3.0.0) - non e' stata scelta a
-        caso, e' la piu' vecchia versione VIABILE, per restare il piu' possibile lontana (in
-        termini di eta'/dipendenze) dalla soglia 3.10.0 dove il conflitto torna sempre presente.
-        6.5.0 e' stata preferita a 5.0.0 (anch'essa verificata sicura nella stessa coppia) perche'
-        piu' recente a parita' di Microsoft.Identity.Client bundled (4.29.0.0, condiviso da tutte
-        le versioni Teams 4.0.0-6.5.0) - piu' bugfix, e PREDATA anche il passaggio di
-        Connect-MicrosoftTeams a WAM come broker di default (introdotto in 7.8.1-preview), quindi
-        non soffre nemmeno di quel problema (sezione 10.6/17.14) per costruzione, non serve
-        nessuna gestione condizionale di -DisableWAM per questa versione.
+        NOTA sul broker WAM: dalla 7.8.1-preview in poi Connect-MicrosoftTeams usa WAM come
+        broker di autenticazione di default, che fallisce in un processo server senza sessione
+        interattiva - Connect-M365OpsTeams.ps1 gestisce gia' questo dinamicamente (controlla la
+        versione effettivamente importata e aggiunge -DisableWAM solo se supportato/necessario),
+        quindi installare sempre l'ultima versione qui non richiede nessuna modifica a questa
+        funzione: il problema e' gia' risolto a valle, non qui.
     .PARAMETER InstallOnly
-        Salta l'import: garantisce solo che la 6.5.0 sia presente sul disco. Usato da
+        Salta l'import: garantisce solo che una versione sia presente sul disco. Usato da
         <code>Install-M365OpsPrerequisites</code>, che gira ad OGNI avvio del server PRIMA che
-        l'utente scelga se gli serve Teams o Exchange - stesso motivo di
-        Assert-M365OpsExoSafeVersion.ps1: importare qui caricherebbe MicrosoftTeams nel processo
-        del server anche per chi vuole usare SOLO Exchange in quella sessione.
+        l'utente scelga se gli serve Teams o Exchange - importare qui caricherebbe
+        MicrosoftTeams nel processo del server anche per chi vuole usare SOLO Exchange in
+        quella sessione.
     .OUTPUTS
-        pscustomobject con Installed (bool, true se la 6.5.0 e' stata installata/reinstallata da
-        questa chiamata).
+        pscustomobject con RemovedVersions (array di stringhe, versioni disinstallate con
+        successo), Installed (bool, true se e' stata installata/reinstallata da questa
+        chiamata) e Version (la versione in uso dopo questa chiamata).
     #>
     param([switch]$InstallOnly)
 
-    $safeVersion = [version]'6.5.0'
+    $removedVersions = @()
     $installedNow = $false
 
-    # Stesso principio di Assert-M365OpsExoSafeVersion.ps1 (25/08/2026): Get-Module -ListAvailable
-    # legge solo il manifest, non basta a garantire che ogni DLL referenziata sia integra - un file
-    # mancante in una dipendenza caricata pigramente passerebbe inosservato fino al vero tentativo
-    # di connessione, quando ormai Windows ha gia' bloccato i file e non e' piu' possibile riparare.
+    # Stesso principio di Assert-M365OpsExoSafeVersion.ps1: Get-Module -ListAvailable legge
+    # solo il manifest, non basta a garantire che ogni DLL referenziata sia integra - un file
+    # mancante in una dipendenza caricata pigramente passerebbe inosservato fino al vero
+    # tentativo di connessione, quando ormai Windows ha gia' bloccato i file.
     function Test-TeamsInstallIntegrity {
         param([string]$ModuleBase)
         $criticalFiles = @(
@@ -70,30 +48,47 @@ function Assert-M365OpsTeamsSafeVersion {
         return $true
     }
 
-    $safeCopy = Get-Module -ListAvailable -Name MicrosoftTeams | Where-Object Version -eq $safeVersion
-    $needsInstall = -not $safeCopy
-    if ($safeCopy -and -not (Test-TeamsInstallIntegrity -ModuleBase $safeCopy.ModuleBase)) {
-        Write-M365OpsLog "MicrosoftTeams $safeVersion presente sul disco ma con file mancanti/danneggiati (rilevato PRIMA di importarla in questo processo) - la reinstallo da zero."
-        try { Remove-Item -Path $safeCopy.ModuleBase -Recurse -Force -ErrorAction Stop } catch {
-            Write-M365OpsLog "Rimozione della copia danneggiata in '$($safeCopy.ModuleBase)' fallita: $($_.Exception.Message)"
-        }
-        $needsInstall = $true
-    }
+    $installedVersions = @(Get-Module -ListAvailable -Name MicrosoftTeams | Sort-Object Version -Descending)
+    $bestLocal = $installedVersions | Select-Object -First 1
+    $targetVersion = $null
 
-    if ($needsInstall) {
-        Write-Host "Modulo MicrosoftTeams $safeVersion non trovato o danneggiato, lo (re)installo..." -ForegroundColor Yellow
+    if ($bestLocal -and (Test-TeamsInstallIntegrity -ModuleBase $bestLocal.ModuleBase)) {
+        $targetVersion = $bestLocal.Version
+    }
+    else {
+        if ($bestLocal) {
+            Write-M365OpsLog "MicrosoftTeams $($bestLocal.Version) presente sul disco ma con file mancanti/danneggiati (rilevato PRIMA di importarla in questo processo) - la reinstallo da zero."
+            try { Remove-Item -Path $bestLocal.ModuleBase -Recurse -Force -ErrorAction Stop } catch {
+                Write-M365OpsLog "Rimozione della copia danneggiata in '$($bestLocal.ModuleBase)' fallita: $($_.Exception.Message)"
+            }
+        }
+
         [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
         if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
             try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null } catch {}
         }
-        Install-Module MicrosoftTeams -RequiredVersion $safeVersion -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+        Write-Host "Modulo MicrosoftTeams non trovato o danneggiato, installo l'ultima versione disponibile..." -ForegroundColor Yellow
+        Install-Module MicrosoftTeams -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
         $installedNow = $true
+        $targetVersion = (Get-Module -ListAvailable -Name MicrosoftTeams | Sort-Object Version -Descending | Select-Object -First 1).Version
+        $installedVersions = @(Get-Module -ListAvailable -Name MicrosoftTeams | Sort-Object Version -Descending)
+    }
+
+    foreach ($old in ($installedVersions | Where-Object { $_.Version -ne $targetVersion })) {
+        try {
+            Write-M365OpsLog "MicrosoftTeams $($old.Version) trovata installata insieme alla $targetVersion in uso - la disinstallo per lasciare solo quella in uso."
+            Uninstall-Module -Name MicrosoftTeams -RequiredVersion $old.Version -Force -ErrorAction Stop
+            $removedVersions += $old.Version.ToString()
+        }
+        catch {
+            Write-M365OpsLog "Disinstallazione di MicrosoftTeams $($old.Version) fallita (non bloccante - Import-Module qui sotto specifica sempre -RequiredVersion $targetVersion esplicito, quindi resta comunque efficace): $($_.Exception.Message)"
+        }
     }
 
     if (-not $InstallOnly) {
-        Import-Module MicrosoftTeams -RequiredVersion $safeVersion -ErrorAction Stop
+        Import-Module MicrosoftTeams -RequiredVersion $targetVersion -ErrorAction Stop
         $script:M365OpsTeamsModuleImported = $true
     }
 
-    [pscustomobject]@{ Installed = $installedNow }
+    [pscustomobject]@{ RemovedVersions = $removedVersions; Installed = $installedNow; Version = $targetVersion }
 }

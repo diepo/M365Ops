@@ -150,6 +150,50 @@ function Install-M365OpsPrerequisites {
         }
     }
 
+    # CLI Microsoft 365 (26/08/2026, richiesto esplicitamente dall'utente dopo un test su PC
+    # nuovo: "rendila disponibile out of the box, installala al primo avvio esattamente come
+    # Lokka") - a differenza di Lokka (npx -y scarica ed esegue il pacchetto MCP al volo,
+    # nessuna installazione globale necessaria), il server MCP CLI-Microsoft365 e' solo un
+    # wrapper sottile che invoca internamente il comando 'm365' come processo ESTERNO gia'
+    # installato: va installato GLOBALMENTE (npm install -g @pnp/cli-microsoft365) a parte, non
+    # tramite winget come Node.js/Edge sopra ne' tramite Install-Module come i moduli
+    # PowerShell sotto. Seconda passata idempotente rispetto a
+    # Show-M365OpsPrereqInstaller.ps1 (che gia' lo fa, visibile, PRIMA che il server parta la
+    # primissima volta) - utile se quell'installer e' stato saltato (es. sviluppo diretto da
+    # Server.ps1). Assert-M365OpsCliMicrosoft365Installed (Private) resta comunque come
+    # ultima rete di sicurezza al primo uso reale del connettore, se anche questa passata
+    # viene saltata.
+    $hasNode = (Get-Command 'npx.cmd' -ErrorAction SilentlyContinue) -or (Get-Command 'npx' -ErrorAction SilentlyContinue)
+    $hasM365 = (Get-Command 'm365.cmd' -ErrorAction SilentlyContinue) -or (Get-Command 'm365' -ErrorAction SilentlyContinue)
+    if ($hasM365) {
+        $results += [pscustomobject]@{ Name = 'CLI Microsoft 365 (connettore AI CLI-Microsoft365)'; Status = 'OK'; Action = 'Gia'' presente, nessuna installazione necessaria.'; Detail = $null }
+    } elseif (-not $hasNode) {
+        $results += [pscustomobject]@{ Name = 'CLI Microsoft 365 (connettore AI CLI-Microsoft365)'; Status = 'Failed'; Action = 'Saltata: richiede Node.js/npm, non disponibile in questo momento.'; Detail = 'Verra'' installata automaticamente al primo utilizzo del connettore (tab Tenant, sezione Stato connessioni), se Node.js diventa disponibile.' }
+    } else {
+        $npmCmd = (Get-Command 'npm.cmd' -ErrorAction SilentlyContinue).Source
+        if (-not $npmCmd) { $npmCmd = (Get-Command 'npm' -ErrorAction SilentlyContinue).Source }
+        if (-not $npmCmd) {
+            $results += [pscustomobject]@{ Name = 'CLI Microsoft 365 (connettore AI CLI-Microsoft365)'; Status = 'Failed'; Action = 'Saltata: comando npm non risolvibile.'; Detail = 'Verra'' installata automaticamente al primo utilizzo del connettore.' }
+        } else {
+            $installedSomething = $true
+            try {
+                Write-M365OpsLog "CLI Microsoft 365 non trovata - la installo (npm install -g @pnp/cli-microsoft365)."
+                & $npmCmd install -g "@pnp/cli-microsoft365" 2>&1 | ForEach-Object { Write-Host $_ }
+                if ($LASTEXITCODE -ne 0) { throw "npm install terminato con codice $LASTEXITCODE." }
+                $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+                $nowPresent = (Get-Command 'm365.cmd' -ErrorAction SilentlyContinue) -or (Get-Command 'm365' -ErrorAction SilentlyContinue)
+                $results += [pscustomobject]@{
+                    Name   = 'CLI Microsoft 365 (connettore AI CLI-Microsoft365)'
+                    Status = if ($nowPresent) { 'OK' } else { 'Failed' }
+                    Action = 'Installazione tentata (npm install -g @pnp/cli-microsoft365).'
+                    Detail = if ($nowPresent) { 'Installato e rilevato correttamente.' } else { 'Installato ma non ancora visibile a questo processo - servira'' un riavvio completo, non solo "Riavvia server" (Windows non rende visibile un programma npm appena installato a un processo gia'' in esecuzione).' }
+                }
+            } catch {
+                $results += [pscustomobject]@{ Name = 'CLI Microsoft 365 (connettore AI CLI-Microsoft365)'; Status = 'Failed'; Action = 'Installazione tentata (npm install -g) - fallita.'; Detail = $_.Exception.Message }
+            }
+        }
+    }
+
     # Moduli PowerShell (22/08/2026, richiesto esplicitamente dall'utente dopo un login
     # Exchange delegato riuscito ma poi fallito con un errore criptico di modulo mancante:
     # "installa TUTTO come prerequisito"). Installati qui in anticipo via Install-Module
@@ -184,28 +228,33 @@ function Install-M365OpsPrerequisites {
     # le funzioni, usato invece dalle cmdlet di connessione vere) caricherebbe entrambi nel
     # processo del server anche per chi ne vuole usare SOLO uno in quella sessione, vedi
     # Assert-M365OpsExoSafeVersion.ps1 per il dettaglio completo.
+    # $exoResult.Version/$teamsResult.Version (26/08/2026): Assert-M365Ops*SafeVersion non
+    # punta piu' a una versione fissata (vedi quei file per il perche' - isolamento reattivo
+    # dei processi invece di una coppia di versioni "verificata sicura") - la versione
+    # effettivamente in uso e' quindi dinamica, mai piu' una stringa costante '3.4.0'/'6.5.0'
+    # da controllare qui.
     $exoResult = Assert-M365OpsExoSafeVersion -InstallOnly
     if ($exoResult.RemovedVersions.Count -gt 0) { $installedSomething = $true }
     if ($exoResult.Installed) { $installedSomething = $true }
-    $exoNowPresent = [bool](Get-Module -ListAvailable -Name ExchangeOnlineManagement | Where-Object Version -eq '3.4.0')
+    $exoNowPresent = [bool]$exoResult.Version
     $exoDetailParts = @()
-    if ($exoResult.RemovedVersions.Count -gt 0) { $exoDetailParts += "Versione/i in conflitto rimossa/e: $($exoResult.RemovedVersions -join ', ')." }
-    $exoDetailParts += if ($exoNowPresent) { 'Versione 3.4.0 presente (fissata, vedi guida sezione 6.6).' } else { 'Versione 3.4.0 non rilevata dopo il tentativo di installazione - riprova o installa manualmente.' }
+    if ($exoResult.RemovedVersions.Count -gt 0) { $exoDetailParts += "Versione/i precedente/i rimossa/e: $($exoResult.RemovedVersions -join ', ')." }
+    $exoDetailParts += if ($exoNowPresent) { "Versione $($exoResult.Version) presente (ultima disponibile)." } else { 'Nessuna versione rilevata dopo il tentativo di installazione - riprova o installa manualmente.' }
     $results += [pscustomobject]@{
         Name   = 'Modulo ExchangeOnlineManagement (connessione Exchange Online)'
         Status = if ($exoNowPresent) { 'OK' } else { 'Failed' }
-        Action = if ($exoResult.RemovedVersions.Count -gt 0 -or $exoResult.Installed) { 'Installazione/pulizia tentata (Assert-M365OpsExoSafeVersion).' } else { 'Gia'' presente nella versione corretta, nessuna azione necessaria.' }
+        Action = if ($exoResult.RemovedVersions.Count -gt 0 -or $exoResult.Installed) { 'Installazione/pulizia tentata (Assert-M365OpsExoSafeVersion).' } else { 'Gia'' presente, nessuna azione necessaria.' }
         Detail = $exoDetailParts -join ' '
     }
 
     $teamsResult = Assert-M365OpsTeamsSafeVersion -InstallOnly
     if ($teamsResult.Installed) { $installedSomething = $true }
-    $teamsNowPresent = [bool](Get-Module -ListAvailable -Name MicrosoftTeams | Where-Object Version -eq '6.5.0')
+    $teamsNowPresent = [bool]$teamsResult.Version
     $results += [pscustomobject]@{
         Name   = 'Modulo MicrosoftTeams (connessione Teams)'
         Status = if ($teamsNowPresent) { 'OK' } else { 'Failed' }
-        Action = if ($teamsResult.Installed) { 'Installazione/pulizia tentata (Assert-M365OpsTeamsSafeVersion).' } else { 'Gia'' presente nella versione corretta, nessuna azione necessaria.' }
-        Detail = if ($teamsNowPresent) { 'Versione 6.5.0 presente (fissata in coppia con ExchangeOnlineManagement 3.4.0, vedi guida sezione 6.6).' } else { 'Versione 6.5.0 non rilevata dopo il tentativo di installazione - riprova o installa manualmente.' }
+        Action = if ($teamsResult.Installed) { 'Installazione/pulizia tentata (Assert-M365OpsTeamsSafeVersion).' } else { 'Gia'' presente, nessuna azione necessaria.' }
+        Detail = if ($teamsNowPresent) { "Versione $($teamsResult.Version) presente (ultima disponibile)." } else { 'Nessuna versione rilevata dopo il tentativo di installazione - riprova o installa manualmente.' }
     }
 
     $moduleChecks = @(

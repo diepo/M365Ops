@@ -75,7 +75,10 @@ function Connect-M365OpsCliMicrosoft365 {
     if (-not $script:M365OpsContext) { throw "Nessun tenant attivo. Usa Connect-M365Ops prima." }
 
     $mcpServerName = 'CLI-Microsoft365'
-    $process = $script:M365OpsMcpProcesses[$mcpServerName]
+    $tenantName = $script:M365OpsContext.Name
+    # Dizionario a due livelli, tenant poi nome server (26/08/2026, isolamento per tenant -
+    # vedi Connect-M365OpsMcpServer.ps1), non piu' un solo livello per nome condiviso.
+    $process = if ($script:M365OpsMcpProcesses -and $script:M365OpsMcpProcesses[$tenantName]) { $script:M365OpsMcpProcesses[$tenantName][$mcpServerName] } else { $null }
     if (-not $process -or $process.HasExited) {
         throw "Il processo del server MCP '$mcpServerName' non risulta attivo - questa funzione va chiamata solo da Connect-M365OpsMcpServer, a processo gia' avviato."
     }

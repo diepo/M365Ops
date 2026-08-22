@@ -38,12 +38,15 @@ function Connect-M365Ops {
     # lo risolve davvero (vedi sezione 6.5 della guida). Questo e' comunque un guardrail utile
     # e corretto di per se' (mai lasciare stato di sessione del tenant precedente attivo), non
     # una soluzione completa al bug dei conflitti assembly.
-    # Disconnect-M365OpsAllMcpServers (26/08/2026, sostituisce la sola Disconnect-M365OpsLokka
-    # di prima): ferma OGNI sottoprocesso MCP attivo, non solo Lokka - da quando e' possibile
-    # collegare anche altri server MCP (es. CLI-Microsoft365, vedi
-    # Connect-M365OpsMcpServer.ps1), nessuno stato del tenant precedente deve sopravvivere a
-    # un cambio profilo, stesso principio gia' applicato qui sotto a Exchange/Teams/SharePoint.
-    Disconnect-M365OpsAllMcpServers
+    # I server MCP (Lokka, CLI-Microsoft365) NON vengono piu' fermati qui dal 26/08/2026
+    # (prima si', tramite Disconnect-M365OpsAllMcpServers) - a differenza di
+    # Exchange/Teams/SharePoint qui sotto (stato .NET realmente condiviso/globale nel
+    # processo, nessun modo di isolarlo per tenant), i sottoprocessi MCP sono ORA isolati per
+    # costruzione un processo OS distinto per ogni coppia tenant+server, mai condiviso, vedi
+    # Connect-M365OpsMcpServer.ps1 - lasciarli vivi in background quando si cambia tenant
+    # permette di tornare su un tenant gia' usato senza rifare login/handshake da capo, senza
+    # alcun rischio di stato residuo perche' non c'e' nulla da "residuare": il processo di
+    # QUESTO tenant non viene mai toccato da un cambio verso un ALTRO tenant.
     Disconnect-M365OpsExchange
     Disconnect-M365OpsTeams
     Disconnect-M365OpsSharePoint

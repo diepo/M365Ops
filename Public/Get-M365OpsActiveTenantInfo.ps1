@@ -7,21 +7,25 @@ function Get-M365OpsActiveTenantInfo {
     if (-not $script:M365OpsContext) { return $null }
     $delegatedSession = $script:M365OpsTokenCache[$script:M365OpsContext.Name].Delegated
 
-    # 26/08/2026: Lokka non e' piu' tracciato in variabili singolari
-    # ($script:M365OpsLokkaProcess/...LokkaTools) ma in due dizionari per nome
-    # ($script:M365OpsMcpProcesses/...McpTools), per poter tracciare piu' server MCP insieme
-    # (vedi Connect-M365OpsMcpServer.ps1) - LokkaConnected/LokkaToolCount restano per
-    # compatibilita' con la GUI esistente, derivati dalla voce 'lokka' del dizionario.
-    # McpServerStatus e' il nuovo campo generico: un oggetto per OGNI server MCP configurato
-    # per questo tenant (non solo quelli gia' connessi), cosi' la GUI puo' mostrare anche un
-    # server mai avviato in questa sessione come "non connesso" invece di ometterlo del tutto.
-    $lokkaProcess = if ($script:M365OpsMcpProcesses) { $script:M365OpsMcpProcesses['lokka'] } else { $null }
-    $lokkaTools = if ($script:M365OpsMcpTools) { $script:M365OpsMcpTools['lokka'] } else { $null }
+    # 26/08/2026: i server MCP sono tracciati in dizionari a DUE livelli, per tenant poi per
+    # nome server ($script:M365OpsMcpProcesses[$TenantName][$ServerName]/...McpTools), non
+    # piu' un solo livello per nome condiviso tra tutti i tenant - vedi
+    # Connect-M365OpsMcpServer.ps1 per il perche' (isolamento per tenant: un processo OS
+    # distinto per ogni coppia tenant+server, mai condiviso). LokkaConnected/LokkaToolCount
+    # restano per compatibilita' con la GUI esistente, derivati dalla voce 'lokka' del
+    # dizionario per IL TENANT ATTIVO. McpServerStatus e' il campo generico: un oggetto per
+    # OGNI server MCP configurato per questo tenant (non solo quelli gia' connessi), cosi' la
+    # GUI puo' mostrare anche un server mai avviato in questa sessione come "non connesso"
+    # invece di ometterlo del tutto.
+    $tenantMcpProcesses = if ($script:M365OpsMcpProcesses) { $script:M365OpsMcpProcesses[$script:M365OpsContext.Name] } else { $null }
+    $tenantMcpTools = if ($script:M365OpsMcpTools) { $script:M365OpsMcpTools[$script:M365OpsContext.Name] } else { $null }
+    $lokkaProcess = if ($tenantMcpProcesses) { $tenantMcpProcesses['lokka'] } else { $null }
+    $lokkaTools = if ($tenantMcpTools) { $tenantMcpTools['lokka'] } else { $null }
     $mcpServerStatus = @()
     try {
         foreach ($server in @(Get-M365OpsMcpServers)) {
-            $proc = if ($script:M365OpsMcpProcesses) { $script:M365OpsMcpProcesses[$server.Name] } else { $null }
-            $tools = if ($script:M365OpsMcpTools) { $script:M365OpsMcpTools[$server.Name] } else { $null }
+            $proc = if ($tenantMcpProcesses) { $tenantMcpProcesses[$server.Name] } else { $null }
+            $tools = if ($tenantMcpTools) { $tenantMcpTools[$server.Name] } else { $null }
             $mcpServerStatus += [pscustomobject]@{
                 Name      = $server.Name
                 BuiltIn   = $server.BuiltIn

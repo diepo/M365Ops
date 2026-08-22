@@ -35,6 +35,12 @@ function Remove-M365OpsTenant {
     }
 
     $config | ConvertTo-Json -Depth 6 | Set-Content -Path $configPath -Encoding UTF8
+
+    # I processi MCP sono isolati per tenant e possono restare vivi in background anche per un
+    # profilo NON attivo (visitato in precedenza in questa sessione, vedi
+    # Connect-M365OpsMcpServer.ps1) - un profilo appena rimosso non deve lasciarne uno orfano.
+    try { Disconnect-M365OpsAllMcpServers -TenantName $Name } catch {}
+
     Write-Host "Profilo '$Name' rimosso da $configPath. Dati gia' accumulati (storico chat, Knowledge Base, report) non toccati." -ForegroundColor Green
     [pscustomobject]@{ Name = $Name; Removed = $true }
 }
