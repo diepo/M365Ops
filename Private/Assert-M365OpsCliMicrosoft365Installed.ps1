@@ -17,15 +17,18 @@ function Assert-M365OpsCliMicrosoft365Installed {
         principio di Assert-M365OpsExoSafeVersion/Assert-M365OpsTeamsSafeVersion, chiamate
         prima di Import-Module), controlla ed eventualmente installa da sola.
 
-        LIMITE CHE RESTA COMUNQUE, anche con l'installazione automatica: Windows non rende
-        visibile un programma npm appena installato globalmente a un processo GIA' in
-        esecuzione (il PATH aggiornato a livello di registro non si propaga a processi gia'
-        avviati) - quindi anche dopo un'installazione riuscita QUI, il PROCESSO SERVER
-        ATTUALE non vedra' comunque 'm365' finche' non viene riavviato per davvero (chiudere
-        tutto e riaprire, non solo "Riavvia server" se anche quello discende dalla stessa
-        shell/processo di prima dell'installazione). Questa funzione lo dice chiaramente
-        nel messaggio finale invece di lasciare che l'utente scopra lo stesso errore un
-        minuto dopo pensando che l'installazione sia fallita.
+        NESSUN RIAVVIO PIU' NECESSARIO dopo l'installazione (corretto il 26/08/2026, durante
+        un bug-hunt - limite creduto strutturale, in realta' evitabile): e' vero che Windows
+        non propaga da solo un PATH di registro appena aggiornato a un processo GIA' in
+        esecuzione, ma QUESTA funzione gira nello STESSO processo server che poi spawna il
+        sottoprocesso 'npx' del server MCP CLI-Microsoft365 (vedi Connect-M365OpsMcpServer.ps1,
+        chiamata subito dopo questa) - basta ricostruire $env:Path DAL REGISTRO in QUESTO
+        processo (stesso trucco gia' usato con successo altrove nel progetto per lo stesso
+        identico scenario: Install-M365OpsPrerequisites.ps1/Show-M365OpsPrereqInstaller.ps1
+        dopo un'installazione winget/npm) perche' il sottoprocesso spawnato SUBITO DOPO, nello
+        stesso processo, erediti il PATH aggiornato - verificato dal vivo che 'm365 status'
+        funziona correttamente subito dopo, senza alcun riavvio, nello stesso processo server
+        che ha appena eseguito l'installazione.
     #>
     $m365Cmd = (Get-Command 'm365.cmd' -ErrorAction SilentlyContinue).Source
     if (-not $m365Cmd) { $m365Cmd = (Get-Command 'm365' -ErrorAction SilentlyContinue).Source }
@@ -55,6 +58,21 @@ function Assert-M365OpsCliMicrosoft365Installed {
         throw "Installazione automatica di CLI Microsoft 365 fallita: $($_.Exception.Message) - prova a eseguire manualmente 'npm install -g @pnp/cli-microsoft365' in un terminale, poi riavvia completamente M365Ops."
     }
 
-    Write-M365OpsLog "CLI Microsoft 365 installato con successo (npm install -g @pnp/cli-microsoft365) - richiesto un riavvio completo per renderlo visibile a questo processo."
-    throw "CLI Microsoft 365 installato ora per la prima volta su questo PC (npm install -g @pnp/cli-microsoft365 completato con successo). Prima di poterlo usare serve pero' un riavvio COMPLETO: chiudi ogni finestra/terminale e riapri dal collegamento M365Ops sul Desktop - il solo pulsante 'Riavvia server' non basta se il processo attuale e' partito prima di questa installazione (Windows non rende visibile un programma npm appena installato a un processo gia' in esecuzione). Dopo il riavvio, 'Connetti CLI Microsoft 365' funzionera' direttamente."
+    # Ricostruisce $env:Path di QUESTO processo dal registro (Machine + User) - senza,
+    # 'npx' (spawnato subito dopo da Connect-M365OpsMcpServer.ps1 nello stesso processo)
+    # erediterebbe ancora il PATH vecchio e non troverebbe 'm365' appena installato, esatto
+    # lo stesso motivo per cui questo stesso trucco e' gia' usato altrove nel progetto dopo
+    # un'installazione winget/npm (Install-M365OpsPrerequisites.ps1/
+    # Show-M365OpsPrereqInstaller.ps1). Verificato dal vivo il 26/08/2026 che basta, senza
+    # bisogno di alcun riavvio del server.
+    $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+    $nowPresent = (Get-Command 'm365.cmd' -ErrorAction SilentlyContinue) -or (Get-Command 'm365' -ErrorAction SilentlyContinue)
+    if (-not $nowPresent) {
+        # Rete di sicurezza per il caso raro in cui la ricostruzione del PATH non basti
+        # (es. npm ha installato altrove per una configurazione non standard) - stesso
+        # messaggio azionabile di prima invece di proseguire alla cieca.
+        Write-M365OpsLog "CLI Microsoft 365 installato ma 'm365' resta non risolvibile anche dopo la ricostruzione del PATH - richiesto un riavvio completo." -Level Error
+        throw "CLI Microsoft 365 installato ora per la prima volta su questo PC (npm install -g @pnp/cli-microsoft365 completato con successo), ma il comando 'm365' non risulta ancora risolvibile nemmeno dopo aver ricostruito il PATH di questo processo - possibile configurazione npm non standard. Chiudi ogni finestra/terminale e riapri dal collegamento M365Ops sul Desktop, poi riprova."
+    }
+    Write-M365OpsLog "CLI Microsoft 365 installato con successo (npm install -g @pnp/cli-microsoft365) - PATH ricostruito, subito utilizzabile senza riavvio."
 }

@@ -50,7 +50,19 @@ function Connect-M365OpsExchange {
         # versione >= 3.10.0 gia' presente sul disco, installa la 3.4.0 se manca, la IMPORTA
         # (i chiamanti non lo fanno piu' separatamente) e ripara da sola un'installazione locale
         # corrotta se ne trova una - vedi quel file per il dettaglio completo.
-        Assert-M365OpsExoSafeVersion
+        # | Out-Null aggiunto il 26/08/2026 (bug reale trovato dal vivo durante un bug-hunt:
+        # stesso identico pipeline leak gia' corretto in v0.9.52 dentro
+        # Complete-M365OpsExchangeDelegatedLogin.ps1, ma quel fix copriva solo QUELLA chiamata -
+        # QUESTA, condivisa da ogni altro chiamante di Connect-M365OpsExchange, restava
+        # scoperta) - il pscustomobject restituito da Assert-M365OpsExoSafeVersion, non
+        # soppresso, finiva sul pipeline di OGNI funzione che chiama Connect-M365OpsExchange
+        # come primo passo (praticamente ogni cmdlet Exchange del progetto), visibile SOLO alla
+        # primissima connessione reale di un processo server (le successive fanno return
+        # anticipato sopra, quindi non lo riproducono) - riprodotto dal vivo creando una
+        # distribution list su un processo server appena avviato: la risposta "Fatto." mostrata
+        # all'utente in chat conteneva un array con l'oggetto di diagnostica versione ANCHE
+        # insieme al risultato vero della scrittura.
+        Assert-M365OpsExoSafeVersion | Out-Null
 
         if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
             if (-not $script:M365OpsContext.DelegatedUpn) {

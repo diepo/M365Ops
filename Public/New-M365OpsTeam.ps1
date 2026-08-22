@@ -11,7 +11,11 @@ function New-M365OpsTeam {
     )
     Connect-M365OpsTeams
 
-    $params = @{ DisplayName = $DisplayName; Visibility = $Visibility }
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026) - mancava qui (il modulo
+    # MicrosoftTeams e' gia' noto in questo progetto per errori non terminanti, sezione
+    # 17.11.1 della guida), trovato dal vivo in un bug-hunt successivo (26/08/2026).
+    $params = @{ DisplayName = $DisplayName; Visibility = $Visibility; ErrorAction = 'Stop' }
     if ($Description) { $params.Description = $Description }
     if ($Owner) { $params.Owner = $Owner }
 

@@ -11,7 +11,10 @@ function Set-M365OpsTransportRuleState {
         [hashtable]$ExtraParams = @{}
     )
     Connect-M365OpsExchange
-    $params = @{ Identity = $Identity; Confirm = $false }
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026) - mancava qui, trovato dal
+    # vivo in un bug-hunt successivo (26/08/2026).
+    $params = @{ Identity = $Identity; Confirm = $false; ErrorAction = 'Stop' }
     foreach ($key in $ExtraParams.Keys) { $params[$key] = $ExtraParams[$key] }
     if ($Enabled) { Enable-TransportRule @params }
     else { Disable-TransportRule @params }

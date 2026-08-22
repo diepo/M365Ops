@@ -37,7 +37,18 @@ function Get-M365OpsModuleConflictHint {
     # conflitto Teams, nascondendo la diagnosi piu' precisa (installazione danneggiata, non
     # conflitto) gia' fatta a monte. Frase-sentinella scelta perche' compare SOLO li'.
     if ($RawMessage -match "installazione locale del modulo ExchangeOnlineManagement") { return $null }
-    if ($RawMessage -notmatch 'Could not load file or assembly' -and $RawMessage -notmatch 'The given assembly name was invalid') { return $null }
+    # Terza variante del messaggio .NET, aggiunta il 26/08/2026 dopo un caso reale trovato dal
+    # vivo durante un bug-hunt: "Method not found: 'Void Microsoft.Identity.Client.
+    # ITokenCache.Deserialize(Byte[])'." - stessa famiglia di conflitto delle prime due
+    # (Microsoft.Identity.Client caricato in una versione diversa da quella che il chiamante
+    # si aspetta), ma qui .NET fallisce con un MissingMethodException invece che su un
+    # fallimento di CARICAMENTO assembly: il chiamante trova l'assembly (gia' caricato), ma
+    # una versione diversa che non espone piu' quel metodo. Riconosciuto per la presenza di
+    # "Method not found" insieme a "Microsoft.Identity.Client" nello stesso messaggio, non un
+    # singolo pattern fisso (il nome del metodo/interfaccia puo' variare a seconda di QUALE
+    # punto del codice tocca per primo la libreria incompatibile).
+    $isMsalMethodMissing = $RawMessage -match 'Method not found' -and $RawMessage -match 'Microsoft\.Identity\.Client'
+    if ($RawMessage -notmatch 'Could not load file or assembly' -and $RawMessage -notmatch 'The given assembly name was invalid' -and -not $isMsalMethodMissing) { return $null }
 
     "Connessione a $ThisService fallita per un conflitto tra i moduli PowerShell: caricare $OtherService e $ThisService nello stesso processo server ha causato una versione incompatibile di una libreria di autenticazione condivisa (errore .NET originale: $RawMessage). E' un conflitto noto di Microsoft tra MicrosoftTeams e ExchangeOnlineManagement (non un bug di M365Ops, vedi guida sezione 6.6) - dipende dalle versioni esatte installate di entrambi i moduli, non e' prevedibile in anticipo ne' sempre presente. Riavvia il server (pulsante Manutenzione, o 'M365Ops - Termina e riavvia' sul Desktop se non risponde) per liberare il processo e riprova - $ThisService da solo, senza prima connettere $OtherService in questa sessione, funziona sempre."
 }

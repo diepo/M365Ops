@@ -232,7 +232,7 @@
         <h3 style="margin-top:0;">Exchange Online</h3>
         <div id="mcp-exchange-status" class="hint">caricamento stato...</div>
         <p class="hint">Sui tenant App-only la connessione è silenziosa (certificato). Sui tenant Delegati mostra un codice da inserire su un'altra pagina — non blocca più l'app durante l'attesa.</p>
-        <p style="background:var(--ok-soft,#e6f4ea); color:var(--ok,#1e7a34); padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin:8px 0;"><b>✓ Coesiste con Teams:</b> il modulo <code>ExchangeOnlineManagement</code> è FISSATO alla versione 3.4.0, verificata insieme a MicrosoftTeams 6.5.0 come priva del conflitto tra i due moduli (App-only, login delegato e Purview tutti testati dal vivo) — connetti Exchange PRIMA di Teams nella stessa sessione del server. Non aggiornare mai questi moduli a mano: M365Ops li reinstalla/ripara da sola ad ogni connessione. Dettaglio completo in guida, sezione 6.6.</p>
+        <p style="background:var(--ok-soft,#e6f4ea); color:var(--ok,#1e7a34); padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin:8px 0;"><b>✓ Coesiste con Teams:</b> il modulo <code>ExchangeOnlineManagement</code> resta sulla coppia di versioni 3.4.0/6.5.0 (con MicrosoftTeams) verificata priva del conflitto tra i due moduli — connettere Exchange PRIMA di Teams nella stessa sessione del server resta comunque la via più veloce (nessun sottoprocesso aggiuntivo). Se il conflitto scattasse comunque (es. ordine inverso, o versioni residue su questo PC), da fine agosto 2026 M365Ops lo risolve DAVVERO in automatico spostando la connessione in un processo isolato, senza bisogno di riavviare il server. Non aggiornare mai questi moduli a mano: M365Ops li reinstalla/ripara da sola ad ogni connessione. Dettaglio completo in guida, sezione 6.6.</p>
         <div class="actions">
           <button id="exchange-test-btn">Connetti / Test connessione Exchange</button>
           <span id="exchange-status-msg"></span>
@@ -254,7 +254,7 @@
         <h3 style="margin-top:0;">Microsoft Teams</h3>
         <div id="mcp-teams-status" class="hint">caricamento stato...</div>
         <p class="hint">App-only: elenco Team/canali/membri funziona subito con lo stesso certificato di Exchange - criteri di riunione/chiamata/messaggistica e configurazione accesso esterno richiedono in più il permesso "Skype and Teams Tenant Admin API" (vedi guida sezione 4.4). Sui tenant Delegati si apre una finestra per il login: il server resta bloccato per tutti finché non lo completi — fallo qui PRIMA di chiedere dati in chat, mai durante una richiesta composta.</p>
-        <p style="background:var(--ok-soft,#e6f4ea); color:var(--ok,#1e7a34); padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin:8px 0;"><b>✓ Coesiste con Exchange</b> se connetti Exchange PRIMA di Teams nella stessa sessione del server (vedi l'avviso nel riquadro Exchange Online qui sopra e guida sezione 6.6) — il modulo <code>MicrosoftTeams</code> è fissato alla versione 6.5.0, verificata insieme a ExchangeOnlineManagement 3.4.0. Nota anche: su tenant Delegati il popup di login può aprirsi DIETRO il browser — controlla con Alt+Tab prima di pensare che sia bloccato.</p>
+        <p style="background:var(--ok-soft,#e6f4ea); color:var(--ok,#1e7a34); padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin:8px 0;"><b>✓ Coesiste con Exchange</b> — connettere Exchange PRIMA di Teams nella stessa sessione del server resta la via più veloce (vedi l'avviso nel riquadro Exchange Online qui sopra e guida sezione 6.6), ma se il conflitto scattasse comunque M365Ops lo risolve DAVVERO in automatico isolando la connessione, senza riavvio. Nota anche: su tenant Delegati il popup di login può aprirsi DIETRO il browser — controlla con Alt+Tab prima di pensare che sia bloccato.</p>
         <div class="actions">
           <button id="teams-test-btn">Connetti / Test connessione Teams</button>
           <span id="teams-status-msg"></span>
@@ -722,6 +722,17 @@
   async function sendMessage(presetText) {
     const text = presetText !== undefined ? presetText : inputBox.value.trim();
     if (!text) return;
+    // Bug reale trovato dal vivo il 26/08/2026 durante un giro di bug-hunt: i pulsanti Sì/No
+    // di un messaggio precedente restano abilitati anche dopo che quella proposta e' stata
+    // risolta scrivendo "si"/"no" a mano invece di cliccarli (ognuno ha i propri pulsanti,
+    // solo QUEI due si disabilitano su click - vedi 'respond' sotto). $script:PendingAction
+    // lato server e' un UNICO slot globale: appena arriva un nuovo messaggio (di QUALUNQUE
+    // tipo), un'eventuale proposta precedente non e' piu' quella davvero in sospeso - un
+    // click tardivo su un Sì/No vecchio non riesegue comunque nulla (il server ignora un
+    // 'si'/'no' orfano, verificato dal vivo), ma resta confuso per l'utente vedere piu' paia
+    // di pulsanti cliccabili insieme. Disabilita qui, PRIMA di inviare, ogni pulsante Sì/No
+    // ancora attivo nella cronologia - non solo quello dell'ultimo messaggio.
+    chat.querySelectorAll('button').forEach(b => { if (b.textContent === 'Sì' || b.textContent === 'No') b.disabled = true; });
     addMessage('user', text);
     if (presetText === undefined) inputBox.value = '';
     sendBtn.disabled = true;

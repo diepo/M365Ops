@@ -176,9 +176,11 @@ function Invoke-M365OpsModuleInstall {
     param([string]$PwshPath, [array]$Modules)
     if (-not $Modules -or $Modules.Count -eq 0) { return @{} }
 
-    # "Nome=Versione" per modulo, versione vuota se nessun pin (es. ExchangeOnlineManagement
-    # -> 3.9.0, fissata il 23/08/2026 - vedi Connect-M365OpsExchange.ps1 per il dettaglio
-    # completo della verifica dal vivo del conflitto con MicrosoftTeams).
+    # "Nome=Versione" per modulo, versione vuota se nessun pin - nessun chiamante di questa
+    # funzione passa piu' una versione fissata dal 26/08/2026 (isolamento reattivo dei
+    # processi al posto del vecchio pin a coppia 3.4.0/6.5.0, vedi il commento sopra
+    # $moduleChecks piu' sotto in questo file), il supporto a RequiredVersion resta qui solo
+    # come meccanismo generico per un eventuale pin futuro su un modulo diverso.
     $specsJoined = ($Modules | ForEach-Object { "$($_.Name)=$($_.RequiredVersion)" }) -join ';'
     $psCommand = @"
 `$ErrorActionPreference = 'Continue'

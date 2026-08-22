@@ -57,6 +57,10 @@ function New-M365OpsMigrationBatch {
     # Nessun -AutoStart: il batch resta creato ma non avviato finche' non si chiama
     # esplicitamente Start-M365OpsMigrationBatch - stesso principio delle regole di
     # trasporto (create sempre disabilitate) e di ogni altro oggetto creato da questo modulo.
+    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
+    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026) - mancava qui, trovato dal
+    # vivo in un bug-hunt successivo (26/08/2026).
+    $params.ErrorAction = 'Stop'
     $batch = New-MigrationBatch @params
     Write-Host "Batch di migrazione creato (NON avviato): $($batch.Identity)" -ForegroundColor Green
     $batch | Select-Object Identity, Status, SourceEndpoint, TotalCount

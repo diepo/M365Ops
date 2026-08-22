@@ -455,7 +455,13 @@ function Execute-PendingAction {
             'ExoWrite' {
                 $params = @{}
                 if ($action.Parameters) { $action.Parameters.GetEnumerator() | ForEach-Object { $params[$_.Key] = $_.Value } }
-                $exoResult = & $action.Cmdlet @params
+                $cmdletName = $action.Cmdlet
+                # Invoke-M365OpsWriteWithIsolationRecovery (26/08/2026, bug reale trovato dal
+                # vivo): il conflitto .NET di sezione 6.6 puo' manifestarsi anche DOPO una
+                # connessione Exchange/Teams gia' riuscita, su una scrittura specifica - non
+                # solo al momento del connect (gia' coperto da Connect-M365OpsExchange.ps1).
+                # Vedi quel file per il dettaglio completo del bug e del retry.
+                $exoResult = Invoke-M365OpsWriteWithIsolationRecovery -ModuleType 'Exchange' -Action { & $cmdletName @params }
                 $resultText = ($exoResult | ConvertTo-Json -Depth 6 -Compress)
                 return @{ role = 'system'; text = "Fatto.`n$resultText" }
             }
@@ -476,7 +482,14 @@ function Execute-PendingAction {
             'TeamsWrite' {
                 $params = @{}
                 if ($action.Parameters) { $action.Parameters.GetEnumerator() | ForEach-Object { $params[$_.Key] = $_.Value } }
-                $teamsResult = & $action.Cmdlet @params
+                $cmdletName = $action.Cmdlet
+                # Invoke-M365OpsWriteWithIsolationRecovery (26/08/2026, bug reale trovato dal
+                # vivo: Set-Team fallito con "Method not found: 'Void Microsoft.Identity.
+                # Client.ITokenCache.Deserialize(Byte[])'." SU UNA SCRITTURA, con Teams ed
+                # Exchange gia' connessi entrambi con successo in precedenza - il conflitto di
+                # sezione 6.6 puo' quindi manifestarsi anche dopo un connect riuscito, non
+                # solo durante. Vedi quel file per il dettaglio completo del bug e del retry.
+                $teamsResult = Invoke-M365OpsWriteWithIsolationRecovery -ModuleType 'Teams' -Action { & $cmdletName @params }
                 $resultText = ($teamsResult | ConvertTo-Json -Depth 6 -Compress)
                 return @{ role = 'system'; text = "Fatto.`n$resultText" }
             }

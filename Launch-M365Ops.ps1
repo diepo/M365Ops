@@ -170,5 +170,5 @@ Start-Process "http://localhost:$actualPort/"
 if ($ready) {
     Write-M365OpsStartupStatus -Status 'OK' -Detail "Porta $actualPort"
 } else {
-    Show-M365OpsStartupError "Il server non ha risposto entro 10s sulla porta $actualPort. La pagina e' stata aperta comunque, ma potrebbe non caricarsi - riprova tra poco o controlla i log."
+    Show-M365OpsStartupError "Il server non ha risposto entro 30s sulla porta $actualPort. La pagina e' stata aperta comunque, ma potrebbe non caricarsi - riprova tra poco o controlla i log."
 }

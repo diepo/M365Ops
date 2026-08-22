@@ -28,7 +28,9 @@ function Connect-M365OpsCompliance {
         # attivamente una eventuale versione >= 3.10.0 gia' presente sul disco, installa la
         # 3.4.0 se manca, la IMPORTA (i chiamanti non lo fanno piu' separatamente) e ripara da
         # sola un'installazione locale corrotta se ne trova una.
-        Assert-M365OpsExoSafeVersion
+        # | Out-Null aggiunto il 26/08/2026 - stesso pipeline leak, stessa correzione, vedi
+        # Connect-M365OpsExchange.ps1 per il dettaglio completo del bug.
+        Assert-M365OpsExoSafeVersion | Out-Null
 
         # -ShowBanner su Connect-IPPSSession: assente su 3.1.0 (verificato dal vivo il 25/08/2026:
         # passarlo incondizionatamente dava "A parameter cannot be found that matches parameter

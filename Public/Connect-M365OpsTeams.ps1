@@ -36,7 +36,10 @@ function Connect-M365OpsTeams {
     # $script:M365OpsTeamsModuleImported - stesso pattern di Assert-M365OpsExoSafeVersion.ps1,
     # incluso il controllo di integrita' dei file (non solo la presenza del manifest) aggiunto
     # dopo il bug reale "The given assembly name was invalid" trovato sul lato Exchange.
-    Assert-M365OpsTeamsSafeVersion
+    # | Out-Null aggiunto il 26/08/2026 - stesso pipeline leak, stessa correzione, vedi
+    # Connect-M365OpsExchange.ps1 per il dettaglio completo del bug (trovato dal vivo su
+    # quel lato, corretto qui per simmetria prima che si manifestasse anche qui).
+    Assert-M365OpsTeamsSafeVersion | Out-Null
 
     if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
         if (-not $script:M365OpsContext.DelegatedUpn) {
