@@ -116,7 +116,19 @@ function Connect-M365OpsTeams {
     }
     catch {
         $hint = Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Microsoft Teams' -OtherService 'Exchange Online'
-        if ($hint) { throw $hint }
+        if ($hint) {
+            # Isolamento reattivo (26/08/2026) - stesso principio di Connect-M365OpsExchange.ps1,
+            # vedi Connect-M365OpsIsolatedModule.ps1 per l'architettura completa.
+            try {
+                Connect-M365OpsIsolatedModule -ModuleType 'Teams' -ConnectParams (Get-M365OpsIsolatedConnectParams -ModuleType 'Teams')
+                $script:M365OpsTeamsConnected = $true
+                Write-M365OpsLog "Microsoft Teams: conflitto .NET reale rilevato, connessione riuscita tramite isolamento reattivo (processo separato) - nessun riavvio necessario."
+                return
+            }
+            catch {
+                throw $hint
+            }
+        }
         throw
     }
 }

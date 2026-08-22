@@ -2006,6 +2006,10 @@ try {
             # sessione, non solo quello attivo ora) prima di uscire dal processo, altrimenti
             # restano orfani esattamente come il bug originale che questo blocco correggeva.
             Disconnect-M365OpsAllMcpServers
+            # Worker isolati Exchange/Teams (26/08/2026, isolamento reattivo del conflitto di
+            # sezione 6.6, vedi Connect-M365OpsIsolatedModule.ps1) - stesso motivo dei server
+            # MCP appena sopra, nessuno deve restare orfano dopo un riavvio vero.
+            Disconnect-M365OpsAllIsolatedWorkers
             $listener.Stop()
             $exePath = (Get-Process -Id $PID).Path
             # BUG corretto: passava sempre $TenantProfile (il parametro di avvio originale,

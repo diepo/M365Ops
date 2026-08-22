@@ -91,7 +91,26 @@ function Connect-M365OpsExchange {
     }
     catch {
         $hint = Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Exchange Online' -OtherService 'Microsoft Teams'
-        if ($hint) { throw $hint }
+        if ($hint) {
+            # Isolamento reattivo (26/08/2026, richiesto esplicitamente dall'utente come
+            # soluzione DEFINITIVA al conflitto - vedi Connect-M365OpsIsolatedModule.ps1 per
+            # l'architettura completa): invece di limitarsi a mostrare il messaggio "riavvia
+            # il server", si tenta di far funzionare DAVVERO questa connessione spostandola in
+            # un processo separato - solo App-only per ora (un tenant Delegato continua a
+            # vedere il messaggio classico, vedi Get-M365OpsIsolatedConnectParams.ps1).
+            try {
+                Connect-M365OpsIsolatedModule -ModuleType 'Exchange' -ConnectParams (Get-M365OpsIsolatedConnectParams -ModuleType 'Exchange')
+                $script:M365OpsExchangeConnected = $true
+                Write-M365OpsLog "Exchange Online: conflitto .NET reale rilevato, connessione riuscita tramite isolamento reattivo (processo separato) - nessun riavvio necessario."
+                return
+            }
+            catch {
+                # L'isolamento stesso e' fallito (es. tenant Delegato, o un problema distinto
+                # nel processo isolato) - il messaggio classico resta la spiegazione piu'
+                # utile, non l'errore tecnico dell'isolamento.
+                throw $hint
+            }
+        }
         throw
     }
 }

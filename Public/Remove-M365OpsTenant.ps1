@@ -40,6 +40,7 @@ function Remove-M365OpsTenant {
     # profilo NON attivo (visitato in precedenza in questa sessione, vedi
     # Connect-M365OpsMcpServer.ps1) - un profilo appena rimosso non deve lasciarne uno orfano.
     try { Disconnect-M365OpsAllMcpServers -TenantName $Name } catch {}
+    try { Disconnect-M365OpsAllIsolatedWorkers -TenantName $Name } catch {}
 
     Write-Host "Profilo '$Name' rimosso da $configPath. Dati gia' accumulati (storico chat, Knowledge Base, report) non toccati." -ForegroundColor Green
     [pscustomobject]@{ Name = $Name; Removed = $true }

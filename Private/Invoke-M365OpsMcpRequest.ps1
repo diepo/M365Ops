@@ -8,7 +8,14 @@ function Invoke-M365OpsMcpRequest {
         [Parameter(Mandatory)] $Process,
         [Parameter(Mandatory)] [string]$Method,
         $Params = @{},
-        [switch]$Notification
+        [switch]$Notification,
+        # Default 30s invariato per Lokka/CLI Microsoft 365 (comportamento originale) - un
+        # chiamante puo' alzarlo per un'operazione nota per essere piu' lenta (es. il "connect"
+        # del worker isolato Exchange/Teams, che puo' includere Connect-ExchangeOnline +
+        # Connect-IPPSSession + un'attesa di stabilizzazione dell'elenco comandi, vedi
+        # M365OpsIsolatedWorker.ps1 - trovato dal vivo il 26/08/2026 che 30s non bastavano
+        # sempre per quel caso specifico).
+        [int]$TimeoutSeconds = 30
     )
 
     $script:M365OpsMcpRequestId = if ($script:M365OpsMcpRequestId) { $script:M365OpsMcpRequestId + 1 } else { 1 }
@@ -23,7 +30,7 @@ function Invoke-M365OpsMcpRequest {
 
     if ($Notification) { return $null }
 
-    $deadline = (Get-Date).AddSeconds(30)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         if ($Process.HasExited) {
             $err = $Process.StandardError.ReadToEnd()
