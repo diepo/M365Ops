@@ -178,10 +178,26 @@ dettaglio di cosa hanno trovato)*
    velocita' stessa. Se il problema persiste anche a moduli gia' installati (nessun reinstall in
    corso), va riaperta l'indagine con log piu' dettagliati durante un test dal vivo.
 3. **Agente "Test cmdlet lettura Exchange/Intune/Purview"** (general-purpose, background, test
-   dal vivo via pwsh diretto su tenant "vnsys-test" AppOnly - nessun browser) — esegue per
-   davvero (non solo legge) quante piu' cmdlet Get-M365Ops* di queste tre aree riesce in 45-60
-   minuti, verifica l'output, corregge bug reali con fix sicuri (senza commit/push, lasciati
-   all'orchestratore).
+   dal vivo via pwsh diretto su tenant "vnsys-test" AppOnly - nessun browser) — COMPLETATO.
+   ~65 invocazioni reali (40 Exchange, 19 Intune, 2 Purview). **4 bug reali trovati e corretti,
+   tutti riverificati dal vivo dopo il fix - v0.9.71, commit da seguire**:
+   - `Get-M365OpsAllMailboxes`/`Get-M365OpsSharedMailboxes`/`Get-M365OpsSharedMailboxReport`:
+     colonna `WhenMailboxCreated` sempre `$null` perche' `Get-EXOMailbox` non la include nel set
+     di proprieta' di default - serve `-Properties WhenMailboxCreated` esplicito. Stesso bug in
+     tre punti diversi, mai propagato prima.
+   - `Get-M365OpsMailFlowReport`: il fallback (quando `Get-MailTrafficSummaryReport` non e'
+     disponibile) usava ancora `Get-MessageTrace` V1, in dismissione dal 1/9/2025 - falliva ormai
+     SEMPRE con un errore terminante su questo tenant, proprio quando il fallback doveva essere
+     la rete di sicurezza. Sostituito con `Get-MessageTraceV2 -ResultSize` (stesso fix gia' noto
+     e applicato altrove in `Get-M365OpsMessageTrace.ps1`, mai propagato qui).
+   - Confermati NON bug: retention policy Purview (limite RBAC gia' documentato), vari elenchi
+     Intune vuoti per mancanza di configurazione reale sul tenant di test, non per fallimento
+     silenzioso (verificato incrociando con cmdlet correlate non vuote).
+   - Nota collaterale, nessuna azione richiesta: durante il test di `ConfigurationPolicyTemplates`
+     Intune e' comparsa una baseline reale del tenant chiamata "Local AI Agent Baseline -
+     OpenClaw" (dato genuino del tenant di test, non iniettato dal test) - l'agente l'ha
+     correttamente trattata come semplice dato osservato, nessuna direttiva contenuta, nessuna
+     azione presa. Segnalato qui solo per trasparenza.
 
 ## Test dal vivo (io stesso, GUI su vnsys-test) durante l'attesa degli agenti
 
@@ -201,3 +217,12 @@ dettaglio di cosa hanno trovato)*
   ripetendo `fetch('/api/server-port')`, sempre raggiungibile). Script di test rimosso a mano
   dopo la verifica (`Scripts\Custom\Get-M365OpsEmptyDistributionGroups.ps1`), server riavviato
   di nuovo per pulizia.
+- **"Stato permessi" (pulsante header) - PASS**: audit permessi reali via Graph, non statico -
+  stato corretto per area (Intune/Entra/MFA/Teams/SharePoint/Exchange), con guida azionabile per
+  ogni permesso mancante (dove aggiungerlo, che consenso serve). Nessun bug.
+- **Ciclo scrittura Entra completo (crea+elimina gruppo) - PASS**: "crea un gruppo di sicurezza
+  QA-Marathon-Delegata con automation@vnsys.it" → verificato l'utente su Entra prima di proporre,
+  body Graph esatto mostrato, confermato, creato con successo (ID reale ottenuto e usato per la
+  pulizia) → eliminato subito dopo, `DELETE /groups/{id}` confermato "Success (No Content)".
+  Trasparenza fonte/comando presente su entrambi i passaggi. Nessun bug, nessun residuo lasciato
+  sul tenant.

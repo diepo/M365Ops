@@ -6,7 +6,11 @@ function Get-M365OpsSharedMailboxReport {
         per l'export diretto con Export-M365OpsReport.
     #>
     Connect-M365OpsExchange
-    $shared = Get-EXOMailbox -RecipientTypeDetails SharedMailbox -ResultSize Unlimited -Properties GrantSendOnBehalfTo
+    # -Properties deve includere anche WhenMailboxCreated: Get-EXOMailbox restituisce di
+    # default un set ridotto di proprieta' e WhenMailboxCreated non ne fa parte - senza
+    # elencarlo esplicitamente WhenCreated sotto risultava sempre $null (bug reale verificato
+    # dal vivo, 23/08/2026, stesso bug di Get-M365OpsAllMailboxes/Get-M365OpsSharedMailboxes).
+    $shared = Get-EXOMailbox -RecipientTypeDetails SharedMailbox -ResultSize Unlimited -Properties GrantSendOnBehalfTo, WhenMailboxCreated
 
     $shared | ForEach-Object {
         $mbx = $_
