@@ -120,13 +120,42 @@ isolamento reattivo (Delegato+AppOnly), CLI Microsoft 365 (nuovo connettore).
     CLI365 (già connesso, dominio giusto - Entra). Causa: il system prompt distingueva solo "il
     dato non c'è" da "la connessione stessa manca" nel decidere quando usare cli_m365_* come
     fallback. Corretto con un'eccezione esplicita per i tenant Delegati.
-- **In attesa**: l'utente sta rilanciando pulito il server (playbook sopra) e connettendo di
-  persona Exchange/Teams/SharePoint/Purview/Intune/CLI365 sul tenant Delegato "AlePiras"
-  (richiede login umano+MFA che nessun agente può fare da solo) e darà conferma per far partire
-  il cronometro delle 4 ore.
-- Prossimo passo appena arriva la conferma: annotare l'ora di inizio REALE qui sotto, spinnare
-  gli agenti dichiarati nella sezione "Agenti attivi in questa maratona", e cominciare.
+- Altri due problemi reali emersi e corretti durante il setup, prima dell'avvio:
+  - **v0.9.69, commit `bff12f3`**: la preferenza CLI365 di v0.9.68 era solo reattiva (dopo un
+    fallimento) e solo per le letture. Estesa a proattiva (calcolata prima del system prompt) e
+    anche alle scritture (`propose_graph_write`), su richiesta esplicita: "trattalo come tool
+    idempotente a Graph laddove ha possibilità". Corretto anche un caso nascosto: SharePoint su
+    Delegato falliva con lo stesso errore perché `Sync-M365OpsSharePointAppRegistration` (ricerca
+    una tantum dell'app dedicata) dipendeva da Graph per un dettaglio interno - ora prova prima
+    CLI365 (`m365 entra app get --name`, verificato dal vivo).
+  - Doppia istanza server chiarita: non erano processi appesi, erano due istanze REALI e
+    intenzionali (`vnsys delegata` su 8743, `AlePiras` su 8745, PID trovati con
+    `Get-CimInstance Win32_Process` invece di `Get-NetTCPConnection`, che su HTTP.sys attribuisce
+    tutto a PID 4/System - falsa pista). Chiusa la 8743, tenuta solo AlePiras.
+- L'utente NON è riuscito a completare tutte le connessioni Delegate su "AlePiras" prima di
+  doversi allontanare (CLI Microsoft 365 sì, Exchange/Teams/SharePoint/Purview/Intune/Graph
+  generico no) - ha segnalato anche un problema di affidabilità non ancora diagnosticato: dal
+  click su "Connetti" all'apertura del browser passa molto tempo, e a volte il browser non si
+  apre affatto. Ha chiesto esplicitamente di investigarlo con test reali durante la maratona.
+- **Istruzione esplicita per procedere**: "avvio la maratona ORA con quello che hai e puoi fare,
+  se delegata non hai tutto fai quello che puoi poi torna in app registered" - quindi: usare
+  AlePiras/Delegato per quello che è già testabile (CLI365), investigare il problema di
+  affidabilità del login, poi spostare il grosso dei test sul tenant App-only "vnsys-test" (dove
+  posso operare senza bisogno di login umano/MFA per quasi tutto).
 
-## Agenti attivi in questa maratona (da compilare all'avvio)
+## ORA DI INIZIO UFFICIALE: 23/08/2026, 12:42 (locale)
+Durata minima impegnata: 4 ore, quindi fino ad almeno le 16:42. Da estendere onestamente in
+chat e qui se il lavoro richiede più tempo per essere fatto bene - non tagliare per rientrare.
 
-*(vuoto — nessuna maratona ancora avviata sotto la metodologia formalizzata sopra)*
+## Agenti attivi in questa maratona
+
+*(sezione aggiornata mano a mano che vengono spinnati - vedi anche i log sessione sotto per il
+dettaglio di cosa hanno trovato)*
+
+1. **Investigatore affidabilità login/popup** — (io stesso, non un agente separato, essendo
+   l'indagine appena iniziata e a bassa parallelizzabilità: richiede letture di codice mirate +
+   test dal vivo in sequenza) - obiettivo: capire perché il click su "Connetti" impiega molto
+   prima di aprire il browser, e perché a volte non si apre affatto, su tutte le connessioni
+   interessate (Graph/Exchange/Teams/SharePoint/Purview/Intune/CLI365).
+2. *(altri agenti da dichiarare qui appena spinnati - copertura GUI, comandi lettura/scrittura
+   per area, autoreview dei fix di questa maratona)*
