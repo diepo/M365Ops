@@ -124,7 +124,14 @@ function Get-M365OpsCommandCatalog {
                 '(?=.*send.?on.?behalf)(?=.*(condivis\w*|shared))',
                 '(?=.*delega\w*)(?=.*(casella|mailbox|posta))(?=.*(condivis\w*|shared))'
             )
-            DeferWords   = @('report', 'xlsx', 'excel', 'csv', 'pdf', 'tab', 'gruppo', 'gruppi', 'distribuzione')
+            # Verbi di scrittura (23/08/2026, bug-hunt di 16 ore, stesso schema gia' corretto su
+            # MfaStatus): i trigger sopra sono puri lookahead sui SOSTANTIVI ("permessi",
+            # "mailbox", "condivisa"), senza controllo sul verbo - "aggiungi il permesso
+            # FullAccess sulla mailbox condivisa Vendite a mario@contoso.com" matcha comunque
+            # tutti i lookahead, e questo handler (sola lettura) elencava i permessi ESISTENTI
+            # invece di proporre la scrittura richiesta (Grant-M365OpsMailboxPermission esiste
+            # gia' come propose_exo_write) - nessun errore, nessuna scrittura, richiesta ignorata.
+            DeferWords   = @('report', 'xlsx', 'excel', 'csv', 'pdf', 'tab', 'gruppo', 'gruppi', 'distribuzione', 'aggiung\w*', 'rimuov\w*', 'togli\w*', 'revoc\w*', 'concedi\w*', 'assegna\w*', 'grant\w*')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = {
@@ -170,7 +177,16 @@ function Get-M365OpsCommandCatalog {
             # 'invia'/'manda'/'spedisci' aggiunti il 19/08/2026 (bug-hunt mirato): stesso schema
             # gia' visto sulle voci gemelle - senza, "manda via mail un report sui pattern di
             # conformita'" veniva risposto con l'export grezzo, ignorando in silenzio l'invio.
-            DeferWords   = @('tab', 'gruppo', 'gruppi', 'distribuzione', 'invia', 'manda', 'spedisci')
+            # 'phishing'/'attacc'/'naming'/'convenzion' (23/08/2026, bug-hunt di 16 ore): questa
+            # voce non puo' richiedere "conform*" nel trigger (l'uso documentato sopra, "esporta
+            # l'analisi pattern in pdf", non lo contiene affatto - l'utente lo sa gia' dal
+            # contesto). Il trigger 'pattern' + parola di export resta quindi ambiguo con
+            # TUTT'ALTRI tipi di pattern (es. "esporta i pattern di attacco di phishing rilevati
+            # in pdf") - un vero export di pattern DI SICUREZZA/PHISHING, non di non conformita'
+            # dispositivi, che questo handler dedicato non sa affatto generare. Segnali di
+            # un tipo di pattern diverso deviano ora all'AI invece di produrre in silenzio il
+            # report sbagliato.
+            DeferWords   = @('tab', 'gruppo', 'gruppi', 'distribuzione', 'invia', 'manda', 'spedisci', 'phishing', 'attacc\w*', 'attack', 'naming', 'convenzion\w*')
             CaptureRegex = '\b(csv|excel|xlsx|pdf)\b'
             RequiresAI   = $true
             Handler      = { param($formatWord) Export-M365OpsCompliancePatternsReportChat -FormatWord $formatWord }
@@ -179,7 +195,14 @@ function Get-M365OpsCommandCatalog {
         [pscustomobject]@{
             Name         = "ExportDevices"
             Description  = "Esporta l'elenco dispositivi in CSV, Excel o PDF (default CSV se non specifichi). Uso: 'esporta dispositivi in excel'"
-            Triggers     = @('esporta.*dispositiv', 'esporta.*device', 'report.*dispositiv', 'scarica.*dispositiv', 'dispositiv.*(csv|excel|xlsx|pdf)')
+            # Distanza limitata a {0,30} (23/08/2026, bug-hunt di 16 ore): questi 5 pattern
+            # usavano ancora '.*' SENZA LIMITI (a differenza della voce gemella
+            # ExportCompliancePatterns, dove '{0,30}' fu introdotto apposta il 18/08/2026 per lo
+            # stesso identico motivo) - "Puoi fare un report su cosa e' successo ieri con
+            # Exchange e SharePoint, includendo anche eventuali dispositivi compromessi?" fa
+            # scattare 'report.*dispositiv' nonostante "report" e "dispositiv" siano a distanza
+            # enorme e la richiesta reale sia un'indagine multi-servizio, non un export.
+            Triggers     = @('esporta.{0,30}dispositiv', 'esporta.{0,30}device', 'report.{0,30}dispositiv', 'scarica.{0,30}dispositiv', 'dispositiv.{0,30}(csv|excel|xlsx|pdf)')
             # Bug reale trovato dal vivo il 18/08/2026: 'scarica.*dispositiv' con .* senza limiti
             # intercettava anche richieste composte molto piu' ricche di un semplice export con le
             # colonne di default - es. "scarica un report con seriale, versione SO, cifrato si/no,
@@ -209,7 +232,12 @@ function Get-M365OpsCommandCatalog {
             # chat, ignorando in silenzio l'invio - stesso identico bug gia' corretto su
             # ExportDevices/EmailLastReport/ListNonCompliant ma mai propagato a questa voce
             # gemella. '@\S+\.\S+' da solo copriva solo il caso con un indirizzo email esplicito.
-            DeferWords   = @('tab', 'gruppo', 'gruppi', 'distribuzione', '@\S+\.\S+', 'responsabile', 'capo', 'collega', 'invia', 'manda', 'spedisci')
+            # Guardia domanda di supporto (23/08/2026, bug-hunt di 16 ore): a differenza della
+            # PRIMA alternativa del trigger sopra ('report.*(utilizzo|...).*mailbox', che
+            # richiede la parola "report"), la SECONDA ('mailbox.*(utilizzo|...)') non richiede
+            # alcun verbo di export - "la mailbox di Mario ha superato la quota, cosa faccio?"
+            # la fa scattare comunque, proponendo un export invece di rispondere alla domanda.
+            DeferWords   = @('tab', 'gruppo', 'gruppi', 'distribuzione', '@\S+\.\S+', 'responsabile', 'capo', 'collega', 'invia', 'manda', 'spedisci', 'cosa faccio', 'perch[eé]', 'puoi (controllare|verificare|aiutarmi|dirmi)', 'non riesc\w*')
             CaptureRegex = '\b(csv|excel|xlsx|pdf)\b'
             RequiresAI   = $false
             Handler      = { param($formatWord) Export-M365OpsExoReportChat -Cmdlet 'Get-M365OpsMailboxUsageReport' -Title 'Utilizzo Mailbox' -FileSlug 'mailbox-usage' -FormatWord $formatWord }
@@ -241,7 +269,12 @@ function Get-M365OpsCommandCatalog {
             # chat, ignorando in silenzio l'invio - stesso identico bug gia' corretto su
             # ExportDevices/EmailLastReport/ListNonCompliant ma mai propagato a questa voce
             # gemella. '@\S+\.\S+' da solo copriva solo il caso con un indirizzo email esplicito.
-            DeferWords   = @('tab', 'gruppo', 'gruppi', 'distribuzione', '@\S+\.\S+', 'responsabile', 'capo', 'collega', 'invia', 'manda', 'spedisci')
+            # Negazione (23/08/2026, bug-hunt di 16 ore): il trigger 'tutte le mailbox' e' una
+            # sottostringa letterale senza ancora di verbo - "non tutte le mailbox sono state
+            # migrate correttamente, puoi controllare quali mancano?" la contiene comunque (la
+            # negazione "non" precede semplicemente la stessa frase), scatenando un export
+            # completo invece di rispondere alla domanda sulla migrazione.
+            DeferWords   = @('tab', 'gruppo', 'gruppi', 'distribuzione', '@\S+\.\S+', 'responsabile', 'capo', 'collega', 'invia', 'manda', 'spedisci', 'non tutte', 'perch[eé]', 'puoi (controllare|verificare)', 'mancano', 'migrat\w*')
             CaptureRegex = '\b(csv|excel|xlsx|pdf)\b'
             RequiresAI   = $false
             Handler      = { param($formatWord) Export-M365OpsExoReportChat -Cmdlet 'Get-M365OpsAllMailboxes' -Title 'Tutte le Mailbox' -FileSlug 'all-mailboxes' -FormatWord $formatWord }
@@ -283,7 +316,11 @@ function Get-M365OpsCommandCatalog {
             # chat, ignorando in silenzio l'invio - stesso identico bug gia' corretto su
             # ExportDevices/EmailLastReport/ListNonCompliant ma mai propagato a questa voce
             # gemella. '@\S+\.\S+' da solo copriva solo il caso con un indirizzo email esplicito.
-            DeferWords   = @('tab', 'gruppo', 'gruppi', 'distribuzione', '@\S+\.\S+', 'responsabile', 'capo', 'collega', 'invia', 'manda', 'spedisci')
+            # Guardia domanda di supporto (23/08/2026, bug-hunt di 16 ore): la terza alternativa
+            # del trigger sopra ('mailbox.*inoltr') non richiede alcun verbo di export - "la
+            # mailbox di Mario continua a fare inoltro automatico anche se doveva essere
+            # disabilitato, puoi controllare perche'?" la fa scattare comunque.
+            DeferWords   = @('tab', 'gruppo', 'gruppi', 'distribuzione', '@\S+\.\S+', 'responsabile', 'capo', 'collega', 'invia', 'manda', 'spedisci', 'cosa faccio', 'perch[eé]', 'puoi (controllare|verificare|aiutarmi|dirmi)', 'non riesc\w*')
             CaptureRegex = '\b(csv|excel|xlsx|pdf)\b'
             RequiresAI   = $false
             Handler      = { param($formatWord) Export-M365OpsExoReportChat -Cmdlet 'Get-M365OpsForwardingReport' -Title 'Mailbox con Inoltro Automatico' -FileSlug 'forwarding-report' -FormatWord $formatWord }
@@ -363,7 +400,15 @@ function Get-M365OpsCommandCatalog {
             # pensata apposta per raggruppare/correlare) - la sua voce gemella qui sotto ha un
             # trigger che matcha ANCHE questo messaggio, ma essendo elencata dopo nell'array non
             # veniva mai raggiunta.
-            DeferWords   = @('piano', 'remediation', 'consigl', 'roadmap', 'perch', 'causa', 'mail', 'email', 'e poi', 'e anche', 'quindi', 'pattern', 'correlazion')
+            # 'poi'/'dopo' isolate (23/08/2026, bug-hunt di 16 ore): 'e poi'/'e anche'/'quindi'
+            # sono frasi LETTERALI - "dispositivi non conformi, poi manda la lista al mio capo"
+            # (virgola invece di "e", "poi" da solo) non le contiene, quindi non deviava
+            # all'AI nonostante la seconda parte della richiesta fosse reale quanto negli altri
+            # casi gia' corretti. 'rimuov\w*'/'rimoss\w*'/'elimin\w*' aggiunti per lo stesso
+            # motivo di MfaStatus: "i dispositivi non conformi dovrebbero essere rimossi dal
+            # gruppo Intune, puoi farlo?" e' un intento di SCRITTURA che questa voce (sola
+            # lettura) ignorava silenziosamente.
+            DeferWords   = @('piano', 'remediation', 'consigl', 'roadmap', 'perch', 'causa', 'mail', 'email', 'e poi', 'e anche', 'quindi', 'poi', 'dopo', 'pattern', 'correlazion', 'rimuov\w*', 'rimoss\w*', 'elimin\w*')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { Get-M365OpsManagedDevices -NonCompliantOnly }
@@ -378,7 +423,10 @@ function Get-M365OpsCommandCatalog {
             # include gia' i GRUPPI DI CUI L'UTENTE E' MEMBRO, un dato diverso e piu' ristretto
             # di "tutti i gruppi di distribuzione del tenant" richiesto nella seconda parte) -
             # la vera richiesta finale spariva senza risposta.
-            DeferWords   = @('e poi', 'e anche', 'quindi')
+            # 'poi'/'dopo' isolate (23/08/2026, bug-hunt di 16 ore): 'e poi'/'e anche'/'quindi'
+            # sono frasi LETTERALI - "panoramica utente X, poi disattivagli l'account" (virgola
+            # invece di "e") non le contiene, la seconda parte spariva in silenzio.
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi', 'dopo')
             # Il dominio non termina mai con un punto letterale, cosi' un punto di fine frase
             # subito dopo l'indirizzo non finisce dentro l'email catturata (stesso bug/fix di
             # Get-M365OpsGroupPlanFromMessage in Server.ps1).
@@ -419,7 +467,9 @@ function Get-M365OpsCommandCatalog {
             # tutto per costruzione, RequiresAI = $false). Stesso principio delle due voci sopra:
             # un segnale di intento diverso (qui, un verbo di reset/rimozione) fa passare
             # l'intero messaggio all'AI invece di eseguire alla cieca la sola lettura.
-            DeferWords   = @('report', 'tutti', 'tenant', 'conditional', 'access', 'zone', 'policy', 'criteri', 'e poi', 'e anche', 'quindi', 'reset\w*', 'rimuov\w*', 'cancell\w*', 'elimin\w*', 'disattiv\w*', 'sblocc\w*')
+            # 'poi'/'dopo' isolate (23/08/2026, stesso bug-hunt): "stato mfa di X, poi
+            # disattivagli l'account" (virgola invece di "e poi") non veniva deviato.
+            DeferWords   = @('report', 'tutti', 'tenant', 'conditional', 'access', 'zone', 'policy', 'criteri', 'e poi', 'e anche', 'quindi', 'poi', 'dopo', 'reset\w*', 'rimuov\w*', 'cancell\w*', 'elimin\w*', 'disattiv\w*', 'sblocc\w*')
             CaptureRegex = '([\w\.\-]+@[\w\-]+(?:\.[\w\-]+)+)'
             RequiresAI   = $false
             Handler      = {
@@ -449,7 +499,9 @@ function Get-M365OpsCommandCatalog {
             # del messaggio come se fosse il nome del gruppo ("build e poi dimmi quali connettori
             # send sono configurati"), fallendo con "nessun gruppo trovato" invece di rispondere
             # a nessuna delle due richieste reali.
-            DeferWords   = @('e poi', 'e anche', 'quindi')
+            # 'poi'/'dopo' isolate (23/08/2026, stesso bug-hunt): "panoramica gruppo X, poi
+            # rimuovi Mario dai membri" (virgola invece di "e poi") non veniva deviato.
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi', 'dopo')
             # Secondo bug reale, stesso schema, trovato dal vivo il 23/08/2026 (bug-hunt di 16
             # ore): DeferWords sopra intercetta solo le tre frasi di continuazione LETTERALI
             # ("e poi"/"e anche"/"quindi") - una richiesta altrettanto naturale ma diversamente
@@ -494,7 +546,10 @@ function Get-M365OpsCommandCatalog {
             # 'invia'/'manda'/'spedisci' aggiunti il 19/08/2026 (bug-hunt mirato), stesso motivo:
             # l'handler dedicato non ha accesso a propose_send_report_email - "manda via mail un
             # report sui pattern di conformita'" produceva l'analisi ma ignorava l'invio.
-            DeferWords   = @('e poi', 'e anche', 'quindi', 'invia', 'manda', 'spedisci')
+            # 'poi'/'dopo' isolate (23/08/2026, stesso bug-hunt): stessa lacuna delle voci
+            # gemelle - "e poi"/"e anche"/"quindi" sono frasi letterali, "analizza i pattern di
+            # non conformita', poi controlla lo stato mfa di X" (virgola) non le contiene.
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi', 'dopo', 'invia', 'manda', 'spedisci')
             CaptureRegex = $null
             RequiresAI   = $true
             Handler      = { Get-M365OpsCompliancePatterns -Provider $script:ActiveAIProvider }
@@ -528,7 +583,9 @@ function Get-M365OpsCommandCatalog {
             # completo. NON si usa il solo 'non' come DeferWord: e' una delle parole piu' comuni
             # dell'italiano ("dispositivi non aggiornati da tempo" ecc.) - avrebbe fatto deviare
             # all'AI anche richieste semplicissime senza alcun legame con la conformita'.
-            DeferWords   = @('e poi', 'e anche', 'quindi', 'nn\s*conform', 'compliant', 'conform')
+            # 'poi'/'dopo' isolate (23/08/2026, stesso bug-hunt): "elenca i dispositivi, poi
+            # dimmi quanti gruppi ci sono" (virgola) non veniva deviato dalle sole frasi letterali.
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi', 'dopo', 'nn\s*conform', 'compliant', 'conform')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { Get-M365OpsManagedDevices }
@@ -560,7 +617,11 @@ function Get-M365OpsCommandCatalog {
             # 'access\w*|acced\w*' copre sia il sostantivo (accesso/accessi) sia le forme del
             # verbo accedere (accedo/accedi/accede/accedere/acceduto); 'non riesc\w*' copre
             # tutte le persone (riesco/riesci/riesce/riescono), non solo la prima singolare.
-            DeferWords   = @('account', 'access\w*', 'acced\w*', 'password', 'non riesc\w*', 'errore', 'problema', 'bloccat')
+            # 'blocc\w*' invece di 'bloccat' (23/08/2026, bug-hunt di 16 ore): la stringa
+            # letterale 'bloccat' matcha solo il participio passato (bloccato/bloccata/i) - "aiuto,
+            # Teams si blocca ogni volta che condivido lo schermo" (presente, "blocca") non veniva
+            # deviato da nessuna DeferWord.
+            DeferWords   = @('account', 'access\w*', 'acced\w*', 'password', 'non riesc\w*', 'errore', 'problema', 'blocc\w*')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { $null }
