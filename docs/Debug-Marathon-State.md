@@ -182,3 +182,22 @@ dettaglio di cosa hanno trovato)*
    davvero (non solo legge) quante piu' cmdlet Get-M365Ops* di queste tre aree riesce in 45-60
    minuti, verifica l'output, corregge bug reali con fix sicuri (senza commit/push, lasciati
    all'orchestratore).
+
+## Test dal vivo (io stesso, GUI su vnsys-test) durante l'attesa degli agenti
+
+- **Script personalizzati - MAI testato prima, ora coperto end-to-end, PASS**: "ogni tanto mi
+  serve controllare quali gruppi di distribuzione non hanno nessun membro, puoi automatizzarlo
+  come script cosi' lo riuso in futuro?" → l'AI ha correttamente riconosciuto il caso d'uso
+  ricorrente (non una richiesta one-off), proposto `propose_new_custom_script` con codice
+  conforme al template (`Get-M365OpsEmptyDistributionGroups`, dichiarato ReadOnly), richiesto
+  conferma prima di scrivere il file (corretto, anche se ReadOnly - e' comunque una scrittura sul
+  filesystem). Confermato "si" → salvato in `Scripts\Custom\`, **il server si e' riavviato da
+  solo per caricarlo** (comportamento corretto, spiegato chiaramente all'utente prima che
+  succedesse) → richiesta successiva "usa lo script che hai appena creato" → eseguito per
+  davvero, trovati 2 gruppi reali (`gruppo_dynamicdl`, `test.2`), nessuna invenzione. Unica nota:
+  la generazione ha impiegato ~180 secondi (normale per generazione+validazione codice, non un
+  bug) - durante l'attesa il server e' temporaneamente sparito dalla lista processi tracciata dal
+  mio harness, causa proprio il riavvio automatico legittimo, non un crash (verificato
+  ripetendo `fetch('/api/server-port')`, sempre raggiungibile). Script di test rimosso a mano
+  dopo la verifica (`Scripts\Custom\Get-M365OpsEmptyDistributionGroups.ps1`), server riavviato
+  di nuovo per pulizia.
