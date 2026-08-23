@@ -81,19 +81,36 @@ isolamento reattivo (Delegato+AppOnly), CLI Microsoft 365 (nuovo connettore).
 - CLI Microsoft 365 come connettore AI in chat (appena reso di default, mai testato con dati
   reali oltre al login stesso - nessun comando `spo`/`entra`/`outlook`/`planner` reale ancora
   eseguito e verificato).
-- **Prioritario, trovato dal vivo il 23/08/2026 durante il setup pre-maratona**: `propose_graph_write`
-  (strumento primario per le scritture Graph) su un tenant Delegato con SOLO CLI Microsoft 365
-  connesso fallisce allo stesso modo scoperto per `graph_api_call` (v0.9.68, sessione delegata
-  generica mancante) - ma qui NON è stato corretto un fallback verso `propose_cli_m365_command`
-  come per le letture, deliberatamente: una write mal instradata ha conseguenze più serie di una
-  lettura, e CLI 365 (`m365 entra user add`) potrebbe normalizzare/validare i parametri in modo
-  diverso da un POST Graph diretto - va indagato con calma, non patchato al volo. Riprodotto dal
-  vivo: "crea un account" su AlePiras (solo CLI365 connesso) → proposta registrata correttamente,
-  esecuzione fallita con "Nessuna sessione delegata attiva per 'AlePiras'" - la diagnosi
-  automatica post-fallimento ha correttamente NON inventato una correzione (buon segno, nessuna
-  fabbricazione), ma il vero limite (nessun fallback su CLI365 per le scritture) resta aperto.
-  Task per la maratona: valutare se/come estendere la logica di fallback letture→CLI365 (v0.9.68)
-  anche alle scritture Entra-only, con test reali di entrambi i percorsi a confronto.
+- **RISOLTO (agente dedicato, 23/08/2026)**: `propose_graph_write` su un tenant Delegato con SOLO
+  CLI Microsoft 365 connesso falliva allo stesso modo scoperto per `graph_api_call` (v0.9.68,
+  sessione delegata generica mancante) - nessun fallback verso `propose_cli_m365_command` per le
+  scritture. Investigato con un confronto dal vivo (creazione+eliminazione di un gruppo Entra su
+  "vnsys-test", sia via POST Graph diretto sia via `m365 entra group add`), come richiesto.
+  **Evidenza reale raccolta**: le normalizzazioni/validazioni SONO effettivamente diverse tra i
+  due percorsi - `m365 entra group add` RIFIUTA il comando senza un `--type security|microsoft365`
+  esplicito (nessun equivalente nel body Graph di `New-M365OpsGroup`, che usa
+  `mailEnabled`/`securityEnabled` booleani), e anche passando `--type` corretto il gruppo risultante
+  ha `mailNickname` generato automaticamente (non derivato dal displayName) e `visibility="Public"`
+  invece di `null`. Per questo **NON e' stata implementata una traduzione automatica** del corpo
+  Graph in un comando CLI365 (rischio reale, confermato, non ipotetico). E' stato invece
+  implementato un **guard deterministico, non una traduzione**: in `Invoke-M365OpsAgentTools.ps1`,
+  il dispatch di `propose_graph_write` ora rifiuta ESPLICITAMENTE (prima che l'utente veda anche
+  solo una richiesta di conferma) un percorso Entra ID (`/users`, `/groups`, `/devices`,
+  `/directoryRoles`, `/organization`, `/domains`) quando la sessione Graph delegata generica non e'
+  attiva e CLI Microsoft 365 e' configurato - rimandando l'AI a `propose_cli_m365_command`, che
+  deve comunque costruire da sola il comando corretto (stesso doppio cancello di conferma di ogni
+  altra scrittura, nessun bypass). **Verificato dal vivo attraverso il percorso reale del guard**
+  (stato Delegato+sessione-mancante simulato su "vnsys-test", chiamata IA reale non scriptata):
+  l'IA ha davvero chiamato `propose_cli_m365_command` invece di `propose_graph_write` - il guard
+  funziona - ma ha costruito il comando per analogia col body Graph (`--securityEnabled true
+  --mailEnabled false` invece di `--type security`), esattamente il rischio di normalizzazione
+  gia' scoperto: CLI365 ha rifiutato il comando con un errore chiaro, nessun oggetto creato,
+  nessun residuo (confermato con una query indipendente). Conferma che il guard e' sicuro per
+  costruzione (mai un'esecuzione senza conferma, mai una traduzione automatica dei parametri) anche
+  quando l'IA sbaglia la sintassi CLI365 - lo stesso identico rischio che esisterebbe comunque per
+  QUALUNQUE `propose_cli_m365_command` scritto male dall'IA, non introdotto da questo fix. Pulizia
+  finale: tutti gli oggetti `ZZTEST-marathon-fallback*` creati durante l'indagine (via Graph e via
+  CLI365) eliminati e confermati assenti con query indipendenti separate.
 - Tenant Delegati completi end-to-end (Exchange+Teams+SharePoint+Purview+Intune+CLI365 tutti
   connessi insieme sullo stesso tenant, sequenza realistica) — in corso di setup da parte
   dell'utente al 23/08/2026, vedi log sessioni sotto.
@@ -581,7 +598,10 @@ possibile" - entrambi in sola lettura sul codice, con eventuali test di scrittur
    fatto sia via Graph diretto sia via comando CLI365 equivalente. Deciso APPOSTA di procedere
    solo se le prove mostrano che e' sicuro (una scrittura mal instradata ha conseguenze piu' serie
    di una lettura) - se trova differenze reali di normalizzazione/validazione, non deve
-   implementare nulla, solo documentare perche' con le prove concrete. **ANCORA IN CORSO.**
+   implementare nulla, solo documentare perche' con le prove concrete. **COMPLETATO** - vedi la
+   voce "RISOLTO" nella sezione "Aree MAI toccate" sopra per il dettaglio completo (guard
+   deterministico implementato in `Invoke-M365OpsAgentTools.ps1`, non una traduzione automatica -
+   spedito in v0.9.84).
 2. **Agente "Stress-test Scripts\Custom"** (general-purpose, background) — COMPLETATO. Contenuto
    reale della cartella: `README.md` (convenzione: nome file = nome funzione, help a commenti
    PowerShell, tag obbligatorio `.NOTES Mode: ReadOnly|Write`, nessun input interattivo), `_TEMPLATE.ps1`

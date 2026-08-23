@@ -1465,8 +1465,46 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                         }
                     }
                     "propose_graph_write" {
+                        # GUARD Entra-only (26/08/2026, investigazione dedicata dopo l'open item
+                        # "propose_graph_write su Delegato+solo-CLI365 fallisce SEMPRE con
+                        # 'Nessuna sessione delegata attiva', nessun fallback verso
+                        # propose_cli_m365_command per le scritture, deliberatamente lasciato
+                        # aperto" - vedi Debug-Marathon-State.md). Confermato dal vivo su
+                        # "vnsys-test" PRIMA di scrivere questo guard: NON e' sicuro tradurre in
+                        # automatico un propose_graph_write in un comando CLI365 equivalente - un
+                        # ciclo crea+elimina di un gruppo Entra ha mostrato differenze REALI, non
+                        # ipotetiche, tra i due percorsi: (1) 'm365 entra group add' RIFIUTA il
+                        # comando se manca --type (security|microsoft365) - un campo obbligatorio
+                        # senza equivalente nel body Graph usato da New-M365OpsGroup
+                        # (mailEnabled/securityEnabled booleani); (2) anche passando --type
+                        # security, il gruppo risultante ha mailNickname generato in automatico
+                        # (es. "Group967190", non derivato dal displayName come fa
+                        # New-M365OpsGroup) e visibility="Public" invece di null - normalizzazione
+                        # e default REALMENTE diversi da un POST Graph diretto. Per questo NON
+                        # tocchiamo qui ne' il metodo ne' il body: nessuna traduzione automatica.
+                        # Quello che invece E' sicuro fare (e qui sotto): quando la sessione Graph
+                        # delegata generica NON e' attiva su questo tenant (stesso identico
+                        # controllo proattivo di $cliM365ProactivePreference sopra, v0.9.68/69) e
+                        # CLI Microsoft 365 e' configurato, un propose_graph_write su un percorso
+                        # Entra ID (users/groups/devices/directoryRoles/organization/domains)
+                        # fallirebbe SEMPRE in esecuzione con "Nessuna sessione delegata attiva"
+                        # (Invoke-M365OpsGraphRequest -> Get-M365OpsToken, ramo 'LokkaWrite'
+                        # Delegated di Server.ps1) - lo rifiutiamo QUI, PRIMA che l'utente veda
+                        # anche solo una richiesta di conferma per una scrittura gia' condannata,
+                        # e rimandiamo l'AI a propose_cli_m365_command: l'AI deve comunque
+                        # costruire da sola il comando 'm365 entra ...' corretto (con
+                        # cli_m365_search_commands/cli_m365_get_command_docs se non e' certa della
+                        # sintassi, come per ogni altro comando CLI365), e l'utente conferma
+                        # comunque quella proposta separatamente - stesso doppio cancello di
+                        # sicurezza (nessuna esecuzione senza conferma) di ogni altra scrittura in
+                        # questo modulo, nessun bypass. Ambito deliberatamente ristretto ai soli
+                        # percorsi Entra ID sopra elencati - Exchange/Intune/Teams/SharePoint via
+                        # Graph restano SEMPRE e solo su propose_graph_write, mai su questo guard
+                        # (CLI365 non li copre comunque, vedi system prompt).
                         if ($pendingWrite) {
                             "Rifiutato: e' gia' in sospeso un'altra proposta di scrittura in questa stessa risposta ('$($pendingWrite.Kind)'). Puoi proporne solo UNA per risposta - concludi qui spiegando la proposta gia' registrata, poi proponi questa in un messaggio separato dopo che la prima e' stata confermata ed eseguita."
+                        } elseif (-not $graphDelegatedSessionActive -and $cliM365ConfiguredEarly -and $block.input.path -match '^/(users|groups|devices|directoryRoles|organization|domains)(/|\?|$)') {
+                            "Rifiutato: la sessione Graph delegata generica NON risulta attiva ORA per questo tenant - questo percorso ('$($block.input.path)') fallirebbe SEMPRE in esecuzione con 'Nessuna sessione delegata attiva' (verificato, non un'ipotesi). CLI Microsoft 365 e' pero' configurato e potrebbe gia' essere connesso in modo indipendente (login separato dalla sessione Graph generica): usa propose_cli_m365_command con il comando 'm365 entra ...' equivalente invece - cerca la sintassi esatta con cli_m365_search_commands/cli_m365_get_command_docs se non la conosci gia' con certezza. ATTENZIONE: i parametri di CLI Microsoft 365 NON corrispondono sempre 1:1 al corpo Graph che avresti usato qui - es. la creazione di un gruppo richiede un --type esplicito (security|microsoft365) che il corpo Graph non richiede allo stesso modo, e puo' valorizzare campi come mailNickname/visibility con default diversi da quelli che avresti ottenuto via Graph - verifica la documentazione del comando invece di indovinare i parametri per analogia col body Graph."
                         } else {
                             $pendingWrite = @{
                                 Kind       = 'Graph'
