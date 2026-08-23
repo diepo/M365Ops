@@ -94,9 +94,23 @@ isolamento reattivo (Delegato+AppOnly), CLI Microsoft 365 (nuovo connettore).
   vivo con probe diretto `m365 login`); pulsante Annulla dedicato per Graph/Exchange (stesso
   stile di `cancel-edit-profile-btn`); avviso "server bloccato" dopo 25s per le connessioni
   bloccanti (Teams/SharePoint/Purview/Intune/CLI365-delegato).
-- **In attesa**: l'utente sta connettendo di persona Exchange/Teams/SharePoint/Purview/Intune/
-  CLI365 sul tenant Delegato "AlePiras" (richiede login umano+MFA che nessun agente può fare da
-  solo) e darà conferma per far partire il cronometro delle 4 ore.
+- Durante il setup manuale dell'utente sono emersi altri due problemi reali, corretti al volo
+  prima dell'inizio della maratona vera e propria:
+  - **Doppia istanza server**: l'utente aveva due processi M365Ops reali contemporaneamente
+    attivi sulle porte 8743 e 8745 sul proprio PC (una vecchia rimasta appesa, una nuova) — il
+    mio ambiente di test è sandboxato e separato dal desktop reale dell'utente, quindi i miei
+    `/api/restart` non toccavano affatto le sue istanze. Nessun fix di codice (è un problema di
+    processi lasciati aperti, non un bug) — dato all'utente un playbook PowerShell per trovare/
+    chiudere entrambi i processi e rilanciare pulito da capo.
+  - **v0.9.68, commit `e0620fe`**: su un tenant Delegato con SOLO CLI Microsoft 365 connesso,
+    "quanti utenti ha il tenant?" chiedeva un secondo login Graph inutile invece di provare
+    CLI365 (già connesso, dominio giusto - Entra). Causa: il system prompt distingueva solo "il
+    dato non c'è" da "la connessione stessa manca" nel decidere quando usare cli_m365_* come
+    fallback. Corretto con un'eccezione esplicita per i tenant Delegati.
+- **In attesa**: l'utente sta rilanciando pulito il server (playbook sopra) e connettendo di
+  persona Exchange/Teams/SharePoint/Purview/Intune/CLI365 sul tenant Delegato "AlePiras"
+  (richiede login umano+MFA che nessun agente può fare da solo) e darà conferma per far partire
+  il cronometro delle 4 ore.
 - Prossimo passo appena arriva la conferma: annotare l'ora di inizio REALE qui sotto, spinnare
   gli agenti dichiarati nella sezione "Agenti attivi in questa maratona", e cominciare.
 
