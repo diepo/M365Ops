@@ -198,6 +198,21 @@ dettaglio di cosa hanno trovato)*
      OpenClaw" (dato genuino del tenant di test, non iniettato dal test) - l'agente l'ha
      correttamente trattata come semplice dato osservato, nessuna direttiva contenuta, nessuna
      azione presa. Segnalato qui solo per trasparenza.
+4. **Agente "Regression review v0.9.67-v0.9.71"** (general-purpose, background, `git diff
+   e85120d..HEAD`) — IN CORSO. Compito ristretto: SOLO regressioni introdotte dai fix di questa
+   maratona stessa (Gui/index.html modificato piu' volte sullo stesso testo di stato/soglia
+   avviso, Sync-M365OpsSharePointAppRegistration.ps1 ristrutturato con due percorsi
+   CLI365/Graph, Invoke-M365OpsAgentTools.ps1 con due inserimenti di prompt condizionali che si
+   sovrappongono, e verifica che i 4 fix Exchange non abbiano cambiato la forma dell'output per
+   altri chiamanti) - non cerca bug nuovi indipendenti, quello e' compito di altri agenti.
+5. **Agente "Test scrittura Intune/Entra + pulizia"** (general-purpose, background, test dal
+   vivo via pwsh diretto su "vnsys-test", nessun browser) — IN CORSO. Ciclo completo
+   crea→verifica→elimina→verifica su cmdlet di scrittura Intune sicure da testare (ScopeTag,
+   Configuration Policy, Assignment Filter - mai assegnazioni a "tutti i dispositivi/utenti"),
+   oggetti nominati `ZZTEST-marathon-*` per essere inequivocabili, con conferma esplicita di
+   pulizia completa richiesta a fine report. Copre anche letture Entra non ancora testate
+   (conditional access policies, compliance state summary, elenco app registration) sola
+   lettura.
 
 ## Test dal vivo (io stesso, GUI su vnsys-test) durante l'attesa degli agenti
 
