@@ -646,8 +646,26 @@ specifici, non nuovi bug indipendenti.
 
 **RIPARTITO** 24/08/2026 subito dopo la chiusura di fase sopra (limite di sessione presumibilmente
 resettato, 23:40 Europe/Rome gia' passate) - stesso identico task, retry pulito (l'agente
-precedente non aveva prodotto nessuna modifica prima di fermarsi). Esito non ancora noto al
-momento di questa dichiarazione.
+precedente non aveva prodotto nessuna modifica prima di fermarsi). — COMPLETATO. Scope rivisto:
+`git diff e79355f..45166a6` (il range originale `462213f..45166a6` escludeva per un dettaglio
+tecnico le modifiche del commit 462213f stesso, che E' il commit v0.9.81 - ampliato al genitore
+per coprire l'intero blocco descritto nel task).
+
+**Verdetto**: nessuna vera regressione nei 4 fix del blocco - tutti riverificati dal vivo end-to-end
+(login Teams asincrono: start→poll→Connected, flag corretto, 561 cmdlet, nessun crash, nessuna
+riga fantasma; guard scritture Entra: confermato che non puo' mai scattare su App-only, nessun
+conflitto con la preferenza proattiva CLI365 esistente; i due fix Scripts\Custom: riprodotti con
+un nuovo file dalla sintassi rotta, entrambi confermati).
+
+**1 gap reale trovato e corretto - v0.9.85**: non una regressione dei fix stessi, ma un gemello
+del fix v0.9.82 mai propagato. `Public/Install-M365OpsPrerequisites.ps1` (installazione
+prerequisiti "in anticipo", separata dalla connessione "al primo uso" gia' corretta in v0.9.82)
+faceva la STESSA identica chiamata `npm install -g @pnp/cli-microsoft365 2>&1` senza il fix -
+sotto Windows PowerShell 5.1, un'installazione riuscita per davvero (verificato dal vivo: npm
+reale, "changed 207 packages", exit 0) veniva comunque segnalata fallita per lo stesso motivo gia'
+diagnosticato. Corretto propagando lo stesso identico fix, riverificato dal vivo con la stessa
+installazione reale. Nessun oggetto di test creato sul tenant (solo una reinstallazione npm
+globale idempotente, nessun residuo).
 
 ## Chiusura di questa fase della maratona (23-24/08/2026)
 

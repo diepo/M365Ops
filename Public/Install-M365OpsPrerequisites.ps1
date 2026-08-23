@@ -178,7 +178,25 @@ function Install-M365OpsPrerequisites {
             $installedSomething = $true
             try {
                 Write-M365OpsLog "CLI Microsoft 365 non trovata - la installo (npm install -g @pnp/cli-microsoft365)."
-                & $npmCmd install -g "@pnp/cli-microsoft365" 2>&1 | ForEach-Object { Write-Host $_ }
+                # Stesso identico bug/fix di Assert-M365OpsCliMicrosoft365Installed.ps1 (v0.9.82,
+                # trovato dal vivo il 23/08/2026): '2>&1' su un comando nativo impacchetta ogni
+                # riga di STDERR come ErrorRecord - npm scrive avvisi non fatali li' (es. "npm
+                # warn allow-scripts..."). Sotto $ErrorActionPreference = 'Stop' (livello modulo),
+                # Windows PowerShell 5.1 promuove il primo di quegli avvisi a eccezione terminante
+                # ben prima del controllo su $LASTEXITCODE sotto - un'installazione riuscita per
+                # davvero verrebbe segnalata Failed con l'avviso npm scambiato per l'errore vero.
+                # Il fix del v0.9.82 era stato applicato solo alla chiamata "al primo uso" in
+                # Assert-M365OpsCliMicrosoft365Installed.ps1, non a questo gemello (stessa
+                # chiamata npm, eseguita qui in anticipo durante l'installazione prerequisiti) -
+                # propagato qui per lo stesso motivo. EAP locale, ripristinato in finally; il
+                # controllo su $LASTEXITCODE resta l'unica fonte di verita'.
+                $previousEap = $ErrorActionPreference
+                $ErrorActionPreference = 'Continue'
+                try {
+                    & $npmCmd install -g "@pnp/cli-microsoft365" 2>&1 | ForEach-Object { Write-Host $_ }
+                } finally {
+                    $ErrorActionPreference = $previousEap
+                }
                 if ($LASTEXITCODE -ne 0) { throw "npm install terminato con codice $LASTEXITCODE." }
                 $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
                 $nowPresent = (Get-Command 'm365.cmd' -ErrorAction SilentlyContinue) -or (Get-Command 'm365' -ErrorAction SilentlyContinue)
