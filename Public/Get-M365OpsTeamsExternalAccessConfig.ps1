@@ -18,44 +18,74 @@ function Get-M365OpsTeamsExternalAccessConfig {
         Invoke-M365OpsAgentTools) leggeva quindi "nessun dato" invece del vero errore di
         permesso, e l'AI riportava all'utente un fuorviante "strumento non disponibile" invece
         di spiegare la causa reale (mancanza del permesso, non un problema tecnico).
+
+        Retry via isolamento reattivo aggiunto il 23/08/2026 (bug reale trovato dal vivo,
+        bug-hunt di 16 ore): Connect-M365OpsTeams sotto ha gia' la SUA logica di recupero
+        isolamento incorporata (vedi quel file), ma copre solo il SUO proprio tentativo di
+        connessione - se il conflitto .NET di sezione 6.6 scatta invece QUI, sulle chiamate
+        dirette ai cmdlet Cs* nativi (possibile anche con Connect-M365OpsTeams gia' riuscito
+        senza conflitto: il conflitto dipende da QUALI assembly sono gia' stati caricati nel
+        processo in quel momento, non solo dal momento della connessione), l'eccezione risaliva
+        senza nessun tentativo di recupero locale. Riprodotto dal vivo: "quali policy di
+        sicurezza per l'accesso esterno ha configurato teams" ha mostrato "riavvia M365Ops"
+        all'utente nonostante il log del server mostri che l'isolamento reattivo si era GIA'
+        attivato con successo pochi istanti prima (per la connessione di Connect-M365OpsTeams)
+        - la richiesta di dati vera e propria non aveva pero' alcun modo di ritentare dopo che
+        l'isolamento era pronto. Ora, se le chiamate sotto falliscono con lo stesso conflitto,
+        si tenta un singolo retry esplicito dopo aver (ri)attivato l'isolamento per Teams -
+        idempotente se gia' attivo (vedi Connect-M365OpsIsolatedModule). Il corpo vero e proprio
+        vive in uno scriptblock invocato due volte (primo tentativo + eventuale retry) invece di
+        essere duplicato per intero o spostato in una seconda funzione (che finirebbe esportata
+        insieme a questa, violando la convenzione un-file-un-cmdlet pubblico del modulo).
     #>
     Connect-M365OpsTeams
 
-    $federation = Get-CsTenantFederationConfiguration -ErrorAction Stop | ForEach-Object {
-        [pscustomobject]@{
-            ConfigType         = 'Federazione esterna'
-            Identity           = $_.Identity
-            AllowFederatedUsers = $_.AllowFederatedUsers
-            AllowPublicUsers   = $_.AllowPublicUsers
-            AllowTeamsConsumer = $_.AllowTeamsConsumer
-            BlockedDomains     = ($_.BlockedDomains | Out-String).Trim()
+    $body = {
+        $federation = Get-CsTenantFederationConfiguration -ErrorAction Stop | ForEach-Object {
+            [pscustomobject]@{
+                ConfigType         = 'Federazione esterna'
+                Identity           = $_.Identity
+                AllowFederatedUsers = $_.AllowFederatedUsers
+                AllowPublicUsers   = $_.AllowPublicUsers
+                AllowTeamsConsumer = $_.AllowTeamsConsumer
+                BlockedDomains     = ($_.BlockedDomains | Out-String).Trim()
+            }
         }
-    }
-    $guestMessaging = Get-CsTeamsGuestMessagingConfiguration -ErrorAction Stop | ForEach-Object {
-        [pscustomobject]@{
-            ConfigType = 'Ospiti - messaggistica'
-            Identity   = $_.Identity
-            AllowUserChat      = $_.AllowUserChat
-            AllowGiphy         = $_.AllowGiphy
-            AllowUserEditMessage = $_.AllowUserEditMessage
+        $guestMessaging = Get-CsTeamsGuestMessagingConfiguration -ErrorAction Stop | ForEach-Object {
+            [pscustomobject]@{
+                ConfigType = 'Ospiti - messaggistica'
+                Identity   = $_.Identity
+                AllowUserChat      = $_.AllowUserChat
+                AllowGiphy         = $_.AllowGiphy
+                AllowUserEditMessage = $_.AllowUserEditMessage
+            }
         }
-    }
-    $guestMeeting = Get-CsTeamsGuestMeetingConfiguration -ErrorAction Stop | ForEach-Object {
-        [pscustomobject]@{
-            ConfigType = 'Ospiti - riunioni'
-            Identity   = $_.Identity
-            AllowIPVideo    = $_.AllowIPVideo
-            AllowMeetNow    = $_.AllowMeetNow
-            ScreenSharingMode = $_.ScreenSharingMode
+        $guestMeeting = Get-CsTeamsGuestMeetingConfiguration -ErrorAction Stop | ForEach-Object {
+            [pscustomobject]@{
+                ConfigType = 'Ospiti - riunioni'
+                Identity   = $_.Identity
+                AllowIPVideo    = $_.AllowIPVideo
+                AllowMeetNow    = $_.AllowMeetNow
+                ScreenSharingMode = $_.ScreenSharingMode
+            }
         }
-    }
-    $guestCalling = Get-CsTeamsGuestCallingConfiguration -ErrorAction Stop | ForEach-Object {
-        [pscustomobject]@{
-            ConfigType = 'Ospiti - chiamate'
-            Identity   = $_.Identity
-            AllowPrivateCalling = $_.AllowPrivateCalling
+        $guestCalling = Get-CsTeamsGuestCallingConfiguration -ErrorAction Stop | ForEach-Object {
+            [pscustomobject]@{
+                ConfigType = 'Ospiti - chiamate'
+                Identity   = $_.Identity
+                AllowPrivateCalling = $_.AllowPrivateCalling
+            }
         }
+        @($federation) + @($guestMessaging) + @($guestMeeting) + @($guestCalling)
     }
 
-    @($federation) + @($guestMessaging) + @($guestMeeting) + @($guestCalling)
+    try {
+        & $body
+    }
+    catch {
+        $hint = Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Microsoft Teams' -OtherService 'Exchange Online'
+        if (-not $hint) { throw }
+        Connect-M365OpsIsolatedModule -ModuleType 'Teams' -ConnectParams (Get-M365OpsIsolatedConnectParams -ModuleType 'Teams')
+        & $body
+    }
 }

@@ -29,7 +29,16 @@ function Get-M365OpsRetentionCompliancePolicies {
             ExchangeLocation  = ($policy.ExchangeLocation -join ', ')
             SharePointLocation = ($policy.SharePointLocation -join ', ')
             OneDriveLocation  = ($policy.OneDriveLocation -join ', ')
-            TeamsLocation     = ($policy.TeamsLocation -join ', ')
+            # Bug reale trovato dal vivo il 23/08/2026 (bug-hunt di 16 ore): 'TeamsLocation' non
+            # esiste sull'oggetto restituito da Get-RetentionCompliancePolicy - Teams espone DUE
+            # proprieta' separate (i messaggi canale e le chat vivono in store diversi), mai una
+            # sola. Riferirsi a una proprieta' inesistente su un PSCustomObject in PowerShell non
+            # lancia un errore: restituisce silenziosamente $null, quindi questa colonna era
+            # SEMPRE vuota per OGNI policy, anche per una che copre davvero Teams - l'AI avrebbe
+            # affermato con sicurezza che nessuna policy copre Teams, l'esatto tipo di lacuna di
+            # reporting compliance che questa funzione esiste per intercettare.
+            TeamsChannelLocation = ($policy.TeamsChannelLocation -join ', ')
+            TeamsChatLocation    = ($policy.TeamsChatLocation -join ', ')
             WhenCreated       = $policy.WhenCreated
             Rules             = @($rules | ForEach-Object {
                 [pscustomobject]@{
