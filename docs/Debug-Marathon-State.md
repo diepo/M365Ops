@@ -581,13 +581,32 @@ possibile" - entrambi in sola lettura sul codice, con eventuali test di scrittur
    fatto sia via Graph diretto sia via comando CLI365 equivalente. Deciso APPOSTA di procedere
    solo se le prove mostrano che e' sicuro (una scrittura mal instradata ha conseguenze piu' serie
    di una lettura) - se trova differenze reali di normalizzazione/validazione, non deve
-   implementare nulla, solo documentare perche' con le prove concrete.
-2. **Agente "Stress-test Scripts\Custom"** (general-purpose, background) - area mai testata in
-   nessuna maratona precedente. Verifica che gli script personalizzati si carichino davvero al
-   boot del modulo, vengano invocati con parametri reali sul tenant "vnsys-test" con output
-   osservato (non assunto), e siano davvero esposti all'AI tramite
-   `Invoke-M365OpsAgentTools.ps1` (un bug li' significherebbe "lo script funziona da solo ma l'AI
-   non puo' mai chiamarlo davvero").
-
-Esiti non ancora noti al momento di questa dichiarazione - saranno integrati in questo file al
-completamento di ciascuno.
+   implementare nulla, solo documentare perche' con le prove concrete. **ANCORA IN CORSO.**
+2. **Agente "Stress-test Scripts\Custom"** (general-purpose, background) — COMPLETATO. Contenuto
+   reale della cartella: `README.md` (convenzione: nome file = nome funzione, help a commenti
+   PowerShell, tag obbligatorio `.NOTES Mode: ReadOnly|Write`, nessun input interattivo), `_TEMPLATE.ps1`
+   (esempio, correttamente mai caricato), e UN solo script reale: `Get-M365OpsOneDriveSharingReport.ps1`
+   (ReadOnly - elenca link di condivisione OneDrive attivi via Graph). Caricamento al boot OK,
+   invocato dal vivo su 3 UPN reali di "vnsys-test": 0 righe per tutti e tre, confermato CORRETTO
+   (non un fallimento silenzioso) leggendo la risposta Graph grezza - il tenant di test
+   semplicemente non ha link di condivisione attivi ora. Percorso di errore testato con un UPN
+   inesistente: 404 Graph reale con corpo completo, propagato pulito per il livello di triage
+   dell'AI.
+   **2 bug reali trovati e corretti, entrambi riverificati dal vivo - v0.9.83**:
+   - `Get-M365OpsCustomScriptCatalog.ps1`: la lista di esclusione parametri comuni non includeva
+     `ProgressAction` (aggiunto da PowerShell 7.4 in poi) - su questo ambiente (PS 7.6.5) il
+     catalogo esposto all'AI mostrava un parametro FASULLO (`Upn, ProgressAction` invece del solo
+     `Upn` reale) per ogni script - sarebbe finito nello schema dei tool `custom_script_query`/
+     `propose_custom_script_write`. Corretto, verificato dal vivo che il catalogo ora mostra solo
+     `Upn`.
+   - `M365Ops.psm1`, loader script personalizzati: il blocco `catch` usava `$_.Name` per nominare
+     lo script fallito, ma dentro un `catch` `$_` e' l'ErrorRecord (senza `Name`), non piu'
+     l'oggetto file della pipeline - l'avviso non diceva MAI quale script fosse rotto ("Script
+     personalizzato '' non caricato..."), inutile con piu' di uno script presente. Riprodotto dal
+     vivo con un file di test dalla sintassi volutamente rotta. Corretto catturando l'oggetto file
+     PRIMA del `try` - verificato dal vivo che l'avviso ora nomina correttamente lo script rotto.
+   Nessun dato di test creato sul tenant (l'unico script reale e' di sola lettura, nessuna
+   scrittura necessaria). Due script di test locali usati solo per esercitare i percorsi di
+   validazione/errore, eliminati e pulizia verificata con una reimportazione pulita del modulo.
+   **Verdetto**: la feature funziona come documentato end-to-end, modulo i due bug sopra ora
+   corretti.

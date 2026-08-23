@@ -37,8 +37,15 @@ $script:M365OpsCustomScriptsPath = Join-Path $here 'Scripts\Custom'
 Get-ChildItem -Path $script:M365OpsCustomScriptsPath -Filter '*.ps1' -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -notlike '_*' } |
     ForEach-Object {
-        try { . $_.FullName }
-        catch { Write-Warning "Script personalizzato '$($_.Name)' non caricato (errore di sintassi): $($_.Exception.Message)" }
+        # $customScriptFile catturato PRIMA del try: dentro il blocco catch, $_ e' l'ErrorRecord
+        # dell'eccezione (lo sovrascrive), non piu' l'oggetto file della pipeline di ForEach-Object
+        # - usare $_.Name li' dentro produce sempre stringa vuota (ErrorRecord non ha una proprieta'
+        # Name), quindi l'avviso non diceva MAI quale script fosse rotto ("Script personalizzato ''
+        # non caricato...") - trovato dal vivo il 23/08/2026 con un file di test dalla sintassi
+        # volutamente rotta.
+        $customScriptFile = $_
+        try { . $customScriptFile.FullName }
+        catch { Write-Warning "Script personalizzato '$($customScriptFile.Name)' non caricato (errore di sintassi): $($_.Exception.Message)" }
     }
 
 $script:M365OpsModuleRoot = $here

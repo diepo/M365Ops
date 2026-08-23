@@ -31,7 +31,12 @@ function Get-M365OpsCustomScriptCatalog {
         $synopsis = if ($help -and $help.Synopsis -notmatch '^\s*$' -and $help.Synopsis -ne $functionName) { $help.Synopsis.Trim() } else { $null }
         $notesText = if ($help.alertSet.alert.Text) { ($help.alertSet.alert.Text -join "`n") } else { "" }
         $mode = if ($notesText -match '(?im)^\s*Mode:\s*(ReadOnly|Write)\s*$') { $Matches[1] } else { $null }
-        $parameters = @($command.Parameters.Keys | Where-Object { $_ -notin @('Verbose','Debug','ErrorAction','WarningAction','InformationAction','ErrorVariable','WarningVariable','InformationVariable','OutVariable','OutBuffer','PipelineVariable','Confirm','WhatIf') })
+        # ProgressAction e' un parametro comune aggiunto da PowerShell 7.4 in poi (non esisteva
+        # prima) - senza escluderlo qui trapela come falso parametro dello script nel catalogo
+        # esposto all'AI (verificato dal vivo il 23/08/2026: PS 7.6.5 di questo ambiente lo
+        # include gia' su qualunque funzione avanzata, es. Get-M365OpsOneDriveSharingReport
+        # mostrava 'Upn, ProgressAction' invece del solo 'Upn' reale dello script).
+        $parameters = @($command.Parameters.Keys | Where-Object { $_ -notin @('Verbose','Debug','ErrorAction','WarningAction','InformationAction','ProgressAction','ErrorVariable','WarningVariable','InformationVariable','OutVariable','OutBuffer','PipelineVariable','Confirm','WhatIf') })
 
         if (-not $synopsis -or -not $mode) {
             $missing = @(); if (-not $synopsis) { $missing += '.SYNOPSIS' }; if (-not $mode) { $missing += '.NOTES con Mode: ReadOnly|Write' }
