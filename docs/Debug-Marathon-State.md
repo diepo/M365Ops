@@ -52,6 +52,12 @@ locale (Gui/CommandCatalog.ps1), packaging Win32/Autopilot, report e persistenza
 isolamento reattivo (Delegato+AppOnly), CLI Microsoft 365 (nuovo connettore).
 
 ### Open item NON ancora risolti (da NON considerare chiusi, da ri-verificare)
+- **⚠️ AZIONE RICHIESTA - residuo reale sul tenant "vnsys-test"**: il sito SharePoint
+  `https://vnsysit.sharepoint.com/sites/ZZTEST-marathon-Site` (creato il 23/08/2026 per un test
+  di scrittura) resta **Active**, non rimosso dopo 7 tentativi (4 dell'agente + 3 miei, incluso
+  un tentativo via Graph DELETE) - vincolo di piattaforma su siti appena creati, non un bug.
+  Ritentare `Remove-PnPTenantSite -Url '...' -Force` una volta passato piu' tempo, o rimuoverlo
+  dal centro amministrazione SharePoint. Verificarlo PER PRIMO in qualunque maratona futura.
 - **Popup interattivo del worker isolato Delegato** (Exchange/Teams/Purview, v0.9.61): mai
   verificato dal vivo con un vero login umano+MFA — richiede un utente reale al tavolo.
 - **Secondo sintomo del conflitto .NET sezione 6.6**: un errore di token JWT (`IDX12729`) o di
@@ -248,10 +254,31 @@ dettaglio di cosa hanno trovato)*
      Admin API risulta gia' concesso), nessun conflitto .NET Teams/Exchange incontrato (script
      fresco, coerente con quanto gia' documentato sopra sull'open item).
 7. **Agente "Test scrittura Exchange/SharePoint/Teams + pulizia"** (general-purpose, background,
-   test dal vivo via pwsh diretto su "vnsys-test", nessun browser) — IN CORSO. Copre l'ultima
-   area di scrittura rimasta scoperta (Intune gia' fatto dall'agente 5). SharePoint trattato con
-   piu' cautela (solo oggetti creati e distrutti dall'agente stesso, mai permessi su siti reali
-   esistenti). Stessa disciplina `ZZTEST-marathon-*` + verifica finale di pulizia obbligatoria.
+   test dal vivo via pwsh diretto su "vnsys-test", nessun browser) — COMPLETATO. Exchange
+   (gruppi distribuzione, mailbox condivise, permessi) e Teams (crea/modifica/elimina)
+   interamente PASS, tutto pulito e confermato. SharePoint (crea sito, quota, condivisione,
+   membri, ereditarieta' permessi) PASS sulle operazioni stesse.
+   **1 bug reale trovato e corretto, v0.9.75**: `Set-M365OpsNotificationTemplateMessage` -
+   aggiornare un messaggio di notifica GIA' localizzato falliva SEMPRE con 400 "Cannot Patch
+   Locale Property" (il body del PATCH includeva ancora `locale`, immutabile via PATCH perche'
+   gia' parte dell'ID risorsa - ereditato per errore dal body condiviso col ramo POST). Creare
+   un messaggio NUOVO funzionava, solo l'aggiornamento di uno esistente era rotto. Corretto
+   separando i due body, riverificato dal vivo.
+   **Gap reale scoperto, non colmato**: nessun wrapper `Remove-M365OpsSharePointSite` esiste nel
+   modulo - la pulizia ha dovuto usare `Remove-PnPTenantSite` nativo, che ha fallito
+   ripetutamente ("The requested operation is not supported for site") su un sito appena creato
+   - vincolo di piattaforma (probabile restrizione temporale post-creazione), non un bug del
+   modulo. Confermato anche da me con un tentativo aggiuntivo via Graph DELETE (fallito
+   ugualmente, 400 Bad Request - Graph v1.0 non supporta comunque la cancellazione di una site
+   collection per questa via).<br><br>
+   **⚠️ RESIDUO REALE SUL TENANT, azione umana richiesta**: il sito
+   `https://vnsysit.sharepoint.com/sites/ZZTEST-marathon-Site` (creato per il test, template
+   Communication Site) resta **Active** su vnsys-test, NON rimosso nonostante 7 tentativi totali
+   su due sessioni diverse. Da ritentare piu' avanti (probabilmente basta aspettare che la
+   piattaforma completi il provisioning) con
+   `Remove-PnPTenantSite -Url 'https://vnsysit.sharepoint.com/sites/ZZTEST-marathon-Site' -Force`
+   oppure dal centro amministrazione SharePoint. **Non dare questa pulizia per scontata nella
+   prossima maratona - verificarla per prima cosa.**
 
 ## Test dal vivo (io stesso, GUI su vnsys-test) durante l'attesa degli agenti
 
