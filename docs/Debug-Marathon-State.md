@@ -75,6 +75,19 @@ isolamento reattivo (Delegato+AppOnly), CLI Microsoft 365 (nuovo connettore).
 - CLI Microsoft 365 come connettore AI in chat (appena reso di default, mai testato con dati
   reali oltre al login stesso - nessun comando `spo`/`entra`/`outlook`/`planner` reale ancora
   eseguito e verificato).
+- **Prioritario, trovato dal vivo il 23/08/2026 durante il setup pre-maratona**: `propose_graph_write`
+  (strumento primario per le scritture Graph) su un tenant Delegato con SOLO CLI Microsoft 365
+  connesso fallisce allo stesso modo scoperto per `graph_api_call` (v0.9.68, sessione delegata
+  generica mancante) - ma qui NON è stato corretto un fallback verso `propose_cli_m365_command`
+  come per le letture, deliberatamente: una write mal instradata ha conseguenze più serie di una
+  lettura, e CLI 365 (`m365 entra user add`) potrebbe normalizzare/validare i parametri in modo
+  diverso da un POST Graph diretto - va indagato con calma, non patchato al volo. Riprodotto dal
+  vivo: "crea un account" su AlePiras (solo CLI365 connesso) → proposta registrata correttamente,
+  esecuzione fallita con "Nessuna sessione delegata attiva per 'AlePiras'" - la diagnosi
+  automatica post-fallimento ha correttamente NON inventato una correzione (buon segno, nessuna
+  fabbricazione), ma il vero limite (nessun fallback su CLI365 per le scritture) resta aperto.
+  Task per la maratona: valutare se/come estendere la logica di fallback letture→CLI365 (v0.9.68)
+  anche alle scritture Entra-only, con test reali di entrambi i percorsi a confronto.
 - Tenant Delegati completi end-to-end (Exchange+Teams+SharePoint+Purview+Intune+CLI365 tutti
   connessi insieme sullo stesso tenant, sequenza realistica) — in corso di setup da parte
   dell'utente al 23/08/2026, vedi log sessioni sotto.
