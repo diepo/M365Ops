@@ -268,6 +268,25 @@ dettaglio di cosa hanno trovato)*
   vivo prima/dopo (screenshot + misure DOM dirette), nessun impatto sul layout desktop
   (verificato ridimensionando avanti e indietro).
 
+- **CLI Microsoft 365 usato per davvero in chat (non solo login) - PRIMA VOLTA, PASS con nota
+  sulle prestazioni**: "ci sono piani planner attivi nel tenant? mi serve un elenco" (Planner non
+  ha nessuna cmdlet PowerShell dedicata in questo modulo - forza l'uso di Lokka/CLI365). L'AI ha
+  provato prima Graph poi CLI365 su un gruppo reale (`PlannerTest`), entrambi hanno risposto
+  onestamente "You do not have the required permissions" (Tasks.Read.All/GroupMember.Read.All
+  mancanti su questo tenant - limite di permesso reale, non un bug), citando entrambe le fonti
+  in coda. Conferma dal vivo che il fix "CLI365 proattivo" (v0.9.69) funziona per davvero in un
+  caso reale, non solo in teoria.<br>**Nota sulle prestazioni, non un bug ma da tenere a mente**:
+  la risposta ha impiegato ~3 minuti (13:25→13:28) - durante questa finestra il server e'
+  risultato COMPLETAMENTE non rispondente anche a richieste HTTP banali e scollegate
+  (`GET /api/server-port`), verificato sia dal browser sia con una `curl` diretta esterna al
+  browser, entrambe in timeout. Si e' sbloccato da solo senza intervento. Coerente con
+  l'architettura gia' ampiamente documentata (server a thread singolo), ma e' la prima volta che
+  si osserva un blocco COMPLETO (non solo del turno di chat in corso) per un tempo cosi' lungo -
+  probabile causa: il primo avvio/handshake del sottoprocesso CLI365 via `npx` (osservato nei
+  processi reali: due `node.exe` spawnati proprio in quella finestra temporale) e' un'operazione
+  sincrona pesante nel processo server. Non affrontato come fix in questo giro (nessun errore,
+  solo lentezza al primo uso per tenant/sessione) - da tenere presente se il pattern si ripete.
+
 - **Script personalizzati - MAI testato prima, ora coperto end-to-end, PASS**: "ogni tanto mi
   serve controllare quali gruppi di distribuzione non hanno nessun membro, puoi automatizzarlo
   come script cosi' lo riuso in futuro?" → l'AI ha correttamente riconosciuto il caso d'uso
