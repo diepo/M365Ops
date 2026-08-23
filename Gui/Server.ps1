@@ -611,22 +611,17 @@ function Execute-PendingAction {
         $errorMessage = $_.Exception.Message
         Write-M365OpsLog "Azione fallita: Type=$($action.Type) Errore=$errorMessage" -Level Error
 
-        # Log scritture separato (27/08/2026, richiesto esplicitamente dall'utente) - punto
-        # centrale unico per TUTTI i fallimenti di scrittura, qualunque Type, invece di
-        # duplicare la stessa chiamata in ogni singolo case sopra. La rappresentazione del
-        # comando varia per famiglia: Cmdlet+Parametri per i case Exchange/Teams/SharePoint/
-        # Intune/CustomWrite, Metodo+Percorso per LokkaWrite, "m365 ..." per CliM365Write -
-        # per gli altri (CreateGroup/PackageApp/AssignApp/MfaReset/ecc.) usa il Type stesso
-        # come descrizione, meglio di niente quando non esiste un singolo cmdlet nativo 1:1.
-        try {
-            $failCmdText =
-                if ($action.Cmdlet) { Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $(if ($action.Parameters) { $action.Parameters } else { @{} }) }
-                elseif ($action.Method -and $action.Path) { "$($action.Method.ToUpper()) $($action.Path)" }
-                elseif ($action.Command) { "m365 $($action.Command)" }
-                else { $action.Type }
-            $failSource = Get-M365OpsWriteActionSourceLabel -Type $action.Type -IsDelegatedTenant ((Get-M365OpsActiveTenantInfo).AuthMode -eq 'Delegated')
-            Write-M365OpsWriteLog -Source $failSource -Command $failCmdText -Outcome 'FAIL' -Detail $errorMessage
-        } catch { }
+        # Log scritture separato: la chiamata dedicata viveva QUI fino al 23/08/2026 (bug-hunt
+        # di 16 ore) - rimossa perche' duplicava un log gia' scritto altrove. Da quando esiste
+        # Write-M365OpsWriteFailureIfNeeded (helper condiviso, vedi la sua definizione sopra
+        # Execute-PendingAction), quella funzione viene chiamata nei DUE punti che invocano
+        # Execute-PendingAction (esecuzione singola e coda) SUBITO dopo aver ricevuto il
+        # risultato - copre quindi GIA' anche il caso di questo blocco catch (il risultato che
+        # arriva la' fuori ha comunque role='error', l'unico segnale di cui quell'helper ha
+        # bisogno). Tenere ANCHE una chiamata qui avrebbe scritto ogni fallimento con eccezione
+        # DUE VOLTE nel log scritture (bug reale trovato durante l'autoreview di questa stessa
+        # maratona) - un secondo agente di revisione, non un test dal vivo, ha individuato il
+        # doppione confrontando i due punti di logging fianco a fianco.
 
         # Rilevamento deterministico del conflitto di assembly .NET diagnosticato dal vivo il
         # 18/08/2026 (0x80131040, "Could not load file or assembly... manifest definition does
@@ -755,7 +750,14 @@ function Handle-ChatMessage {
         # esplicitamente invece di agire su un'ipotesi rischiosa.
         $confirmWords = @('si', 'sì', 'ok', 'okay', 'conferma', 'confermo', 'procedi', 'esegui', 'fai', 'pure', 'vai', 'dai', 'yes')
         $cancelWords  = @('no', 'annulla', 'stop', 'grazie')
-        $cleanedWords = ($lower -replace '[!.,;:?]+$', '').Trim() -split '\s+' | Where-Object { $_ }
+        # Bug reale trovato dal vivo il 23/08/2026 durante una riverifica di questo stesso fix
+        # (regressione introdotta dal fix originale, non presente prima): la punteggiatura
+        # veniva ripulita SOLO alla fine dell'intera stringa, non parola per parola - "sì,
+        # esegui pure" (virgola interna dopo "sì", frase di conferma naturalissima) produceva
+        # la parola "sì," (virgola ancora attaccata), che non risultava MAI uguale a "si"/"sì"
+        # in $confirmWords, bloccando una conferma reale e ovvia. Ripulita ora la punteggiatura
+        # da OGNI parola singola dopo lo split, non solo dalla fine della frase intera.
+        $cleanedWords = ($lower -split '\s+' | ForEach-Object { $_ -replace '^[!.,;:?]+|[!.,;:?]+$', '' }) | Where-Object { $_ }
         $isConfirm = $cleanedWords.Count -gt 0 -and -not ($cleanedWords | Where-Object { $_ -notin $confirmWords })
         $isCancel  = $cleanedWords.Count -gt 0 -and -not ($cleanedWords | Where-Object { $_ -notin $cancelWords })
         if ($isConfirm) {

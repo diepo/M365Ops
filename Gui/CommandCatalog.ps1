@@ -408,7 +408,7 @@ function Get-M365OpsCommandCatalog {
             # motivo di MfaStatus: "i dispositivi non conformi dovrebbero essere rimossi dal
             # gruppo Intune, puoi farlo?" e' un intento di SCRITTURA che questa voce (sola
             # lettura) ignorava silenziosamente.
-            DeferWords   = @('piano', 'remediation', 'consigl', 'roadmap', 'perch', 'causa', 'mail', 'email', 'e poi', 'e anche', 'quindi', 'poi', 'dopo', 'pattern', 'correlazion', 'rimuov\w*', 'rimoss\w*', 'elimin\w*')
+            DeferWords   = @('piano', 'remediation', 'consigl', 'roadmap', 'perch', 'causa', 'mail', 'email', 'e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'pattern', 'correlazion', 'rimuov\w*', 'rimoss\w*', 'elimin\w*')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { Get-M365OpsManagedDevices -NonCompliantOnly }
@@ -426,7 +426,7 @@ function Get-M365OpsCommandCatalog {
             # 'poi'/'dopo' isolate (23/08/2026, bug-hunt di 16 ore): 'e poi'/'e anche'/'quindi'
             # sono frasi LETTERALI - "panoramica utente X, poi disattivagli l'account" (virgola
             # invece di "e") non le contiene, la seconda parte spariva in silenzio.
-            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi', 'dopo')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
             # Il dominio non termina mai con un punto letterale, cosi' un punto di fine frase
             # subito dopo l'indirizzo non finisce dentro l'email catturata (stesso bug/fix di
             # Get-M365OpsGroupPlanFromMessage in Server.ps1).
@@ -469,7 +469,7 @@ function Get-M365OpsCommandCatalog {
             # l'intero messaggio all'AI invece di eseguire alla cieca la sola lettura.
             # 'poi'/'dopo' isolate (23/08/2026, stesso bug-hunt): "stato mfa di X, poi
             # disattivagli l'account" (virgola invece di "e poi") non veniva deviato.
-            DeferWords   = @('report', 'tutti', 'tenant', 'conditional', 'access', 'zone', 'policy', 'criteri', 'e poi', 'e anche', 'quindi', 'poi', 'dopo', 'reset\w*', 'rimuov\w*', 'cancell\w*', 'elimin\w*', 'disattiv\w*', 'sblocc\w*')
+            DeferWords   = @('report', 'tutti', 'tenant', 'conditional', 'access', 'zone', 'policy', 'criteri', 'e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'reset\w*', 'rimuov\w*', 'cancell\w*', 'elimin\w*', 'disattiv\w*', 'sblocc\w*')
             CaptureRegex = '([\w\.\-]+@[\w\-]+(?:\.[\w\-]+)+)'
             RequiresAI   = $false
             Handler      = {
@@ -501,7 +501,7 @@ function Get-M365OpsCommandCatalog {
             # a nessuna delle due richieste reali.
             # 'poi'/'dopo' isolate (23/08/2026, stesso bug-hunt): "panoramica gruppo X, poi
             # rimuovi Mario dai membri" (virgola invece di "e poi") non veniva deviato.
-            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi', 'dopo')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
             # Secondo bug reale, stesso schema, trovato dal vivo il 23/08/2026 (bug-hunt di 16
             # ore): DeferWords sopra intercetta solo le tre frasi di continuazione LETTERALI
             # ("e poi"/"e anche"/"quindi") - una richiesta altrettanto naturale ma diversamente
@@ -549,7 +549,7 @@ function Get-M365OpsCommandCatalog {
             # 'poi'/'dopo' isolate (23/08/2026, stesso bug-hunt): stessa lacuna delle voci
             # gemelle - "e poi"/"e anche"/"quindi" sono frasi letterali, "analizza i pattern di
             # non conformita', poi controlla lo stato mfa di X" (virgola) non le contiene.
-            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi', 'dopo', 'invia', 'manda', 'spedisci')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'invia', 'manda', 'spedisci')
             CaptureRegex = $null
             RequiresAI   = $true
             Handler      = { Get-M365OpsCompliancePatterns -Provider $script:ActiveAIProvider }
@@ -585,7 +585,7 @@ function Get-M365OpsCommandCatalog {
             # all'AI anche richieste semplicissime senza alcun legame con la conformita'.
             # 'poi'/'dopo' isolate (23/08/2026, stesso bug-hunt): "elenca i dispositivi, poi
             # dimmi quanti gruppi ci sono" (virgola) non veniva deviato dalle sole frasi letterali.
-            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi', 'dopo', 'nn\s*conform', 'compliant', 'conform')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'nn\s*conform', 'compliant', 'conform')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { Get-M365OpsManagedDevices }

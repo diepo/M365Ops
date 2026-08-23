@@ -19,6 +19,18 @@ function ConvertTo-M365OpsFlatRows {
             if ($null -eq $value -or $value -is [string]) {
                 $flat[$prop.Name] = $value
             }
+            elseif ($value -is [System.Collections.IDictionary]) {
+                # Controllato PRIMA del ramo IEnumerable generico sotto (23/08/2026, bug reale
+                # trovato durante l'autoreview di questa stessa maratona, non da un test dal
+                # vivo): Hashtable/OrderedDictionary implementano ANCHE IEnumerable, quindi
+                # senza questo controllo dedicato PRIMA finivano sempre intercettati dal ramo
+                # sotto (pensato per array), che li appiattiva in modo scorretto (enumerando le
+                # singole DictionaryEntry invece delle coppie chiave=valore) invece di
+                # raggiungere mai la logica chiave=valore scritta apposta qui sotto - un ramo
+                # di codice scritto ma mai davvero eseguibile.
+                $pairs = @($value.Keys | ForEach-Object { "$_=$($value[$_])" })
+                $flat[$prop.Name] = if ($pairs.Count -gt 0) { $pairs -join "; " } else { $null }
+            }
             elseif ($value -is [System.Collections.IEnumerable]) {
                 $items = @($value | ForEach-Object { [string]$_ } | Where-Object { $_ })
                 $flat[$prop.Name] = if ($items.Count -gt 0) { $items -join ", " } else { $null }
@@ -29,24 +41,20 @@ function ConvertTo-M365OpsFlatRows {
                 $flat[$prop.Name] = $value
             }
             else {
-                # Oggetto complesso SINGOLO, non un array (23/08/2026, bug reale trovato dal
-                # vivo, bug-hunt di 16 ore - stesso principio del fix sugli array sopra, ma
-                # mai applicato a un oggetto nidificato non-enumerabile, es. signInActivity/
-                # assignedPlan/manager di Graph). Prima di questo fix, questo ramo lasciava il
-                # valore invariato: Excel (ImportExcel/EPPlus) scriveva una cella VUOTA, mentre
-                # il PDF (ConvertTo-Html) stampava il dump grezzo "@{X=1; Y=2}" - due formati
-                # dello STESSO report con contenuti diversi per la stessa colonna. In piu',
-                # lasciare passare l'oggetto grezzo faceva anche fallire Group-Object nella
-                # costruzione dei grafici PDF (Export-M365OpsDataReport.ps1, "Cannot compare...
-                # because the object does not implement IComparable", riprodotto dal vivo) -
-                # appiattendo qui, alla fonte, quel crash non si presenta nemmeno piu' (oltre
-                # al try/catch di sicurezza gia' aggiunto li').
-                $pairs = @()
-                if ($value -is [System.Collections.IDictionary]) {
-                    foreach ($k in $value.Keys) { $pairs += "$k=$($value[$k])" }
-                } else {
-                    foreach ($p in $value.PSObject.Properties) { $pairs += "$($p.Name)=$($p.Value)" }
-                }
+                # Oggetto complesso SINGOLO, non un array ne' un dizionario (23/08/2026, bug
+                # reale trovato dal vivo, bug-hunt di 16 ore - stesso principio del fix sugli
+                # array sopra, ma mai applicato a un oggetto nidificato non-enumerabile, es.
+                # signInActivity/assignedPlan/manager di Graph). Prima di questo fix, questo
+                # ramo lasciava il valore invariato: Excel (ImportExcel/EPPlus) scriveva una
+                # cella VUOTA, mentre il PDF (ConvertTo-Html) stampava il dump grezzo
+                # "@{X=1; Y=2}" - due formati dello STESSO report con contenuti diversi per la
+                # stessa colonna. In piu', lasciare passare l'oggetto grezzo faceva anche
+                # fallire Group-Object nella costruzione dei grafici PDF
+                # (Export-M365OpsDataReport.ps1, "Cannot compare... because the object does
+                # not implement IComparable", riprodotto dal vivo) - appiattendo qui, alla
+                # fonte, quel crash non si presenta nemmeno piu' (oltre al try/catch di
+                # sicurezza gia' aggiunto li').
+                $pairs = @($value.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" })
                 $flat[$prop.Name] = if ($pairs.Count -gt 0) { $pairs -join "; " } else { $null }
             }
         }
