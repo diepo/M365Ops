@@ -225,6 +225,14 @@ dettaglio di cosa hanno trovato)*
    Settings field is required." Comportamento del cmdlet gia' corretto, solo la documentazione
    era sbagliata - corretta. Letture Entra aggiuntive (conditional access, compliance state
    summary, app registration) tutte OK, nessun problema.
+6. **Agente "Test lettura Teams/SharePoint"** (general-purpose, background, test dal vivo via
+   pwsh diretto su "vnsys-test" AppOnly - nessun browser) — IN CORSO. Copre l'area rimasta
+   scoperta dall'agente 3 (Exchange/Intune/Purview) - tutte le Get-M365Ops* di Teams e
+   SharePoint/OneDrive, con lo stesso principio "invocato per davvero, non solo letto". Avvisato
+   di non trattare un limite di permesso/licenza noto (es. policy Teams senza il permesso
+   Skype/Teams Tenant Admin API) come un bug, e di non provare a "risolvere" un eventuale
+   conflitto .NET Teams/Exchange se dovesse ripresentarsi (fuori scope, gia' un'architettura
+   complessa esistente) - solo segnalarlo se capita.
 
 ## Test dal vivo (io stesso, GUI su vnsys-test) durante l'attesa degli agenti
 
