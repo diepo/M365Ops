@@ -236,6 +236,19 @@ dettaglio di cosa hanno trovato)*
 
 ## Test dal vivo (io stesso, GUI su vnsys-test) durante l'attesa degli agenti
 
+- **"Stato permessi" e domanda naturale su Conditional Access - PASS**: audit permessi reale via
+  Graph, risposta coerente con l'agente 5 (2 criteri CA trovati, stessi stati).
+- **GUI a larghezza mobile (mai testata in nessuna maratona precedente) - 2 bug reali trovati e
+  corretti, v0.9.73**: (1) nessun tag `<meta name="viewport">` in `Gui/index.html` - su mobile
+  reale la pagina si renderizza su una viewport virtuale desktop (980px) poi si rimpicciolisce,
+  illeggibile senza zoom continuo (verificato `window.visualViewport.width` = 980 invece di
+  375). Aggiunto il tag standard `width=device-width, initial-scale=1`. (2) col viewport
+  corretto, il gruppo di pulsanti header non andava mai a capo (nessun `flex-wrap`), causando un
+  piccolo overflow orizzontale residuo (435px su 375px di schermo, misurato via
+  `getBoundingClientRect`). Aggiunto `flex-wrap:wrap` al contenitore. Entrambi verificati dal
+  vivo prima/dopo (screenshot + misure DOM dirette), nessun impatto sul layout desktop
+  (verificato ridimensionando avanti e indietro).
+
 - **Script personalizzati - MAI testato prima, ora coperto end-to-end, PASS**: "ogni tanto mi
   serve controllare quali gruppi di distribuzione non hanno nessun membro, puoi automatizzarlo
   come script cosi' lo riuso in futuro?" → l'AI ha correttamente riconosciuto il caso d'uso
