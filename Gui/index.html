@@ -1905,10 +1905,18 @@
   // compare se passa troppo tempo, cosi' l'utente sa cosa sta succedendo davvero e come uscirne
   // (riavviare il server, tab Manutenzione) invece di restare a fissare uno stato "in corso..."
   // senza spiegazioni.
-  function warnIfServerStillBlocked(statusEl, seconds = 25) {
+  // Soglia alzata da 25s a 45s (23/08/2026, durante la maratona di debug, dopo un'indagine
+  // dedicata sull'affidabilita' di questi pulsanti): un'installazione/riparazione di modulo
+  // reale (PnP.PowerShell/ExchangeOnlineManagement/MicrosoftTeams, vedi Assert-M365Ops*SafeVersion
+  // e Connect-M365OpsSharePoint.ps1 L60-71) puo' da sola richiedere decine di secondi PRIMA
+  // ancora di arrivare al tentativo di apertura del browser - un avviso a 25s scattava spesso
+  // durante un'installazione perfettamente in corso, non un vero blocco, confondendo l'utente
+  // esattamente come il problema che doveva risolvere. Il testo ora copre ENTRAMBE le cause
+  // possibili invece di presumere solo "hai chiuso la finestra".
+  function warnIfServerStillBlocked(statusEl, seconds = 45) {
     const baseText = statusEl.textContent;
     const timer = setTimeout(() => {
-      statusEl.innerHTML = baseText + ' <b>Il server sembra ancora bloccato.</b> Se hai chiuso la finestra di login senza completarla, questo e\' atteso: nessun pulsante puo\' sbloccarlo da qui, perche\' il server e\' a thread singolo e resta occupato dalla richiesta di login finche\' non scade da sola. Per sbloccarlo subito: tab Manutenzione → "Riavvia server".';
+      statusEl.innerHTML = baseText + ' <b>Sta impiegando piu\' del solito.</b> Due possibilita\': (1) sta ancora verificando o installando un modulo necessario (puo\' succedere anche dopo il testo "apertura browser" - normale, aspetta ancora un po\'); (2) il browser si e\' gia\' aperto e hai chiuso la finestra senza completare il login, o e\' comparsa dietro le altre finestre (controlla con Alt+Tab prima di pensare che sia bloccato). In entrambi i casi il server resta occupato per tutti finche\' non si risolve da solo - se non succede nulla dopo un\'attesa ragionevole, sbloccalo dal tab Manutenzione → "Riavvia server".';
     }, seconds * 1000);
     return () => clearTimeout(timer);
   }
@@ -1930,7 +1938,7 @@
       if (statusData.authMode === 'Delegated') {
         const proceed = confirm('Si aprirà una finestra del browser per accedere: il server resterà bloccato per tutti finché non completi il login lì. Procedere?');
         if (!proceed) { btn.disabled = false; return; }
-        status.textContent = 'apertura browser in corso... il server è bloccato finché non completi il login nella finestra appena aperta';
+        status.textContent = 'preparazione in corso (verifica/installazione moduli, può richiedere fino a un minuto la prima volta)... poi si apre il browser per il login, e il server resta bloccato finché non lo completi';
         cancelWarn = warnIfServerStillBlocked(status);
       } else {
         status.textContent = 'connessione in corso...';
@@ -1966,7 +1974,7 @@
       if (statusData.authMode === 'Delegated') {
         const proceed = confirm('Si aprirà una finestra per il login (codice dispositivo): il server resterà bloccato per tutti finché non lo completi. Procedere?');
         if (!proceed) { btn.disabled = false; return; }
-        status.textContent = 'apertura login in corso... il server è bloccato finché non completi il login';
+        status.textContent = 'preparazione in corso (verifica/installazione moduli, può richiedere fino a un minuto la prima volta)... poi si apre il login, e il server resta bloccato finché non lo completi';
         cancelWarn = warnIfServerStillBlocked(status);
       } else {
         status.textContent = 'connessione in corso...';
@@ -2001,7 +2009,7 @@
       if (statusData.authMode === 'Delegated') {
         const proceed = confirm('Si aprirà una finestra per il login: il server resterà bloccato per tutti finché non lo completi. Procedere?');
         if (!proceed) { btn.disabled = false; return; }
-        status.textContent = 'apertura login in corso... il server è bloccato finché non completi il login';
+        status.textContent = 'preparazione in corso (verifica/installazione moduli, può richiedere fino a un minuto la prima volta)... poi si apre il login, e il server resta bloccato finché non lo completi';
         cancelWarn = warnIfServerStillBlocked(status);
       } else {
         status.textContent = 'connessione in corso...';
@@ -2036,7 +2044,7 @@
         // server restera' bloccato per tutti finche' non completi il login nel browser.
         const proceed = confirm('Si aprirà una finestra del browser per scegliere l\'account: il server resterà bloccato per tutti finché non completi il login lì (limite del modulo Intune, non risolvibile come per Exchange). Procedere?');
         if (!proceed) { btn.disabled = false; return; }
-        status.textContent = 'apertura browser in corso... il server è bloccato finché non completi il login nella finestra appena aperta';
+        status.textContent = 'preparazione in corso (verifica/installazione moduli, può richiedere fino a un minuto la prima volta)... poi si apre il browser per il login, e il server resta bloccato finché non lo completi';
         cancelWarn = warnIfServerStillBlocked(status);
       } else {
         status.textContent = 'connessione in corso...';
@@ -2073,7 +2081,7 @@
         const proceed = confirm('Si aprirà una finestra del browser per il login: il server resterà bloccato per tutti finché non lo completi (limite della CLI, non risolvibile come per Exchange). Necessario solo la prima volta per questo profilo. Procedere?');
         if (!proceed) { btn.disabled = false; return; }
         allowInteractive = true;
-        status.textContent = 'apertura browser in corso... il server è bloccato finché non completi il login nella finestra appena aperta';
+        status.textContent = 'preparazione in corso (verifica/installazione moduli, può richiedere fino a un minuto la prima volta)... poi si apre il browser per il login, e il server resta bloccato finché non lo completi';
         cancelWarn = warnIfServerStillBlocked(status);
       } else {
         status.textContent = 'connessione in corso...';
