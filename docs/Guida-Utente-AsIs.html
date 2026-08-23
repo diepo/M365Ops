@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>M365 Ops Assistant — Guida Utente</title>
+<style>
+  @page { size: A4; margin: 22mm 18mm 20mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Calibri, Arial, sans-serif;
+    color: #16222E; font-size: 10.5pt; line-height: 1.55;
+    margin: 0;
+  }
+  h1, h2, h3 { font-family: "Segoe UI Semibold", "Segoe UI", Arial, sans-serif; color: #0E4A6E; text-wrap: balance; }
+  code { font-family: Consolas, "Courier New", monospace; background: #EEF3F7; padding: 1px 5px; border-radius: 3px; color: #14618F; font-size: 9.5pt; }
+
+  .cover {
+    height: 250mm; display: flex; flex-direction: column; justify-content: center;
+    page-break-after: always;
+  }
+  .cover .eyebrow { color: #14618F; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; font-size: 10pt; margin-bottom: 14px; }
+  .cover h1 { font-size: 32pt; margin: 0 0 10px; line-height: 1.15; }
+  .cover .sub { font-size: 13pt; color: #5B6B7A; max-width: 120mm; margin-bottom: 40px; }
+  .cover .meta { font-size: 9.5pt; color: #8494A3; border-top: 1px solid #D9DFE5; padding-top: 16px; max-width: 100mm; }
+  .cover .logo-mark { display: flex; gap: 6px; margin-bottom: 24px; }
+  .cover .logo-mark span { width: 10px; height: 10px; border-radius: 50%; background: #14618F; }
+  .cover .logo-mark span:nth-child(2) { background: #4FA3D8; }
+  .cover .logo-mark span:nth-child(3) { background: #8FCBF0; }
+
+  section { page-break-inside: avoid; margin-bottom: 22px; }
+  h2 { font-size: 16pt; border-bottom: 2px solid #14618F; padding-bottom: 6px; margin-top: 34px; margin-bottom: 14px; }
+  h2 .num { color: #4FA3D8; font-weight: 800; margin-right: 8px; }
+  h3 { font-size: 12pt; color: #14618F; margin-top: 18px; margin-bottom: 6px; }
+  p { margin: 8px 0; }
+
+  .lede { font-size: 11.5pt; color: #3A4A58; }
+
+  .callout {
+    background: #E3F0F7; border-left: 3px solid #14618F; border-radius: 4px;
+    padding: 10px 14px; margin: 12px 0; font-size: 9.8pt;
+  }
+  .callout.warn { background: #FBF0DD; border-left-color: #A9660A; }
+  .callout strong { color: #0E4A6E; }
+  .callout.warn strong { color: #A9660A; }
+
+  .example {
+    background: #F4F6F8; border: 1px solid #D9DFE5; border-radius: 5px;
+    padding: 9px 13px; font-size: 9.5pt; color: #3A4A58; margin: 8px 0;
+  }
+  .example::before { content: "Esempio: "; font-weight: 700; color: #14618F; }
+
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 9.5pt; }
+  th, td { text-align: left; padding: 6px 10px; border: 1px solid #D9DFE5; vertical-align: top; }
+  th { background: #EBEEF2; color: #3A4A58; font-weight: 700; }
+
+  .module-grid { display: block; }
+  .module { border: 1px solid #D9DFE5; border-radius: 6px; padding: 12px 16px; margin-bottom: 12px; break-inside: avoid; }
+  .module h3 { margin-top: 0; }
+  .module .scope { font-size: 9pt; color: #8494A3; margin-bottom: 6px; }
+
+  ul { margin: 6px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+
+  .step-list { counter-reset: step; list-style: none; padding-left: 0; margin: 10px 0; }
+  .step-list li { counter-increment: step; position: relative; padding-left: 30px; margin-bottom: 10px; }
+  .step-list li::before {
+    content: counter(step); position: absolute; left: 0; top: 0;
+    width: 20px; height: 20px; border-radius: 50%; background: #14618F; color: white;
+    font-size: 9pt; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+
+  footer.page-footer { font-size: 8.5pt; color: #8494A3; text-align: center; margin-top: 40px; border-top: 1px solid #D9DFE5; padding-top: 10px; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="logo-mark"><span></span><span></span><span></span></div>
+  <div class="eyebrow">Guida Utente — versione corrente</div>
+  <h1>M365 Ops Assistant</h1>
+  <p class="sub">Come usare l'app oggi: cosa sa fare, come parlarci, e come restare sempre in controllo di ogni modifica reale al tenant.</p>
+  <div class="meta">
+    Questa guida descrive SOLO le funzionalita' presenti nella versione installata al momento — non e' uno storico delle modifiche. Per la cronologia versione per versione, il dettaglio tecnico di configurazione e la risoluzione dei problemi, resta valida <strong>Guida-Configurazione.html/.pdf</strong> nella stessa cartella <code>docs</code>: quella non e' sostituita da questo documento.
+  </div>
+</div>
+
+<section>
+<h2><span class="num">1.</span>Cos'e' M365 Ops Assistant</h2>
+<p class="lede">Un assistente per amministrare Microsoft 365 parlandogli in linguaggio naturale, come faresti con un collega — non un pannello di controllo con mille menu da imparare.</p>
+<p>Gira come app locale sul PC dell'amministratore (nessun dato lascia l'infrastruttura se non verso Microsoft Graph/Exchange/i provider AI configurati). Copre Exchange Online, Microsoft Teams, SharePoint/OneDrive, Intune, Purview/Compliance ed Entra ID, con un motore di ragionamento AI (Claude o Azure OpenAI, a scelta) che decide quali dati reali consultare prima di rispondere — non inventa mai un dato che non ha verificato.</p>
+<div class="callout"><strong>Il principio guida:</strong> l'AI puo' leggere liberamente, ma non scrive MAI nulla sul tenant senza una conferma esplicita dell'utente. Ogni scrittura passa da una proposta chiara — cosa sta per succedere, con quale comando — prima di essere eseguita.</div>
+</section>
+
+<section>
+<h2><span class="num">2.</span>Come parlarci</h2>
+<p>Scrivi nella casella di chat come faresti con un collega. Non servono comandi esatti: l'app tollera errori di battitura, abbreviazioni, frasi incomplete o formulate in modo informale.</p>
+<div class="example">"quanti disposiitvi nn conformi ci sn adesso" → capito correttamente come richiesta dei dispositivi Intune non conformi.</div>
+<div class="example">"si e' bloccato il telefono a mario, gli serve un reset mfa" → propone un reset MFA per l'utente, in attesa di conferma.</div>
+<p>Se manca un dato necessario (un indirizzo email, un nome di gruppo, un formato di export), l'app lo chiede invece di indovinare. Se una richiesta e' ambigua o esce dai limiti noti di Graph/Exchange/SharePoint, lo dice chiaramente invece di inventare una risposta plausibile ma falsa.</p>
+
+<h3>Il ciclo proposta → conferma → esecuzione</h3>
+<p>Ogni azione che modifica qualcosa sul tenant (creare, modificare, eliminare, resettare, assegnare) segue sempre lo stesso schema in tre passi:</p>
+<ul class="step-list">
+  <li><strong>Proposta.</strong> L'app spiega cosa intende fare e perche', mostrando il cmdlet esatto e i parametri che userebbe — mai un riassunto vago.</li>
+  <li><strong>Conferma esplicita.</strong> Nulla accade finche' non rispondi "si" (o equivalenti come "conferma"/"procedi") oppure "no" per annullare. Una domanda di follow-up che contiene la parola "si" in un altro senso (es. "si puo' fare anche per...?") non viene mai scambiata per una conferma.</li>
+  <li><strong>Esecuzione con trasparenza.</strong> Dopo la conferma, l'app mostra sia la fonte della decisione (Lokka/CLI Microsoft 365/moduli interni di M365Ops/token delegato) sia il comando PowerShell esatto lanciato — lo stesso livello di dettaglio della proposta, non solo un generico "Fatto".</li>
+</ul>
+</section>
+
+<section>
+<h2><span class="num">3.</span>Cosa sa fare, per area</h2>
+
+<div class="module-grid">
+  <div class="module">
+    <h3>Exchange Online</h3>
+    <div class="scope">Mailbox, gruppi di distribuzione, regole di trasporto, criteri anti-malware/anti-spam, permessi delegati</div>
+    <p>Lettura profonda (statistiche mailbox, regole di inoltro sospette, permessi FullAccess/SendAs/SendOnBehalf, report su mailbox condivise) e scrittura completa (creazione/eliminazione gruppi e mailbox condivise, concessione/revoca permessi) — sempre con conferma.</p>
+  </div>
+
+  <div class="module">
+    <h3>Microsoft Teams</h3>
+    <div class="scope">Team, canali, membri, policy (accesso esterno, riunioni, chiamate)</div>
+    <p>Elenco Team/canali/membri disponibile subito con lo stesso certificato usato per Exchange. La gestione delle policy (Skype and Teams Tenant Admin API) richiede un permesso applicativo aggiuntivo, verificabile in un clic dal controllo permessi (sezione 5).</p>
+  </div>
+
+  <div class="module">
+    <h3>SharePoint e OneDrive</h3>
+    <div class="scope">Siti, membri, condivisione esterna, quota storage, link di condivisione attivi</div>
+    <p>Creazione siti (Team Site o Communication Site), gestione membri/proprietari, controllo della condivisione esterna e della quota. Su tenant Delegati richiede un login browser dedicato (una tantum per sessione server).</p>
+  </div>
+
+  <div class="module">
+    <h3>Intune</h3>
+    <div class="scope">Dispositivi, criteri di conformita', Settings Catalog, Autopilot, app Win32, Proactive Remediation, Modelli amministrativi</div>
+    <p>L'area piu' estesa dell'app: dall'elenco dispositivi non conformi alla creazione di criteri Settings Catalog/Endpoint Security completi, pacchettizzazione di app Win32 da un file .exe/.msi reale (caricato dal tab Manutenzione), Autopilot, script di remediation, ruoli RBAC personalizzati.</p>
+  </div>
+
+  <div class="module">
+    <h3>Purview / Compliance</h3>
+    <div class="scope">Criteri di conservazione, retention</div>
+    <p>Connessione silenziosa su tenant App-only (stesso certificato di Exchange); su Delegati richiede un login browser dedicato, indipendente da Exchange/Teams.</p>
+  </div>
+
+  <div class="module">
+    <h3>Entra ID</h3>
+    <div class="scope">Utenti, gruppi, licenze, MFA</div>
+    <p>Panoramiche utente/gruppo complete (dispositivi, app assegnate, criteri di compliance), disponibilita' licenze in tempo reale, stato e reset dei metodi MFA (con conferma esplicita — rimuove i metodi registrati, mai la password).</p>
+  </div>
+</div>
+</section>
+
+<section>
+<h2><span class="num">4.</span>Report e script personalizzati</h2>
+<p>Su richiesta, l'app genera report in CSV, Excel o PDF (dispositivi, mailbox, permessi, pattern di non conformita' correlati dall'AI) e puo' inviarli per email direttamente dalla chat — sempre con conferma sul destinatario prima dell'invio.</p>
+<p>Per un bisogno ricorrente ("ogni lunedi' mi serve sapere..."), l'app puo' proporre di salvare un nuovo script personalizzato riutilizzabile in futuro senza rigenerarlo ogni volta — con lo stesso ciclo proposta/conferma, e il codice completo mostrato prima di salvarlo.</p>
+</section>
+
+<section>
+<h2><span class="num">5.</span>Connettori: Lokka, CLI Microsoft 365, script personalizzati</h2>
+<p>Le letture passano principalmente da <strong>Lokka</strong> (connettore MCP verso Microsoft Graph), con moduli PowerShell interni come fallback per cio' che Graph non espone (dati Exchange profondi, policy Teams, SharePoint).</p>
+<p>Un tenant puo' avere anche <strong>CLI Microsoft 365</strong> collegato come secondo connettore — utile soprattutto quando il login delegato principale (Graph) chiede un consenso amministratore che il tenant non ha ancora concesso: CLI 365 usa un client Microsoft separato con stato di consenso indipendente, quindi puo' funzionare anche quando il primo e' bloccato (non e' pero' garanzia assoluta: una policy tenant che blocca il consenso utente puo' bloccare entrambi i client allo stesso modo). Copre bene Entra ID, Outlook, Planner, OneDrive e ricerche di conformita' Purview — non copre Exchange profondo, Intune ne' le policy Teams, che restano sempre sui moduli PowerShell interni.</p>
+</section>
+
+<section>
+<h2><span class="num">6.</span>Cosa vedi nella GUI</h2>
+<table>
+  <tr><th>Tab</th><th>Cosa contiene</th></tr>
+  <tr><td><strong>Chat</strong></td><td>La conversazione con l'assistente — il modo normale di lavorare.</td></tr>
+  <tr><td><strong>Tenant</strong></td><td>Profili tenant salvati, stato reale di ogni connessione (Graph/Exchange/Teams/SharePoint/Purview/Intune/CLI 365), pulsanti "Connetti/Test" per ciascuna.</td></tr>
+  <tr><td><strong>Documentazione</strong></td><td>Knowledge Base specifica del tenant attivo — carica qui procedure interne, note operative, documenti di riferimento che l'AI consulta quando pertinenti.</td></tr>
+  <tr><td><strong>Motore AI</strong></td><td>Scelta e configurazione del provider AI (Claude o Azure OpenAI).</td></tr>
+  <tr><td><strong>MCP / Connettori</strong></td><td>Configurazione di Lokka e di eventuali server MCP aggiuntivi (es. CLI Microsoft 365) per il tenant attivo.</td></tr>
+  <tr><td><strong>Email</strong></td><td>Indirizzo mittente per l'invio report via email (richiede il permesso Mail.Send gia' concesso alla App Registration).</td></tr>
+  <tr><td><strong>Manutenzione</strong></td><td>Riavvio server, porta, canale di aggiornamento, script personalizzati, e la cronologia log — inclusa la vista "Solo scritture" per rivedere rapidamente ogni modifica reale fatta al tenant.</td></tr>
+</table>
+
+<div class="callout"><strong>Stato permessi</strong> (pulsante in alto): verifica in tempo reale, direttamente su Microsoft Graph, quali permessi ha davvero l'app registrata (o l'utente, su tenant Delegato) — lettura, scrittura o nessun accesso — con l'indicazione esatta di cosa aggiungere per completare ogni area.</div>
+</section>
+
+<section>
+<h2><span class="num">7.</span>Tracciabilita': cosa viene registrato</h2>
+<p>Ogni scrittura confermata ed eseguita finisce in un log dedicato (<code>Logs\writes-YYYYMMDD.log</code>, visibile dal tab Manutenzione con il filtro "Solo scritture"), separato dal log generale dell'applicazione: fonte della decisione, comando esatto, esito. I file restano sul disco finche' non li rimuovi manualmente — nessuna cancellazione automatica.</p>
+</section>
+
+<div class="callout warn" style="margin-top: 30px;">
+<strong>Per configurazione, permessi, risoluzione problemi e cronologia versioni:</strong> questa guida descrive solo l'uso quotidiano dell'app com'e' oggi. Per l'installazione da zero, la registrazione dell'app su Entra ID, i permessi Graph richiesti area per area, i conflitti noti tra moduli PowerShell e ogni dettaglio tecnico, consulta <strong>Guida-Configurazione.html</strong> (o il PDF equivalente) nella stessa cartella.
+</div>
+
+<footer class="page-footer">M365 Ops Assistant — Guida Utente (versione corrente, non storicizzata per release)</footer>
+
+</body>
+</html>
