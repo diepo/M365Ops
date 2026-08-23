@@ -199,20 +199,32 @@ dettaglio di cosa hanno trovato)*
      correttamente trattata come semplice dato osservato, nessuna direttiva contenuta, nessuna
      azione presa. Segnalato qui solo per trasparenza.
 4. **Agente "Regression review v0.9.67-v0.9.71"** (general-purpose, background, `git diff
-   e85120d..HEAD`) — IN CORSO. Compito ristretto: SOLO regressioni introdotte dai fix di questa
-   maratona stessa (Gui/index.html modificato piu' volte sullo stesso testo di stato/soglia
-   avviso, Sync-M365OpsSharePointAppRegistration.ps1 ristrutturato con due percorsi
-   CLI365/Graph, Invoke-M365OpsAgentTools.ps1 con due inserimenti di prompt condizionali che si
-   sovrappongono, e verifica che i 4 fix Exchange non abbiano cambiato la forma dell'output per
-   altri chiamanti) - non cerca bug nuovi indipendenti, quello e' compito di altri agenti.
+   e85120d..HEAD`) — COMPLETATO. **1 regressione reale trovata e corretta, v0.9.72**: in
+   `Sync-M365OpsSharePointAppRegistration.ps1` (il fix CLI365/SharePoint appena spedito), quando
+   CLI Microsoft 365 risponde correttamente "app non trovata" (testo semplice, non JSON -
+   `"Error: App with name 'X' not found..."`), il codice lo trattava come un errore CLI365
+   generico e cadeva nel tentativo Graph successivo - che fallisce SEMPRE in questo scenario
+   (nessuna sessione Graph, e' proprio per questo che si e' provato CLI365 prima), producendo
+   "Error: fai il login Graph" invece del corretto "NotFound" con il comando di registrazione
+   pronto. Proprio il caso PIU' comune la prima volta su un tenant nuovo - la ragion d'essere
+   della funzione. Corretto riconoscendo il testo "not found" nella risposta CLI365, verificato
+   dal vivo contro l'output reale della CLI. Altri 4 punti controllati (Gui/index.html sintassi
+   e coerenza id/riferimenti, inerzia del prompt proattivo su AppOnly, forma output dei 4 fix
+   Exchange verso i chiamanti reali, sovrapposizione dei due inserimenti di prompt v0.9.68/69) -
+   **nessun problema trovato**, dettaglio nel commit.
 5. **Agente "Test scrittura Intune/Entra + pulizia"** (general-purpose, background, test dal
-   vivo via pwsh diretto su "vnsys-test", nessun browser) — IN CORSO. Ciclo completo
-   crea→verifica→elimina→verifica su cmdlet di scrittura Intune sicure da testare (ScopeTag,
-   Configuration Policy, Assignment Filter - mai assegnazioni a "tutti i dispositivi/utenti"),
-   oggetti nominati `ZZTEST-marathon-*` per essere inequivocabili, con conferma esplicita di
-   pulizia completa richiesta a fine report. Copre anche letture Entra non ancora testate
-   (conditional access policies, compliance state summary, elenco app registration) sola
-   lettura.
+   vivo via pwsh diretto su "vnsys-test", nessun browser) — COMPLETATO. Ciclo completo
+   crea→verifica→elimina→verifica su ScopeTag e Configuration Policy (dati Settings Catalog
+   reali, assegnazione inclusa) - tutti gli oggetti `ZZTEST-marathon-*` confermati eliminati con
+   una scansione finale dedicata (0 residui). Nessun `AssignmentFilter` in questo codebase (mai
+   implementato, non un gap - nulla da testare li'). **1 bug di documentazione trovato e
+   corretto, v0.9.72**: `New-M365OpsConfigurationPolicy` dichiarava che `-Settings` poteva essere
+   omesso (specialmente con `-TemplateId`) per un contenitore vuoto coi default del template -
+   verificato dal vivo che e' FALSO in ogni caso provato (senza `-TemplateId` e con un template
+   Endpoint Security reale, "Defender Update controls"): Graph rifiuta sempre con 400 "The
+   Settings field is required." Comportamento del cmdlet gia' corretto, solo la documentazione
+   era sbagliata - corretta. Letture Entra aggiuntive (conditional access, compliance state
+   summary, app registration) tutte OK, nessun problema.
 
 ## Test dal vivo (io stesso, GUI su vnsys-test) durante l'attesa degli agenti
 

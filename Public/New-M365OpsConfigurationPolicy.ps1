@@ -17,8 +17,13 @@ function New-M365OpsConfigurationPolicy {
         non tenta di offrire parametri dedicati per ciascuna delle decine di migliaia di
         impostazioni possibili nel catalogo Intune: usa PRIMA
         Get-M365OpsConfigurationSettingDefinitions per trovare il settingDefinitionId e i valori
-        ammessi esatti, mai indovinati. Puo' essere omesso per creare un contenitore vuoto (utile
-        soprattutto con -TemplateId, dove il template stesso fornisce spesso dei default).
+        ammessi esatti, mai indovinati. NON omettere in pratica: verificato dal vivo il 23/08/2026
+        contro un tenant reale che Graph rifiuta con 400 "dCV2Policy.Settings : The Settings field
+        is required." sia senza -TemplateId sia CON -TemplateId (provato con un template Endpoint
+        Security Antivirus reale, "Defender Update controls") - il commento precedente che
+        prometteva un contenitore vuoto valido, coi default forniti dal template, era sbagliato:
+        nessun caso osservato accetta un array Settings vuoto/omesso. Passa sempre almeno una
+        voce reale (anche per una policy basata su template).
     .EXAMPLE
         New-M365OpsConfigurationPolicy -Name "Baseline BitLocker" -Platforms windows10 -Technologies mdm `
             -Settings @(@{ "@odata.type"="#microsoft.graph.deviceManagementConfigurationSetting"; settingInstance=@{ "@odata.type"="#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance"; settingDefinitionId="..."; choiceSettingValue=@{ "@odata.type"="#microsoft.graph.deviceManagementConfigurationChoiceSettingValue"; value="..." } } })

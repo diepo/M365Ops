@@ -56,21 +56,43 @@ function Sync-M365OpsSharePointAppRegistration {
 
     $app = $null
     $cliM365Attempted = $false
+    $cliM365ConfirmedNotFound = $false
     if (-not $graphDelegatedSessionActive) {
         $cliM365Configured = $false
         try { $cliM365Configured = [bool](Get-M365OpsMcpServers | Where-Object { $_.Name -eq 'CLI-Microsoft365' }) } catch { }
         if ($cliM365Configured) {
             $cliM365Attempted = $true
+            $cliText = $null
             try {
                 $cliResult = Invoke-M365OpsMcpServerTool -ServerName 'CLI-Microsoft365' -ToolName 'm365_run_command' -Arguments @{ command = "m365 entra app get --name `"$appName`"" }
                 $cliText = ($cliResult.content | ForEach-Object { $_.text }) -join "`n"
                 $cliApp = $cliText | ConvertFrom-Json -ErrorAction Stop
                 if ($cliApp.appId) { $app = [pscustomobject]@{ appId = $cliApp.appId; displayName = $cliApp.displayName } }
             } catch {
-                # Nessuna app trovata con questo nome, o CLI365 stesso non disponibile/non
-                # connesso - non e' un errore fatale qui, si prova comunque il percorso Graph
-                # sotto (che dara' il messaggio originale, chiaro, se fallisce anche lui).
+                # Bug reale trovato in review (23/08/2026): CLI365 puo' fallire qui per due
+                # motivi ben diversi, che PRIMA finivano tutti nello stesso ramo silenzioso -
+                # (1) l'app NON esiste: 'm365 entra app get --name' risponde con testo tipo
+                # "App with name 'X' not found in Microsoft Entra ID" (verificato dal vivo),
+                # non JSON valido, quindi ConvertFrom-Json fallisce SEMPRE anche in questo caso
+                # legittimo, indistinguibile da un errore vero senza guardare il testo; (2)
+                # CLI365 stesso non e' disponibile/connesso/altro errore imprevisto. Senza
+                # distinguerli, il caso (1) - proprio il caso piu' comune la prima volta su un
+                # tenant nuovo, che e' la RAGION D'ESSERE di questa funzione - cadeva nel
+                # tentativo Graph sotto, che fallisce SEMPRE qui (nessuna sessione Graph, e'
+                # proprio per questo che si e' provato CLI365 prima), risultando in Status
+                # 'Error' fuorviante ("fai il login Graph") invece di 'NotFound' con il comando
+                # di registrazione pronto all'uso. Riconoscere il testo di CLI365 evita
+                # sia la classificazione sbagliata sia il tentativo Graph inutile.
+                if ($cliText -match 'not found') { $cliM365ConfirmedNotFound = $true }
             }
+        }
+    }
+
+    if ($cliM365ConfirmedNotFound) {
+        return [pscustomobject]@{
+            Found   = $false
+            Status  = 'NotFound'
+            Message = "App '$appName' non trovata in questo tenant (verificato via CLI Microsoft 365). Registrala una tantum da un terminale PowerShell 7 normale (non dal pulsante della GUI):`n$registerCmd`nPoi riprova - verra' rilevata e salvata in automatico."
         }
     }
 
