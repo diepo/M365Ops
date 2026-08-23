@@ -186,7 +186,7 @@ function Get-M365OpsAppPermissionsCheck {
         Status          = 'lettura+scrittura'
         MissingForRead  = @()
         MissingForWrite = @()
-        Note            = "Non richiede un permesso Graph/API separato: funziona gia' con lo stesso certificato o secret usato per l'autenticazione (verificato dal vivo il 17/08/2026, vedi Connect-M365OpsTeams)."
+        Note            = "Non richiede un permesso Graph/API separato: funziona gia' con lo stesso certificato o secret usato per l'autenticazione."
     }
 
     return $results

@@ -23,6 +23,17 @@ function Get-M365OpsDelegatedPermissionsCheck {
         21/08/2026 in App-only, stesso ruolo gia' presente anche lato Delegated). Le altre
         righe sono dedotte dal NOME del ruolo (marcate esplicitamente come tali nella nota) -
         non ancora confermate con una scrittura reale in modalita' Delegated.
+
+        IMPORTANTE - il campo Note qui sotto e' TESTO RIVOLTO ALL'UTENTE (mostrato cosi' com'e'
+        dal pulsante "Stato permessi" della GUI): bug reale segnalato dal vivo il 23/08/2026,
+        le date e la dicitura "verificato dal vivo il gg/mm/aaaa" (utili SOLO come nota di
+        sviluppo, motivo per cui restano qui sopra nel .NOTES) finivano anche nel campo Note
+        restituito all'utente finale, che le ha giudicate fuorvianti/senza senso in quel
+        contesto - un utente non sa e non deve sapere QUANDO uno sviluppatore ha verificato una
+        mappatura, gli serve solo sapere SE puo' fidarsi del dato mostrato. Il campo Note sotto
+        ora dice solo "dedotto dal nome del ruolo, non confermato" o resta vuoto per le righe
+        gia' verificate - nessuna data, nessun "verificato dal vivo", nessun riferimento a
+        questo stesso progetto/sviluppo.
     #>
     param([Parameter(Mandatory)] $Context)
 
@@ -36,17 +47,17 @@ function Get-M365OpsDelegatedPermissionsCheck {
 
     $areaDefs = @(
         @{ Area = 'Domini accettati e domini remoti'; WriteRoles = @('Remote and Accepted Domains')
-           Note = "Verificato dal vivo il 21/08/2026: con questo ruolo Get-AcceptedDomain funziona subito in Delegated." }
+           Note = "" }
         @{ Area = 'Anti-spam / anti-phishing / filtro malware'; WriteRoles = @('Transport Hygiene')
-           Note = "Verificato dal vivo il 21/08/2026 (in App-only, stesso ruolo): copre criteri e regole per tutte e tre le aree." }
+           Note = "" }
         @{ Area = 'Connettori Inbound/Outbound, impostazioni trasporto globali'; WriteRoles = @('Organization Transport Settings')
-           Note = "Mappatura dedotta dal nome del ruolo - NON ancora verificata dal vivo con una scrittura reale in modalita' Delegated, a differenza delle righe sopra." }
+           Note = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale." }
         @{ Area = 'Mailbox, gruppi di distribuzione, destinatari'; WriteRoles = @('Mail Recipients'); ReadRoles = @('View-Only Recipients')
-           Note = "Mappatura dedotta dal nome del ruolo - non ancora verificata dal vivo in Delegated." }
+           Note = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale." }
         @{ Area = 'Regole di trasporto (mail flow rules)'; WriteRoles = @('Transport Rules')
-           Note = "Mappatura dedotta dal nome del ruolo - non ancora verificata dal vivo in Delegated." }
+           Note = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale." }
         @{ Area = 'Ruoli RBAC Exchange (Role Management)'; WriteRoles = @('Role Management')
-           Note = "Mappatura dedotta dal nome del ruolo - non ancora verificata dal vivo in Delegated." }
+           Note = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale." }
     )
 
     $results = foreach ($def in $areaDefs) {
@@ -117,7 +128,7 @@ function Get-M365OpsDelegatedPermissionsCheck {
                 Status          = if ($hasWrite) { 'lettura+scrittura' } else { 'nessun accesso' }
                 MissingForRead  = if (-not $hasWrite) { $def.WriteRoles } else { @() }
                 MissingForWrite = if (-not $hasWrite) { $def.WriteRoles } else { @() }
-                Note            = "Verifica per nome di ruolo directory standard Microsoft - non ancora confermato con una scrittura reale in Delegated per quest'area specifica."
+                Note            = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale."
             }
         }
     }
