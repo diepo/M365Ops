@@ -70,4 +70,7 @@ $customNames = Get-ChildItem -Path $script:M365OpsCustomScriptsPath -Filter '*.p
 # esportati, mai le funzioni Private per nome, anche se il file e' dot-sourced dentro il modulo
 # (bug reale: 'the term is not recognized', scoping, non un problema di rete/import mancante -
 # trovato il 15/08/2026).
-Export-ModuleMember -Function (@($publicNames) + @($customNames) + 'Invoke-M365OpsGraphRequest' + 'Get-M365OpsNormalizedChatText')
+# Start-/Get-M365OpsIsolatedModuleConnectAsync* aggiunte il 23/08/2026 (login Teams/Exchange
+# delegati non piu' bloccanti, richiesto esplicitamente dall'utente) - stesso motivo delle due
+# sopra: Gui\Server.ps1 le chiama direttamente per i nuovi endpoint di polling.
+Export-ModuleMember -Function (@($publicNames) + @($customNames) + 'Invoke-M365OpsGraphRequest' + 'Get-M365OpsNormalizedChatText' + 'Start-M365OpsIsolatedModuleConnectAsync' + 'Get-M365OpsIsolatedModuleConnectAsyncStatus')

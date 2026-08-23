@@ -115,65 +115,9 @@ function Connect-M365OpsIsolatedModule {
         throw "Connessione $ModuleType nel processo isolato fallita: $($_.Exception.Message)"
     }
 
-    $script:M365OpsIsolatedWorkers[$tenantName][$ModuleType] = $process
-
-    # Bug reale trovato dal vivo il 26/08/2026: Connect-IPPSSession (Purview) nel worker
-    # isolato falliva silenziosamente in ogni test - il worker lo logga su un proprio stderr
-    # che nessuno leggeva mai in caso di "connect" andato a buon fine, quindi i cmdlet Purview
-    # (es. Get-RetentionCompliancePolicy) risultavano assenti dall'elenco proxato senza nessuna
-    # traccia visibile del perche'. Ora il worker restituisce l'esito esplicitamente nel
-    # risultato di "connect" - va sempre loggato qui, non solo in caso di eccezione.
-    if ($ModuleType -eq 'Exchange' -and $connectResult.PSObject.Properties.Name -contains 'purviewConnected' -and -not $connectResult.purviewConnected) {
-        Write-M365OpsLog "Isolamento reattivo Exchange: connesso correttamente alle mailbox, ma Connect-IPPSSession (Purview/Compliance) e' fallito nel processo isolato - i cmdlet Purview (Get-RetentionCompliancePolicy e simili) non saranno disponibili per il tenant '$tenantName' finche' non risolto. Motivo: $($connectResult.purviewError)" -Level Warn
-    }
-
-    # Generazione dei proxy: evento UNA TANTUM per ModuleType per l'intera vita di QUESTO
-    # processo server, non per tenant - una volta che, per QUALUNQUE tenant, un conflitto ha
-    # fatto scattare l'isolamento di un modulo, e' corretto (e piu' semplice/robusto) che
-    # TUTTI i tenant successivi lo usino, dato che il conflitto .NET stesso e' un fatto del
-    # PROCESSO, non di un singolo tenant - il processo che ha gia' toccato la libreria di
-    # autenticazione condivisa "sbagliata" per un tenant la ha comunque gia' toccata per tutti.
-    if (-not $script:M365OpsIsolatedProxiesInstalled) { $script:M365OpsIsolatedProxiesInstalled = @{} }
-    if (-not $script:M365OpsIsolatedProxiesInstalled[$ModuleType]) {
-        if (-not $script:M365OpsIsolatedCmdletModuleMap) { $script:M365OpsIsolatedCmdletModuleMap = @{} }
-        if (-not $script:M365OpsIsolatedCmdletParams) { $script:M365OpsIsolatedCmdletParams = @{} }
-
-        # Scriptblock CONDIVISO da ogni funzione proxy generata (verificato dal vivo il
-        # 26/08/2026 che $MyInvocation.MyCommand.Name riporta correttamente il nome con cui la
-        # funzione e' stata invocata anche quando lo STESSO scriptblock e' installato sotto
-        # decine di nomi diversi via Set-Item function:global:<nome> - nessun bisogno di una
-        # closure/scriptblock distinto per ciascuno dei 100+ cmdlet).
-        if (-not $script:M365OpsIsolatedProxyBody) {
-            $script:M365OpsIsolatedProxyBody = {
-                [CmdletBinding()]
-                param()
-                DynamicParam {
-                    $cmdName = $MyInvocation.MyCommand.Name
-                    $paramDictionary = New-Object System.Management.Automation.RuntimeDefinedParameterDictionary
-                    foreach ($pName in $script:M365OpsIsolatedCmdletParams[$cmdName]) {
-                        $attrs = New-Object System.Collections.ObjectModel.Collection[System.Attribute]
-                        $attrs.Add((New-Object System.Management.Automation.ParameterAttribute))
-                        $rp = New-Object System.Management.Automation.RuntimeDefinedParameter($pName, [object], $attrs)
-                        $paramDictionary.Add($pName, $rp)
-                    }
-                    return $paramDictionary
-                }
-                process {
-                    $cmdName = $MyInvocation.MyCommand.Name
-                    $targetModule = $script:M365OpsIsolatedCmdletModuleMap[$cmdName]
-                    Invoke-M365OpsIsolatedCmdlet -ModuleType $targetModule -Cmdlet $cmdName -Parameters $PSBoundParameters
-                }
-            }
-        }
-
-        $commandNames = @($connectResult.commands.PSObject.Properties.Name)
-        foreach ($cmdName in $commandNames) {
-            $script:M365OpsIsolatedCmdletModuleMap[$cmdName] = $ModuleType
-            $script:M365OpsIsolatedCmdletParams[$cmdName] = @($connectResult.commands.$cmdName)
-            Set-Item -Path "function:global:$cmdName" -Value $script:M365OpsIsolatedProxyBody -Force
-        }
-        $script:M365OpsIsolatedProxiesInstalled[$ModuleType] = $true
-        Write-M365OpsLog "Isolamento reattivo attivato per $ModuleType - $($commandNames.Count) cmdlet ora eseguiti in un processo separato per evitare il conflitto .NET di sezione 6.6."
-        Write-Host "Isolamento reattivo attivato per $ModuleType ($($commandNames.Count) cmdlet proxati)." -ForegroundColor Yellow
-    }
+    # Registrazione worker + generazione proxy: estratta il 23/08/2026 in
+    # Complete-M365OpsIsolatedModuleConnect (Private), riusata TALE E QUALE dal nuovo percorso
+    # asincrono (Start-/Get-M365OpsIsolatedModuleConnectAsync*, per i login bloccanti Teams
+    # delegati - vedi quei file) - nessuna differenza di comportamento qui, solo deduplicazione.
+    Complete-M365OpsIsolatedModuleConnect -TenantName $tenantName -ModuleType $ModuleType -Process $process -ConnectResult $connectResult
 }

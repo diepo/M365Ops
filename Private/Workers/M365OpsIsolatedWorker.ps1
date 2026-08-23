@@ -194,9 +194,35 @@ while ($true) {
                     $lastCount = $currentCount
                 }
 
+                # Bug reale trovato dal vivo il 23/08/2026 (isolamento Teams forzato su
+                # vnsys-test, App-only): il solo diff prima/dopo su $commandsBefore azzerava
+                # SEMPRE $commands per Teams, mai per Exchange - causa: Get-Command SENZA
+                # -Name/-Module (come usato per $commandsBefore, PRIMA di qualunque
+                # Import-Module esplicito) cataloga comunque i nomi dei cmdlet di
+                # MicrosoftTeams (verificato dal vivo: 'Get-Team' -in (Get-Command
+                # -CommandType Function,Cmdlet).Name e' gia' vero in un processo pwsh -NoProfile
+                # completamente pulito, zero import fatti) perche' PowerShell cataloga i nomi
+                # esportati da un modulo staticamente dichiarato semplicemente scansionando
+                # $env:PSModulePath, senza doverlo davvero importare - a differenza dei cmdlet
+                # Exchange (generati dinamicamente via implicit remoting DENTRO
+                # Connect-ExchangeOnline, quindi mai pre-catalogabili in anticipo, per cui il
+                # diff prima/dopo resta l'unico modo corretto e va mantenuto). Risultato pratico
+                # senza questo fix: l'isolamento Teams "riusciva" (nessuna eccezione, log di
+                # successo) ma installava ZERO proxy, quindi ogni cmdlet Teams successivo
+                # falliva silenziosamente con "term not recognized" - un fallimento MOLTO piu'
+                # subdolo del crash "array index evaluated to null" che ha permesso di scoprirlo
+                # (vedi Complete-M365OpsIsolatedModuleConnect.ps1 per l'altra meta' del fix, il
+                # quirk di ConvertFrom-Json su un oggetto JSON vuoto). Fix: un comando conta
+                # anche se il diff non lo segna come "nuovo", purche' il suo ModuleName/Source
+                # corrisponda davvero al modulo appena connesso - sicuro per Teams (nomi statici,
+                # ModuleName sempre popolato), innocuo per Exchange (il diff continua a fare
+                # tutto il lavoro li', l'OR aggiunge zero comandi in piu' perche' i suoi cmdlet
+                # dinamici non hanno mai ModuleName=='ExchangeOnlineManagement').
                 $commands = @{}
                 foreach ($cmd in (Get-Command -CommandType Function, Cmdlet)) {
-                    if ($commandsBefore.Contains($cmd.Name)) { continue }
+                    $isNew = -not $commandsBefore.Contains($cmd.Name)
+                    $isFromConnectedModule = $cmd.ModuleName -eq $moduleName
+                    if (-not $isNew -and -not $isFromConnectedModule) { continue }
                     $paramNames = @($cmd.Parameters.Keys | Where-Object { $_ -notin $script:CommonParamNames })
                     $commands[$cmd.Name] = $paramNames
                 }

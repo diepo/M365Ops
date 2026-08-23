@@ -309,6 +309,7 @@
         <p style="background:var(--ok-soft,#e6f4ea); color:var(--ok,#1e7a34); padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin:8px 0;"><b>✓ Coesiste con Exchange</b> — connettere Exchange PRIMA di Teams nella stessa sessione del server resta la via più veloce (vedi l'avviso nel riquadro Exchange Online qui sopra e guida sezione 6.6), ma se il conflitto scattasse comunque M365Ops lo risolve DAVVERO in automatico isolando la connessione, senza riavvio. Nota anche: su tenant Delegati il popup di login può aprirsi DIETRO il browser — controlla con Alt+Tab prima di pensare che sia bloccato.</p>
         <div class="actions">
           <button id="teams-test-btn">Connetti / Test connessione Teams</button>
+          <button id="teams-login-cancel-btn" style="display:none;">Annulla</button>
           <span id="teams-status-msg"></span>
         </div>
       </div>
@@ -1970,45 +1971,90 @@
     }
   });
 
+  let teamsPollTimer = null;
+  let teamsLoginPolling = false;
+  const teamsLoginCancelBtn = document.getElementById('teams-login-cancel-btn');
+  // Percorso NON bloccante per Teams Delegato (23/08/2026, richiesto esplicitamente dal vivo
+  // dall'utente dopo un episodio scambiato per un crash del server - "Errore di comunicazione:
+  // NetworkError" durante un login Teams che in realta' era gia' riuscito lato server, vedi
+  // Start-M365OpsIsolatedModuleConnectAsync per il contesto completo). A differenza di
+  // SharePoint/Purview qui sopra (che restano bloccanti - nessuna riscrittura in questo giro),
+  // Teams Delegato passa SEMPRE dal worker isolato in un processo SEPARATO fin dall'inizio, non
+  // solo in reazione a un conflitto .NET: il login interattivo (l'unica parte davvero lenta,
+  // attesa umana) avviene quindi in un processo che puo' restare bloccato senza mai bloccare il
+  // server principale, che nel frattempo resta libero di servire altre richieste (altri tenant,
+  // pagine, log). Costo accettato: un secondo popup di login sempre, anche quando nessun
+  // conflitto .NET si sarebbe mai verificato - scambio deliberato, concordato con l'utente, in
+  // cambio di un server che non si blocca mai per questo. Stesso schema start/poll gia' in uso
+  // per il login Graph/Exchange a codice dispositivo qui sopra (setTimeout auto-rischedulato,
+  // mai setInterval, per evitare due poll in volo insieme).
+  function resetTeamsLoginUi(btn) {
+    if (teamsPollTimer) { clearTimeout(teamsPollTimer); teamsPollTimer = null; }
+    teamsLoginPolling = false;
+    btn.disabled = false;
+    teamsLoginCancelBtn.style.display = 'none';
+  }
+
+  teamsLoginCancelBtn.addEventListener('click', () => {
+    const btn = document.getElementById('teams-test-btn');
+    const status = document.getElementById('teams-status-msg');
+    resetTeamsLoginUi(btn);
+    status.textContent = 'Login annullato lato client. Il popup nel processo separato potrebbe restare aperto: chiudilo pure, non blocca nessun altro nel frattempo.';
+  });
+
   document.getElementById('teams-test-btn').addEventListener('click', async (ev) => {
-    // Stesso schema di SharePoint qui sopra (17/08/2026): -Interactive/-UseDeviceAuthentication
-    // esplicito su un click dedicato, invece di un flusso a codice dispositivo custom con un
-    // client_id indovinato (mai verificato, e risultato REALMENTE sbagliato sul flusso
-    // SharePoint gemello a questo - AADSTS700016).
     const btn = ev.currentTarget;
     const status = document.getElementById('teams-status-msg');
     btn.disabled = true;
-    let cancelWarn = () => {};
     try {
       const statusRes = await fetch('/api/mcp-status');
       const statusData = await statusRes.json();
 
       if (statusData.authMode === 'Delegated') {
-        // Nota sul possibile SECONDO popup aggiunta il 23/08/2026 (segnalato dal vivo:
-        // l'utente ha visto un popup, ha completato il login, poi ha ricevuto solo un errore
-        // di rete senza sapere che nel frattempo era scattato il conflitto .NET noto - sezione
-        // 6.6 - e l'isolamento reattivo aveva aperto un SECONDO popup, tutto suo, nel processo
-        // worker separato - login riuscito comunque, ma senza nessun avviso il flusso sembrava
-        // rotto/bloccato).
-        const proceed = confirm('Si aprirà una finestra per il login: il server resterà bloccato per tutti finché non lo completi. Se scatta un conflitto tecnico noto tra i moduli Teams/Exchange, il sistema lo risolve da solo aprendo un SECONDO popup di login in un processo separato - è normale, completa anche quello se compare. Procedere?');
-        if (!proceed) { btn.disabled = false; return; }
-        status.textContent = 'preparazione in corso (verifica/installazione moduli, può richiedere fino a un minuto la prima volta)... poi si apre il login (a volte un secondo popup separato, se scatta un conflitto tecnico noto), e il server resta bloccato finché non lo completi';
-        cancelWarn = warnIfServerStillBlocked(status);
-      } else {
-        status.textContent = 'connessione in corso...';
+        status.textContent = 'avvio del login in un processo separato (il server resta libero nel frattempo)...';
+        const startRes = await fetch('/api/teams-test-async-start', { method: 'POST' });
+        const startData = await startRes.json();
+        if (!startData.ok) {
+          status.textContent = 'Errore: ' + (startData.text || 'sconosciuto');
+          btn.disabled = false;
+          return;
+        }
+        status.textContent = 'In attesa che tu completi il login nella finestra che si apre (controlla anche dietro le altre finestre - se scatta un conflitto tecnico noto tra i moduli Teams/Exchange può comparire un SECONDO popup, è normale, completa anche quello)...';
+        teamsLoginCancelBtn.style.display = '';
+        teamsLoginPolling = true;
+
+        const pollTeamsOnce = async () => {
+          try {
+            const pollRes = await fetch('/api/teams-test-async-poll', { method: 'POST' });
+            const result = await pollRes.json();
+            if (result.status === 'connected') {
+              resetTeamsLoginUi(btn);
+              status.textContent = result.text || 'Connesso.';
+              loadConnectionStatus();
+              loadSetupStatus();
+              return;
+            } else if (result.status === 'error') {
+              resetTeamsLoginUi(btn);
+              status.textContent = 'Errore: ' + (result.text || 'sconosciuto');
+              loadConnectionStatus();
+              loadSetupStatus();
+              return;
+            }
+          } catch (e) { /* riprova al prossimo giro */ }
+          if (teamsLoginPolling) { teamsPollTimer = setTimeout(pollTeamsOnce, 3000); }
+        };
+        teamsPollTimer = setTimeout(pollTeamsOnce, 3000);
+        return;
       }
 
+      status.textContent = 'connessione in corso...';
       const res = await fetch('/api/teams-test', { method: 'POST' });
-      cancelWarn();
       const data = await res.json();
       status.textContent = data.text || 'Fatto.';
       btn.disabled = false;
       loadConnectionStatus();
       loadSetupStatus();
     } catch (e) {
-      cancelWarn();
-      // Stesso bug del catch su SharePoint qui sopra (vedi commento li' per il dettaglio
-      // completo): un NetworkError qui non significa che il login sia fallito davvero.
       status.textContent = 'Errore di comunicazione: ' + e.message + ' - verifico lo stato reale della connessione (potrebbe essere comunque riuscita)...';
       btn.disabled = false;
       loadConnectionStatus();

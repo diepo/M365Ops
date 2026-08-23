@@ -1684,6 +1684,41 @@ try {
                     }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
+                "POST /api/teams-test-async-start" {
+                    # Login Teams NON bloccante (23/08/2026, richiesto esplicitamente dal vivo
+                    # dall'utente dopo un episodio scambiato per un crash del server - vedi
+                    # Start-M365OpsIsolatedModuleConnectAsync per il contesto completo). Solo
+                    # per Delegato: su App-only /api/teams-test esistente resta gia' rapido/
+                    # silenzioso (certificato), non ha bisogno di questo percorso - il chiamante
+                    # lato GUI (index.html) usa questo endpoint SOLO quando AuthMode e' Delegato.
+                    try {
+                        $connectParams = Get-M365OpsIsolatedConnectParams -ModuleType 'Teams'
+                        $result = Start-M365OpsIsolatedModuleConnectAsync -ModuleType 'Teams' -ConnectParams $connectParams
+                        $json = (@{ ok = $true; status = $result.Status } | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ ok = $false; status = 'error'; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/teams-test-async-poll" {
+                    # Controllo NON bloccante (una lettura sola, mai un'attesa) - vedi
+                    # Get-M365OpsIsolatedModuleConnectAsyncStatus. Chiamato ripetutamente dalla
+                    # GUI mentre il login procede nel processo isolato separato.
+                    try {
+                        $status = Get-M365OpsIsolatedModuleConnectAsyncStatus -ModuleType 'Teams'
+                        if ($status.Status -eq 'Connected') {
+                            $teams = @(Get-M365OpsTeamsList)
+                            $json = (@{ ok = $true; status = 'connected'; text = "Connesso. Trovati $($teams.Count) Team." } | ConvertTo-Json -Compress)
+                        } elseif ($status.Status -eq 'Error') {
+                            $json = (@{ ok = $false; status = 'error'; text = "Errore: $($status.Message)" } | ConvertTo-Json -Compress)
+                        } else {
+                            $json = (@{ ok = $true; status = 'pending' } | ConvertTo-Json -Compress)
+                        }
+                    } catch {
+                        $json = (@{ ok = $false; status = 'error'; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
                 "POST /api/compliance-test" {
                     # Nuovo (25/08/2026): Purview/Compliance non aveva NESSUN punto di ingresso
                     # in GUI per la modalita' Delegata - Get-M365OpsRetentionCompliancePolicies

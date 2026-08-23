@@ -445,3 +445,85 @@ Pulizia finale confermata: `ZZTEST-marathon-CustomRole`, `ZZTEST-marathon-RoleAs
 `ZZTEST-marathon-RoleGroup` tutti eliminati e verificati assenti con query indipendenti. Nessun
 nuovo residuo (il sito SharePoint `ZZTEST-marathon-Site` gia' noto resta l'unico residuo aperto,
 non toccato da questo agente).
+
+## Sessione 23/08/2026 (continuazione) — login Teams Delegato reso non bloccante + 3 bug reali
+
+Richiesta esplicita dal vivo, arrivata DURANTE la maratona, dopo l'episodio v0.9.76 ("un crash
+segnalato... in realta' un NetworkError dopo un successo lato server"): *"su questo ti chiedo
+rendere la questione multi thread cosi che queste operazioni non blocchino / facciano crashare
+tutto è possbile?"*. Discussa con l'utente prima di implementare: riscrivere l'intero server per
+essere davvero multi-thread è stato **scartato deliberatamente** (rischio concreto di bug di
+concorrenza su stato condiviso critico per la sicurezza delle scritture - `$pendingWrite`,
+`$script:M365OpsContext`, i dizionari dei processi MCP - peggiore del problema che risolverebbe,
+dato il modello "mai concorrente" su cui è costruita l'intera app). L'utente ha approvato
+l'alternativa mirata proposta ("per ora lakscia stare, dedicati alla maratoma debug su ambiente
+delegato pooi impolementa l'alternativa mirata") e l'ho implementata dopo aver proseguito la
+maratona sul tenant Delegato.
+
+**Architettura**: riuso del meccanismo di isolamento in processo separato gia' esistente e
+collaudato (finora attivato SOLO reattivamente, dopo un conflitto .NET reale), reso disponibile
+anche in modalita' start+poll non bloccante. Nuovi file: `Private/Start-M365OpsIsolatedModuleConnectAsync.ps1`
+(avvia il worker e manda la richiesta "connect" senza attendere), `Private/Get-M365OpsIsolatedModuleConnectAsyncStatus.ps1`
+(un solo controllo non bloccante per chiamata, pensato per il polling), `Private/Complete-M365OpsIsolatedModuleConnect.ps1`
+(logica di completamento condivisa, estratta da `Connect-M365OpsIsolatedModule.ps1` per essere
+riusata identica da entrambi i percorsi). Lato GUI: nuove route `/api/teams-test-async-start` e
+`/api/teams-test-async-poll` in `Gui/Server.ps1`, e il pulsante Teams in `Gui/index.html` (solo
+ramo Delegato - l'App-only resta sul percorso rapido esistente) ora usa uno schema start/poll con
+pulsante "Annulla" dedicato, stesso principio gia' in uso per il login Graph/Exchange a codice
+dispositivo. Costo accettato e comunicato in chat: un secondo popup di login sempre per Teams
+Delegato, anche quando nessun conflitto .NET si sarebbe mai verificato - scambio deliberato per
+un server che non si blocca mai durante l'attesa umana.
+
+**3 bug reali trovati durante la verifica dal vivo del refactor** (nessuno visibile leggendo il
+codice, tutti emersi solo testando end-to-end su "vnsys-test" - vedi anche la riga di changelog
+v0.9.81 in `Guida-Configurazione.html` per il dettaglio completo):
+1. `ConvertFrom-Json` su un oggetto JSON vuoto (`{}`) restituisce un `PSCustomObject` la cui
+   `PSObject.Properties.Name` contiene UN elemento `$null` invece di zero - quirk PowerShell
+   riprodotto in isolamento con un test minimale, non legato al tenant. Causava "Index operation
+   failed; the array index evaluated to null." quando il worker non trovava nessun comando nuovo
+   da proxare. Corretto filtrando i nomi vuoti/nulli in `Complete-M365OpsIsolatedModuleConnect.ps1`.
+2. Causa di quel caso-limite, molto piu' seria: il worker calcolava i comandi da proxare con un
+   diff prima/dopo su `Get-Command -CommandType Function, Cmdlet` SENZA `-Module` - corretto per
+   Exchange (cmdlet generati dinamicamente via implicit remoting, mai pre-catalogabili) ma
+   **SEMPRE a zero per Teams**: verificato dal vivo che `'Get-Team' -in (Get-Command -CommandType
+   Function,Cmdlet).Name` e' gia' vero in un `pwsh -NoProfile` completamente pulito, PRIMA di
+   qualunque `Import-Module` (PowerShell cataloga i nomi di un modulo staticamente dichiarato
+   scansionando `$env:PSModulePath`, senza doverlo importare davvero). Senza fix, l'isolamento
+   Teams "riusciva" (log di successo) ma installava ZERO proxy - ogni cmdlet Teams successivo
+   sarebbe fallito silenziosamente con "term not recognized", un fallimento molto piu' subdolo
+   del crash che ha permesso di scoprirlo. Corretto in `M365OpsIsolatedWorker.ps1` includendo
+   anche i comandi il cui `ModuleName` corrisponde davvero al modulo appena connesso, in OR col
+   diff esistente (innocuo per Exchange). Verificato dal vivo: 561 cmdlet Teams proxati
+   correttamente dopo il fix, `Get-Team` via proxy restituisce le 15 righe reali del tenant.
+3. Trovato SOLO testando il percorso ASINCRONO end-to-end (mai capitato sul percorso sincrono/
+   reattivo esistente): dopo un login asincrono riuscito, `Get-M365OpsTeamsList` falliva con
+   "Errore MCP: ...Dictionary con chiavi non-stringa non supportato per la serializzazione".
+   Causa: `Connect-M365OpsTeams.ps1` salta il proprio corpo solo se `$script:M365OpsTeamsConnected`
+   e' gia' vero - flag impostato SOLO dal corpo normale di quella funzione, mai dal nuovo percorso
+   asincrono (che puo' rendere l'isolamento attivo senza mai passarci). Risultato: una chiamata
+   successiva a `Connect-M365OpsTeams` provava a "riconnettersi" chiamando `Connect-MicrosoftTeams`
+   per nome - ma quel nome e' ormai una funzione PROXY globale (installata per ogni comando nuovo
+   del modulo, `Connect-MicrosoftTeams` compreso), quindi la chiamata veniva inoltrata al worker
+   come un'esecuzione qualsiasi: il worker eseguiva davvero un secondo connect ridondante e
+   crashava provando a serializzarne il risultato (oggetto Account/Environment/Tenant/TenantId
+   con un Dictionary interno a chiavi non-stringa). Corretto impostando il flag direttamente in
+   `Complete-M365OpsIsolatedModuleConnect.ps1` (il punto unico raggiunto da ENTRAMBI i percorsi),
+   invece che nei soli corpi di `Connect-M365OpsTeams`/`Connect-M365OpsExchange`. Verificato dal
+   vivo end-to-end: login asincrono completo su "vnsys-test", poi `Get-M365OpsTeamsList` subito
+   dopo restituisce le 15 righe reali senza errori, `$script:M365OpsTeamsConnected` correttamente
+   `$true`.
+
+**Spedito in v0.9.81**, sintassi verificata su tutti i 386 file `.ps1` + tag HTML bilanciati
+(`Gui/index.html` e `Guida-Configurazione.html`, tecnica Node.js gia' in uso) prima del commit.
+
+**Scope deliberatamente limitato**: solo Teams Delegato in questo giro (il caso segnalato dal
+vivo dall'utente, e il piu' proficuo da convertire). SharePoint/Purview/Intune/CLI365-delegato
+**restano bloccanti** - trasparente con l'utente su questo, non un'omissione nascosta. Estenderli
+con lo stesso schema resta un lavoro futuro se richiesto.
+
+**Non ancora verificato dal vivo con un vero utente umano**: questo giro ha testato SOLO il
+percorso App-only (nessun login umano necessario, tutto scriptabile). Il popup Delegato vero
+(Teams Delegato, con MFA reale) resta non testabile dal mio ambiente sandboxato - stesso limite
+gia' documentato per l'isolamento reattivo Delegato in generale (vedi open item in cima al file).
+Da verificare quando l'utente prova di persona il nuovo pulsante "Connetti Teams" su un tenant
+Delegato.
