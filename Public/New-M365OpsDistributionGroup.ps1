@@ -20,9 +20,33 @@ function New-M365OpsDistributionGroup {
     foreach ($key in $ExtraParams.Keys) { $params[$key] = $ExtraParams[$key] }
 
     $dl = New-DistributionGroup @params
+
+    # Bug reale trovato dal vivo il 23/08/2026 (bug-hunt di 16 ore): un membro non valido
+    # (typo nell'indirizzo, utente non ancora sincronizzato, ecc.) faceva fallire
+    # Add-DistributionGroupMember con -ErrorAction Stop SENZA che questa funzione catturasse
+    # l'eccezione - il gruppo era GIA' stato creato con successo da New-DistributionGroup
+    # sopra, ma l'eccezione si propagava fino al chiamante (Execute-PendingAction in
+    # Gui\Server.ps1), che riportava "la scrittura NON e' andata a buon fine" - falso: il
+    # gruppo esisteva davvero sul tenant, solo con alcuni membri iniziali mancanti. Un secondo
+    # tentativo di creazione poi falliva con "esiste gia'", confondendo ulteriormente l'utente
+    # sullo stato reale. Ora ogni membro viene aggiunto individualmente con il proprio
+    # try/catch: il gruppo conta sempre come creato con successo (e' un fatto gia' avvenuto),
+    # ed eventuali membri non aggiunti vengono elencati esplicitamente nel risultato invece di
+    # far sparire l'intera operazione dietro un'eccezione fuorviante.
+    $failedMembers = [System.Collections.Generic.List[string]]::new()
     foreach ($m in $Members) {
-        Add-DistributionGroupMember -Identity $dl.Identity -Member $m -Confirm:$false -ErrorAction Stop
+        try {
+            Add-DistributionGroupMember -Identity $dl.Identity -Member $m -Confirm:$false -ErrorAction Stop
+        } catch {
+            $failedMembers.Add("$m ($($_.Exception.Message))")
+        }
     }
-    Write-Host "Distribution list creata: $($dl.DisplayName) ($($dl.PrimarySmtpAddress))" -ForegroundColor Green
-    $dl | Select-Object DisplayName, PrimarySmtpAddress, GroupType
+    if ($failedMembers.Count -gt 0) {
+        Write-Host "Distribution list creata: $($dl.DisplayName) ($($dl.PrimarySmtpAddress)) - ATTENZIONE, alcuni membri NON sono stati aggiunti: $($failedMembers -join '; ')" -ForegroundColor Yellow
+    } else {
+        Write-Host "Distribution list creata: $($dl.DisplayName) ($($dl.PrimarySmtpAddress))" -ForegroundColor Green
+    }
+    $result = $dl | Select-Object DisplayName, PrimarySmtpAddress, GroupType
+    if ($failedMembers.Count -gt 0) { $result | Add-Member -NotePropertyName MembriNonAggiunti -NotePropertyValue @($failedMembers) }
+    $result
 }

@@ -57,6 +57,21 @@ function Connect-M365Ops {
     $script:M365OpsIntuneConnected = $false
     $script:M365OpsIntuneConnectedAs = $null
 
+    # Bug reale trovato dal vivo il 23/08/2026 (bug-hunt di 16 ore, audit statico poi
+    # verificato leggendo il codice): $script:LastReportPath (valorizzato da
+    # generate_report/generate_raw_export/generate_raw_graph_export in
+    # Invoke-M365OpsAgentTools.ps1, letto da propose_send_report_email) NON veniva mai
+    # resettato qui, a differenza di ogni altro stato per-tenant sopra - la sua descrizione
+    # verso l'AI promette esplicitamente "l'ULTIMO report generato IN QUESTA SESSIONE", ma
+    # essendo scope di MODULO (non per-tenant) il file restava raggiungibile anche dopo un
+    # cambio tenant nello stesso processo server: un report generato per il Tenant A poteva
+    # finire allegato a un'email inviata per il Tenant B, se l'operatore cambiava tenant e
+    # chiedeva "invia il report" senza rigenerarlo prima - una fuga di dati reali tra tenant,
+    # stessa gravita' della classe di bug gia' corretta piu' volte per lo stato Intune/
+    # Exchange/Teams/SharePoint qui sopra.
+    $script:LastReportPath = $null
+    $script:M365OpsLastReportWarnings = $null
+
     $script:M365OpsContext = @{
         Name                   = $TenantProfile
         TenantId               = $entry.TenantId

@@ -20,9 +20,26 @@ function New-M365OpsMailSecurityGroup {
     foreach ($key in $ExtraParams.Keys) { $params[$key] = $ExtraParams[$key] }
 
     $grp = New-DistributionGroup @params
+
+    # Stesso bug reale e stessa correzione di New-M365OpsDistributionGroup.ps1 (trovato dal
+    # vivo il 23/08/2026, bug-hunt di 16 ore) - vedi li' per il dettaglio completo: il gruppo
+    # e' gia' un fatto compiuto a questo punto, un membro non valido non deve far sparire
+    # l'intera operazione dietro un'eccezione che farebbe credere al chiamante che NULLA sia
+    # stato creato.
+    $failedMembers = [System.Collections.Generic.List[string]]::new()
     foreach ($m in $Members) {
-        Add-DistributionGroupMember -Identity $grp.Identity -Member $m -Confirm:$false -ErrorAction Stop
+        try {
+            Add-DistributionGroupMember -Identity $grp.Identity -Member $m -Confirm:$false -ErrorAction Stop
+        } catch {
+            $failedMembers.Add("$m ($($_.Exception.Message))")
+        }
     }
-    Write-Host "Mail security group creato: $($grp.DisplayName) ($($grp.PrimarySmtpAddress))" -ForegroundColor Green
-    $grp | Select-Object DisplayName, PrimarySmtpAddress, GroupType
+    if ($failedMembers.Count -gt 0) {
+        Write-Host "Mail security group creato: $($grp.DisplayName) ($($grp.PrimarySmtpAddress)) - ATTENZIONE, alcuni membri NON sono stati aggiunti: $($failedMembers -join '; ')" -ForegroundColor Yellow
+    } else {
+        Write-Host "Mail security group creato: $($grp.DisplayName) ($($grp.PrimarySmtpAddress))" -ForegroundColor Green
+    }
+    $result = $grp | Select-Object DisplayName, PrimarySmtpAddress, GroupType
+    if ($failedMembers.Count -gt 0) { $result | Add-Member -NotePropertyName MembriNonAggiunti -NotePropertyValue @($failedMembers) }
+    $result
 }

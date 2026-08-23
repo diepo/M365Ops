@@ -20,6 +20,17 @@ function Set-M365OpsAppAssignment {
     .PARAMETER TargetGroupId
         Omesso = assegna a All Devices. Valorizzato = assegna solo a quel gruppo.
 
+        ATTENZIONE (trovata dal vivo il 23/08/2026, bug-hunt): l'azione Graph "assign" usata
+        qui SOSTITUISCE SEMPRE l'intera collezione di assegnazioni dell'app, non ne aggiunge
+        una - a differenza di Set-M365OpsConfigurationPolicyAssignment/
+        Set-M365OpsEnrollmentConfigurationAssignment (che infatti accettano TargetGroupIds
+        AL PLURALE, proprio perche' "assign" sostituisce). Chiamare questa funzione una seconda
+        volta su un gruppo diverso CANCELLA silenziosamente l'assegnazione precedente invece di
+        aggiungerne una seconda - per assegnare l'app a piu' gruppi/intent, serve un'unica
+        chiamata con tutte le assegnazioni desiderate insieme (oggi non supportato da questa
+        firma a parametro singolo: verificare/estendere prima di assumere che due chiamate
+        separate funzionino come per gli altri Set-*Assignment del modulo).
+
     .PARAMETER FilterId
         Id di un Assignment Filter Intune GIA' esistente (creato altrove, non da questa
         funzione) - restringe/esclude l'assegnazione a un sottoinsieme del target in base a

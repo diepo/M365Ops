@@ -705,7 +705,24 @@ function Handle-ChatMessage {
     Write-M365OpsLog "Messaggio ricevuto: $msg"
 
     if ($script:PendingAction) {
-        if ($lower -match '^(si|sì|ok|conferma|procedi|vai|yes)\b') {
+        # Bug reale trovato dal vivo il 23/08/2026 (bug-hunt di 16 ore) - SICUREZZA, non
+        # cosmetico: il vecchio controllo era '^(si|...)\b', ancorato SOLO all'inizio della
+        # stringa, quindi un normalissimo "si" italiano come pronome impersonale/riflessivo
+        # ("si può fare anche per l'account di backup?", "si dovrebbe controllare anche...")
+        # veniva interpretato come CONFERMA ed eseguiva alla cieca l'azione in sospeso (reset
+        # MFA, creazione gruppo, scrittura Graph/Exchange/Teams qualsiasi) invece di far
+        # passare la vera domanda dell'utente. Stesso rischio con "ok"/"vai" dentro una frase
+        # normale ("ok ma prima dimmi...", "vai al tab tenant prima"). Ora si conferma SOLO se
+        # OGNI parola del messaggio (ripulito da punteggiatura finale) e' una parola di conferma
+        # nota - una singola parola estranea (qualunque parte di una domanda/frase vera) blocca
+        # il match e fa cadere il messaggio nel ramo "else" sotto, che chiede di nuovo si/no
+        # esplicitamente invece di agire su un'ipotesi rischiosa.
+        $confirmWords = @('si', 'sì', 'ok', 'okay', 'conferma', 'confermo', 'procedi', 'esegui', 'fai', 'pure', 'vai', 'dai', 'yes')
+        $cancelWords  = @('no', 'annulla', 'stop', 'grazie')
+        $cleanedWords = ($lower -replace '[!.,;:?]+$', '').Trim() -split '\s+' | Where-Object { $_ }
+        $isConfirm = $cleanedWords.Count -gt 0 -and -not ($cleanedWords | Where-Object { $_ -notin $confirmWords })
+        $isCancel  = $cleanedWords.Count -gt 0 -and -not ($cleanedWords | Where-Object { $_ -notin $cancelWords })
+        if ($isConfirm) {
             $action = $script:PendingAction
             $script:PendingAction = $null
             if ($action.Type -eq 'Queue') { return (Execute-PendingQueue $action.Queue) }
@@ -720,7 +737,7 @@ function Handle-ChatMessage {
             }
             return (Execute-PendingAction $action)
         }
-        elseif ($lower -match '^(no|annulla|stop|no grazie)\b') {
+        elseif ($isCancel) {
             $script:PendingAction = $null
             return @{ role = 'system'; text = "Operazione annullata." }
         }
@@ -791,10 +808,29 @@ function Handle-ChatMessage {
     # assegnalo") e' passata con $hasPackageIntent=false, saltando in silenzio il passo di
     # pacchettizzazione e fallendo poi in modo confuso all'assegnazione ("nessuna app
     # disponibile"). 'pacchet{1,2}izz'/'impacchet{1,2}' tollerano ora entrambe le grafie.
-    $hasPackageIntent = $lower -match 'pacchet{1,2}izz|impacchet{1,2}|crea (l.)?app\b|carica app'
+    # (?!at[ao]) esclude il participio passato "pacchett(i)zzato/a" (23/08/2026, bug reale
+    # trovato dal vivo, bug-hunt di 16 ore): "Ho pacchettizzato l'app ma non riesco a farla
+    # girare nel gruppo di test, puoi aiutarmi?" e' una domanda di supporto su un'azione GIA'
+    # fatta, non una nuova richiesta - prima di questo fix veniva comunque interpretata come
+    # "pacchettizza di nuovo" perche' la radice 'pacchett(i)zz' matcha qualunque coniugazione,
+    # incluso il participio passato. L'imperativo/presente ("pacchettizza"/"pacchetizzalo"/
+    # "pacchettizzando") continua a matchare regolarmente (la lookahead nega solo "at"+a/o
+    # subito dopo la radice, non "a" da sola).
+    $hasPackageIntent = $lower -match 'pacchet{1,2}izz(?!at[ao])|impacchet{1,2}(?!at[ao])|crea (l.)?app\b|carica app'
     # "grupp" senza richiedere la 'o' finale: tollera refusi tipo "grupp odi test" (visto
     # in un test reale) dove uno spazio di troppo/mancante rompe la parola "gruppo".
     $hasGroupIntent = $lower -match 'crea.{0,20}grupp|grupp.{0,10}test'
+    # Guardia comune anti-troubleshooting (23/08/2026, stesso bug-hunt, stesso esempio reale
+    # sopra): "gruppo di test" dentro una domanda di supporto ("...non riesco a farla girare
+    # nel gruppo di test, puoi aiutarmi?") faceva scattare ANCHE $hasGroupIntent (prossimita'
+    # "grupp"+"test"), portando $intentCount a 2 e proponendo una sequenza di scritture
+    # (ripacchettizzazione + nuovo gruppo) mai richiesta - l'utente voleva solo un aiuto per
+    # un problema. Stesso principio gia' in uso per $hasAssignIntent qui sotto (esclusione
+    # esplicita se il messaggio contiene segnali di un contesto diverso): un vero comando di
+    # pacchettizzazione/creazione gruppo non ha motivo di contenere anche una domanda di
+    # supporto ("aiut", "riesc", "problema", "puoi") o un punto interrogativo.
+    $looksLikeTroubleshootingQuestion = $lower -match '\b(aiut\w*|non riesc\w*|problema|puoi|perch[eé]|come mai)\b' -or $msg.TrimEnd().EndsWith('?')
+    if ($looksLikeTroubleshootingQuestion) { $hasPackageIntent = $false; $hasGroupIntent = $false }
     # "assegna" da solo prendeva anche "quali licenze ha assegnate a..." (domanda, non comando).
     # Richiede che nelle vicinanze compaia un indizio reale di assegnazione app (app/gruppo/tutti/required/available).
     # Bug reale trovato dal vivo il 18/08/2026: "grupp"/"tutti" da soli sono troppo generici -
@@ -2032,8 +2068,29 @@ try {
             }
 
             $response.ContentType = $contentType
-            $response.ContentLength64 = $responseBytes.Length
-            $response.OutputStream.Write($responseBytes, 0, $responseBytes.Length)
+            # try/catch dedicato (23/08/2026, bug reale segnalato dal vivo nei log: "Errore
+            # interno: Exception calling 'Write' with '3' argument(s): 'Bytes to be written to
+            # the stream exceed the Content-Length bytes size specified.'"): questa scrittura
+            # NON aveva una protezione propria, a differenza di quella di fallback subito sotto
+            # (commento del 18/08/2026 li' sotto, stesso principio) - se il client si disconnette
+            # (tab chiusa, timeout del browser, fetch abortito) esattamente durante l'invio del
+            # corpo della risposta, HttpListenerResponse puo' rifiutare il resto della scrittura
+            # con questo identico messaggio fuorviante (parla di "Content-Length" ma la causa
+            # reale e' il client sparito a meta', non un bug di conteggio byte: $responseBytes.Length
+            # e' sempre coerente, costruito una riga sopra dallo stesso valore). Senza questo
+            # try/catch, l'eccezione risaliva al blocco catch generico sotto, che poi tentava
+            # un SECONDO Write (la risposta d'errore) sullo stesso stream gia' compromesso -
+            # quel secondo tentativo falliva a sua volta con lo stesso identico errore criptico,
+            # loggato come "Errore interno" allarmante anche se si tratta solo di un client gia'
+            # andato via, mai un vero problema del server. Ora classificato correttamente: loggato
+            # come nota informativa (Info, non Error) e la richiesta finisce qui, senza secondo
+            # tentativo di scrittura ne' comparsa nel log come errore.
+            try {
+                $response.ContentLength64 = $responseBytes.Length
+                $response.OutputStream.Write($responseBytes, 0, $responseBytes.Length)
+            } catch {
+                Write-M365OpsLog "Risposta non completata (client disconnesso durante l'invio, es. tab chiusa o fetch interrotto) - non e' un errore del server: $($_.Exception.Message)"
+            }
         }
         catch {
             $errText = "Errore interno: $($_.Exception.Message)"

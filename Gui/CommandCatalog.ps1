@@ -408,7 +408,18 @@ function Get-M365OpsCommandCatalog {
             # richiesta ("e poi...") spariva silenziosamente, mai eseguita da nessuno. Le parole
             # di continuazione fanno ora passare l'intero messaggio all'AI, che gestisce
             # correttamente richieste composte in un solo ragionamento.
-            DeferWords   = @('report', 'tutti', 'tenant', 'conditional', 'access', 'zone', 'policy', 'criteri', 'e poi', 'e anche', 'quindi')
+            # Terzo bug reale, stesso schema, trovato dal vivo il 23/08/2026 durante lo stress
+            # test di 16 ore: "resetta l'mfa di X, si e' bloccato il telefono" veniva
+            # intercettato QUI (il trigger 'mfa\s+(di|per)' matcha anche "l'mfa di X") e
+            # rispondeva SOLO con lo stato MFA attuale (Get-M365OpsUserMfaStatus, sola lettura),
+            # ignorando silenziosamente il verbo "resetta" - l'utente non otteneva ne' un reset
+            # ne' un errore ne' una richiesta di chiarimento, solo una risposta che sembrava
+            # pertinente ma non faceva quello che aveva chiesto (l'unico modo reale per proporre
+            # un reset e' propose_mfa_reset, uno strumento AI - questo catalogo lo bypassa del
+            # tutto per costruzione, RequiresAI = $false). Stesso principio delle due voci sopra:
+            # un segnale di intento diverso (qui, un verbo di reset/rimozione) fa passare
+            # l'intero messaggio all'AI invece di eseguire alla cieca la sola lettura.
+            DeferWords   = @('report', 'tutti', 'tenant', 'conditional', 'access', 'zone', 'policy', 'criteri', 'e poi', 'e anche', 'quindi', 'reset\w*', 'rimuov\w*', 'cancell\w*', 'elimin\w*', 'disattiv\w*', 'sblocc\w*')
             CaptureRegex = '([\w\.\-]+@[\w\-]+(?:\.[\w\-]+)+)'
             RequiresAI   = $false
             Handler      = {
@@ -439,7 +450,21 @@ function Get-M365OpsCommandCatalog {
             # send sono configurati"), fallendo con "nessun gruppo trovato" invece di rispondere
             # a nessuna delle due richieste reali.
             DeferWords   = @('e poi', 'e anche', 'quindi')
-            CaptureRegex = 'gruppo\s+(.+)$'
+            # Secondo bug reale, stesso schema, trovato dal vivo il 23/08/2026 (bug-hunt di 16
+            # ore): DeferWords sopra intercetta solo le tre frasi di continuazione LETTERALI
+            # ("e poi"/"e anche"/"quindi") - una richiesta altrettanto naturale ma diversamente
+            # formulata ("panoramica gruppo IT-Support, elenca anche i membri" o "panoramica
+            # gruppo Marketing e dimmi chi ne fa parte") non le contiene, quindi non scatta il
+            # defer, e il vecchio CaptureRegex greedy fino a fine stringa ('gruppo\s+(.+)$')
+            # catturava l'INTERA coda come se fosse il nome del gruppo (es. "IT-Support, elenca
+            # anche i membri") - Get-M365OpsGroupOverview cerca con un filtro Graph ESATTO su
+            # quel nome, quindi falliva sempre con "nessun gruppo trovato" invece di rispondere
+            # alla panoramica vera e propria (che avrebbe comunque incluso i membri richiesti).
+            # Corretto rendendo la cattura NON greedy e fermandola al primo segnale di frase
+            # successiva (virgola, o " e " seguito da un verbo di continuazione comune) invece
+            # di continuare fino alla fine - un nome di gruppo reale non contiene mai questi
+            # pattern, quindi non c'e' rischio di troncare un nome legittimo.
+            CaptureRegex = 'gruppo\s+(.+?)(?:\s*,|\s+e\s+(?:dimmi|elenca|mostra|dammi|chi|poi|anche)\b|\s*$)'
             RequiresAI   = $false
             Handler      = {
                 param($name)
