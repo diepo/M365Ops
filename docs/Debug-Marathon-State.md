@@ -527,3 +527,18 @@ percorso App-only (nessun login umano necessario, tutto scriptabile). Il popup D
 gia' documentato per l'isolamento reattivo Delegato in generale (vedi open item in cima al file).
 Da verificare quando l'utente prova di persona il nuovo pulsante "Connetti Teams" su un tenant
 Delegato.
+
+Marathon Report (artifact) aggiornato in parallelo con una nuova sezione 12 dedicata a questo
+lavoro - vedi `https://claude.ai/code/artifact/201ca6a9-4334-492c-af59-b6e5c5118be2`.
+
+## Agente 9 (in corso): comandi reali CLI Microsoft 365 mai testati oltre il login
+
+**Agente "Test CLI Microsoft 365 comandi reali"** (general-purpose, background, sola lettura sul
+tenant - nessuna scrittura in questo giro) — AVVIATO 23/08/2026, ~20:20. Compito: verificare dal
+vivo, con comandi reali (`spo`/`entra`/`outlook`/`planner`/`purview`) attraverso lo stesso
+percorso che userebbe l'AI in chat (mai `m365` CLI grezzo bypassando il modulo), se il connettore
+CLI Microsoft 365 - reso di default per ogni tenant e col login riparato in v0.9.67, ma mai
+verificato con dati reali oltre il login stesso - funziona davvero end-to-end. Area segnalata
+"mai toccata, priorita' alta" nella sezione corrispondente sopra. Su "vnsys-test" (AppOnly,
+nessuna interazione umana necessaria). Esito non ancora noto al momento di questa dichiarazione -
+sara' integrato in questo file al completamento.
