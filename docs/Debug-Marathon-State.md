@@ -634,8 +634,26 @@ possibile" - entrambi in sola lettura sul codice, con eventuali test di scrittur
 ## Agente 12 (in corso): autoreview del blocco v0.9.81→v0.9.84
 
 **Agente "Regression review v0.9.81-v0.9.84"** (general-purpose, background, `git diff
-462213f..45166a6`) — AVVIATO 23/08/2026, ~21:50, per rispettare la regola 3 (autoreview
-dedicato dopo un blocco di fix, mai fatto su questo batch specifico). Compito: SOLO regressioni
-introdotte dai fix di questo blocco (login Teams asincrono + 3 bug, fix installazione CLI365 su
-PS 5.1, 2 bug Scripts\Custom, guard scritture Entra→CLI365) - non nuovi bug indipendenti, quello
-resta compito di altri agenti. Esito non ancora noto al momento di questa dichiarazione.
+462213f..45166a6`) — AVVIATO 23/08/2026, ~21:50. **INTERROTTO, NON COMPLETATO**: fallito per
+limite di utilizzo della sessione ("hit your session limit", reset 23:40 Europe/Rome), non per un
+problema nel suo lavoro - si era fermato ancora in fase di lettura del diff, prima di produrre
+qualunque modifica (verificato: `git status` pulito, nessuna modifica parziale lasciata a meta').
+**Task ancora da rifare in una maratona futura**: autoreview dedicato del blocco v0.9.81→v0.9.84
+(login Teams asincrono + 3 bug, fix installazione CLI365 su PS 5.1, 2 bug Scripts\Custom, guard
+scritture Entra→CLI365) - `git diff 462213f..45166a6` (o l'equivalente range completo se altri
+commit si aggiungono prima del prossimo giro), SOLO regressioni introdotte da questi fix
+specifici, non nuovi bug indipendenti.
+
+## Chiusura di questa fase della maratona (23-24/08/2026)
+
+Iniziata 23/08/2026 12:42, ampiamente oltre il minimo di 4 ore richiesto. In questa fase (dopo la
+sezione 11 del report): login Teams Delegato reso non bloccante (3 bug reali trovati e corretti,
+v0.9.81), primo test dal vivo di CLI Microsoft 365 con comandi reali - Entra/Purview confermati
+funzionanti, 1 bug reale corretto sull'installazione su PowerShell 5.1 (v0.9.82), primo
+stress-test di Scripts\Custom - 2 bug reali corretti (v0.9.83), chiuso l'item prioritario sul
+fallback scritture Entra→CLI365 con un guard deterministico verificato dal vivo (v0.9.84).
+L'unico task lasciato esplicitamente a meta' e' l'autoreview dedicato del blocco appena spedito
+(agente 12 sopra) - da rifare per primo alla prossima ripresa, prima di aprire nuove aree.
+Nessun nuovo residuo di test lasciato sul tenant in questa fase (tutti i cicli crea/elimina
+verificati con query indipendenti). Report narrativo aggiornato in parallelo ad ogni chiusura:
+`https://claude.ai/code/artifact/201ca6a9-4334-492c-af59-b6e5c5118be2`.
