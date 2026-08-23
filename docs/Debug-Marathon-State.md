@@ -630,3 +630,12 @@ possibile" - entrambi in sola lettura sul codice, con eventuali test di scrittur
    validazione/errore, eliminati e pulizia verificata con una reimportazione pulita del modulo.
    **Verdetto**: la feature funziona come documentato end-to-end, modulo i due bug sopra ora
    corretti.
+
+## Agente 12 (in corso): autoreview del blocco v0.9.81→v0.9.84
+
+**Agente "Regression review v0.9.81-v0.9.84"** (general-purpose, background, `git diff
+462213f..45166a6`) — AVVIATO 23/08/2026, ~21:50, per rispettare la regola 3 (autoreview
+dedicato dopo un blocco di fix, mai fatto su questo batch specifico). Compito: SOLO regressioni
+introdotte dai fix di questo blocco (login Teams asincrono + 3 bug, fix installazione CLI365 su
+PS 5.1, 2 bug Scripts\Custom, guard scritture Entra→CLI365) - non nuovi bug indipendenti, quello
+resta compito di altri agenti. Esito non ancora noto al momento di questa dichiarazione.
