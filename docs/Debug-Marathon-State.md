@@ -247,6 +247,11 @@ dettaglio di cosa hanno trovato)*
    - Nessun limite di permesso/licenza ha bloccato nulla in questo giro (il permesso Teams
      Admin API risulta gia' concesso), nessun conflitto .NET Teams/Exchange incontrato (script
      fresco, coerente con quanto gia' documentato sopra sull'open item).
+7. **Agente "Test scrittura Exchange/SharePoint/Teams + pulizia"** (general-purpose, background,
+   test dal vivo via pwsh diretto su "vnsys-test", nessun browser) — IN CORSO. Copre l'ultima
+   area di scrittura rimasta scoperta (Intune gia' fatto dall'agente 5). SharePoint trattato con
+   piu' cautela (solo oggetti creati e distrutti dall'agente stesso, mai permessi su siti reali
+   esistenti). Stessa disciplina `ZZTEST-marathon-*` + verifica finale di pulizia obbligatoria.
 
 ## Test dal vivo (io stesso, GUI su vnsys-test) durante l'attesa degli agenti
 
