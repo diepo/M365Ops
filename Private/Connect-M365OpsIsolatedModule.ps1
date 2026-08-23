@@ -33,15 +33,20 @@ function Connect-M365OpsIsolatedModule {
         che usa un solo modulo per tutta la sessione non paga mai il costo di un secondo
         processo: l'isolamento non scatta mai per lui.
 
-        SOLO APP-ONLY per ora (limite dichiarato esplicitamente): l'autenticazione a
-        certificato funziona transparentemente tra processi (il certificato vive nel
-        certificate store dell'utente Windows, non nella memoria di un processo specifico -
-        lo stesso identico certificato e' quindi accessibile anche dal processo worker). Un
-        tenant Delegato usa invece un access token ottenuto una tantum via device-code
-        (Complete-M365OpsExchangeDelegatedLogin.ps1) che oggi non viene mai messo in cache da
-        nessuna parte per essere riusato altrove - isolarlo richiederebbe rifare un login
-        interattivo dedicato al worker, non ancora implementato in questo giro (i chiamanti
-        continuano a mostrare il messaggio "riavvia il server" gia' esistente per questo caso).
+        App-only: l'autenticazione a certificato funziona transparentemente tra processi (il
+        certificato vive nel certificate store dell'utente Windows, non nella memoria di un
+        processo specifico - lo stesso identico certificato e' quindi accessibile anche dal
+        processo worker).
+
+        Delegato (27/08/2026, richiesto con massima priorita' dal vivo: conflitto reale
+        Teams+Exchange poi Purview su un tenant Delegato - prima di questa data l'isolamento
+        era disponibile solo per App-only): un token/sessione del processo principale non
+        attraversa mai il confine di processo, quindi il worker rifa' un login interattivo
+        TUTTO SUO (popup browser/WAM per Exchange+Purview+Teams, MAI device-code - vedi
+        Get-M365OpsIsolatedConnectParams.ps1 .NOTES per il perche') la prima volta che serve
+        per quel tenant in questo processo server - costo pagato una tantum per la vita del
+        worker, non ripetuto per ogni comando successivo (stesso principio "paga una volta,
+        poi silenzioso" gia' vero per l'isolamento App-only).
     .PARAMETER ModuleType
         'Exchange' o 'Teams'.
     .PARAMETER ConnectParams
@@ -92,12 +97,18 @@ function Connect-M365OpsIsolatedModule {
     $script:M365OpsMcpRequestId = if ($script:M365OpsMcpRequestId) { $script:M365OpsMcpRequestId } else { 0 }
 
     try {
-        # TimeoutSeconds 60 (26/08/2026, non il default 30): il worker puo' impiegare piu'
-        # tempo del solito qui - Connect-ExchangeOnline + Connect-IPPSSession (App-only,
-        # entrambi tentati per il modulo Exchange) PIU' l'attesa di stabilizzazione
+        # TimeoutSeconds: 60 di base (26/08/2026, non il default 30) - il worker puo'
+        # impiegare piu' tempo del solito qui - Connect-ExchangeOnline + Connect-IPPSSession
+        # (entrambi tentati per il modulo Exchange) PIU' l'attesa di stabilizzazione
         # dell'elenco comandi (verificato dal vivo che ExchangeOnlineManagement lo popola in
-        # background dopo che Connect-ExchangeOnline e' gia' tornato, non subito).
-        $connectResult = Invoke-M365OpsMcpRequest -Process $process -Method "connect" -Params $ConnectParams -TimeoutSeconds 60
+        # background dopo che Connect-ExchangeOnline e' gia' tornato, non subito). Su un
+        # tenant Delegato (27/08/2026) sale a 240s: il worker apre un popup browser/WAM che
+        # richiede un'azione umana (login/consenso), non un'attesa di solo calcolo - 60s
+        # sarebbero quasi sempre troppo pochi e farebbero fallire un login che l'utente sta
+        # ancora completando, uccidendo il processo worker proprio mentre il popup e' aperto.
+        $isDelegatedIsolation = $script:M365OpsContext.AuthMode -eq 'Delegated'
+        $connectTimeout = if ($isDelegatedIsolation) { 240 } else { 60 }
+        $connectResult = Invoke-M365OpsMcpRequest -Process $process -Method "connect" -Params $ConnectParams -TimeoutSeconds $connectTimeout
     }
     catch {
         if (-not $process.HasExited) { $process.Kill() }

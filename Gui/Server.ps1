@@ -304,6 +304,29 @@ function Get-M365OpsTenantList {
     return $list
 }
 
+function Complete-M365OpsWriteResponse {
+    <#
+        Helper condiviso (27/08/2026, richiesto esplicitamente dall'utente: "scrivi anche il
+        comando ps che sta per lanciare... l'importante che si sappia"): dato il risultato
+        gia' pronto di una scrittura riuscita, (1) logga l'evento nel log scritture separato
+        (Write-M365OpsWriteLog, Logs\writes-YYYYMMDD.log) e (2) aggiunge in coda al testo
+        mostrato in chat un trailer "_Fonte: ... Comando eseguito: ..._" - stesso principio
+        gia' in uso per "Fonte dati" nelle risposte dell'AI (Invoke-M365OpsAgentTools.ps1),
+        ma qui per il turno di ESECUZIONE deterministica (dopo "si"), che prima non lo aveva
+        mai (Execute-PendingAction non passa mai dall'AI, quindi quel meccanismo non
+        scattava). Un helper unico invece di ripetere le stesse 3 righe in ogni case sotto.
+    #>
+    param(
+        [Parameter(Mandatory)] [string]$Type,
+        [Parameter(Mandatory)] [string]$BaseText,
+        [Parameter(Mandatory)] [string]$CommandText
+    )
+    $isDelegated = (Get-M365OpsActiveTenantInfo).AuthMode -eq 'Delegated'
+    $source = Get-M365OpsWriteActionSourceLabel -Type $Type -IsDelegatedTenant $isDelegated
+    Write-M365OpsWriteLog -Source $source -Command $CommandText -Outcome 'OK'
+    @{ role = 'system'; text = "$BaseText`n`n_Fonte: $source. Comando eseguito: $CommandText._" }
+}
+
 function Execute-PendingAction {
     param($action)
     Write-M365OpsLog "Esecuzione azione confermata: Type=$($action.Type) Cmdlet=$($action.Cmdlet)"
@@ -319,7 +342,7 @@ function Execute-PendingAction {
                 # come successo con un avviso, non trattato come un errore totale che
                 # innescherebbe un retry e un secondo gruppo duplicato.
                 $memberNote = if ($group.MemberErrors) { "`nAttenzione: alcuni membri non sono stati aggiunti - " + ($group.MemberErrors -join '; ') } else { "" }
-                return @{ role = 'system'; text = "Fatto. Gruppo creato: $($group.displayName) ($($group.id))$memberNote" }
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto. Gruppo creato: $($group.displayName) ($($group.id))$memberNote" -CommandText (Format-M365OpsCommandLine -Cmdlet 'New-M365OpsGroup' -Parameters $params)
             }
             'PackageApp' {
                 $uninstallCmd = if ($action.UninstallCmd) { $action.UninstallCmd } else { "REM disinstallazione da definire manualmente" }
@@ -358,7 +381,7 @@ function Execute-PendingAction {
                 $app = New-M365OpsWin32App @packageParams
                 $script:LastAppId = $app.id
                 $iconNote = if ($packageParams.IconPath) { " Icona applicata." } else { " Nessuna icona caricata (ne uso una generica di default)." }
-                return @{ role = 'system'; text = "Fatto, NON assegnata. App creata: $($app.displayName) ($($app.id)).$iconNote" }
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto, NON assegnata. App creata: $($app.displayName) ($($app.id)).$iconNote" -CommandText (Format-M365OpsCommandLine -Cmdlet 'New-M365OpsWin32App' -Parameters $packageParams)
             }
             'AssignApp' {
                 # AppId/GroupId possono arrivare gia' valorizzati (flusso singolo) oppure
@@ -379,7 +402,7 @@ function Execute-PendingAction {
                 }
                 Set-M365OpsAppAssignment @params
                 $scope = if ($groupId) { "il gruppo" } else { "tutti i dispositivi" }
-                return @{ role = 'system'; text = "Fatto. Assegnata come '$($action.Intent)' a $scope." }
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto. Assegnata come '$($action.Intent)' a $scope." -CommandText (Format-M365OpsCommandLine -Cmdlet 'Set-M365OpsAppAssignment' -Parameters $params)
             }
             'LokkaWrite' {
                 $writeError = $null
@@ -408,7 +431,9 @@ function Execute-PendingAction {
                 }
 
                 if (-not $writeError) {
-                    return @{ role = 'system'; text = "Fatto.`n$resultText" }
+                    $lokkaCmdText = "$($action.Method.ToUpper()) $($action.Path)"
+                    if ($action.Body) { $lokkaCmdText += " " + ($action.Body | ConvertTo-Json -Depth 6 -Compress) }
+                    return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto.`n$resultText" -CommandText $lokkaCmdText
                 }
 
                 # Bug reale corretto il 17/08/2026 (Lokka non lanciava eccezione su errore Graph
@@ -448,7 +473,7 @@ function Execute-PendingAction {
                 }
 
                 if (-not $writeError) {
-                    return @{ role = 'system'; text = "Fatto.`n$resultText" }
+                    return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto.`n$resultText" -CommandText "m365 $($action.Command)"
                 }
                 return @{ role = 'error'; text = "Il comando CLI Microsoft 365 NON e' andato a buon fine.`n$writeError" }
             }
@@ -463,21 +488,21 @@ function Execute-PendingAction {
                 # Vedi quel file per il dettaglio completo del bug e del retry.
                 $exoResult = Invoke-M365OpsWriteWithIsolationRecovery -ModuleType 'Exchange' -Action { & $cmdletName @params }
                 $resultText = ($exoResult | ConvertTo-Json -Depth 6 -Compress)
-                return @{ role = 'system'; text = "Fatto.`n$resultText" }
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto.`n$resultText" -CommandText (Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $params)
             }
             'CustomWrite' {
                 $params = @{}
                 if ($action.Parameters) { $action.Parameters.GetEnumerator() | ForEach-Object { $params[$_.Key] = $_.Value } }
                 $customResult = & $action.Cmdlet @params
                 $resultText = ($customResult | ConvertTo-Json -Depth 6 -Compress)
-                return @{ role = 'system'; text = "Fatto.`n$resultText" }
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto.`n$resultText" -CommandText (Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $params)
             }
             'SharePointWrite' {
                 $params = @{}
                 if ($action.Parameters) { $action.Parameters.GetEnumerator() | ForEach-Object { $params[$_.Key] = $_.Value } }
                 $spResult = & $action.Cmdlet @params
                 $resultText = ($spResult | ConvertTo-Json -Depth 6 -Compress)
-                return @{ role = 'system'; text = "Fatto.`n$resultText" }
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto.`n$resultText" -CommandText (Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $params)
             }
             'TeamsWrite' {
                 $params = @{}
@@ -491,14 +516,14 @@ function Execute-PendingAction {
                 # solo durante. Vedi quel file per il dettaglio completo del bug e del retry.
                 $teamsResult = Invoke-M365OpsWriteWithIsolationRecovery -ModuleType 'Teams' -Action { & $cmdletName @params }
                 $resultText = ($teamsResult | ConvertTo-Json -Depth 6 -Compress)
-                return @{ role = 'system'; text = "Fatto.`n$resultText" }
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto.`n$resultText" -CommandText (Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $params)
             }
             'IntuneWrite' {
                 $params = @{}
                 if ($action.Parameters) { $action.Parameters.GetEnumerator() | ForEach-Object { $params[$_.Key] = $_.Value } }
                 $intuneResult = & $action.Cmdlet @params
                 $resultText = ($intuneResult | ConvertTo-Json -Depth 6 -Compress)
-                return @{ role = 'system'; text = "Fatto.`n$resultText" }
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto.`n$resultText" -CommandText (Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $params)
             }
             'MfaReset' {
                 $mfaResult = Reset-M365OpsUserMfa -Upn $action.Upn
@@ -506,14 +531,14 @@ function Execute-PendingAction {
                     $failText = "`nAlcuni metodi NON sono stati rimossi: $($mfaResult.Failed -join '; ')"
                 } else { $failText = "" }
                 $removedText = if ($mfaResult.Removed.Count -gt 0) { $mfaResult.Removed -join ', ' } else { "(nessun metodo MFA era registrato)" }
-                return @{ role = 'system'; text = "Fatto. Metodi MFA rimossi per $($action.Upn): $removedText$failText" }
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto. Metodi MFA rimossi per $($action.Upn): $removedText$failText" -CommandText (Format-M365OpsCommandLine -Cmdlet 'Reset-M365OpsUserMfa' -Parameters @{ Upn = $action.Upn })
             }
             'SendReportEmail' {
                 if (-not $action.AttachmentPath -or -not (Test-Path $action.AttachmentPath)) {
                     return @{ role = 'error'; text = "Il file del report non e' piu' presente su disco - genera di nuovo il report e riprova." }
                 }
                 $emailResult = Send-M365OpsReportEmail -To $action.To -AttachmentPath $action.AttachmentPath -Subject $action.Subject -Body $action.Body
-                return @{ role = 'system'; text = "Fatto. $emailResult" }
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto. $emailResult" -CommandText (Format-M365OpsCommandLine -Cmdlet 'Send-M365OpsReportEmail' -Parameters @{ To = $action.To; Subject = $action.Subject; AttachmentPath = (Split-Path -Leaf $action.AttachmentPath) })
             }
             'RestartServer' {
                 # Confermato dall'utente in risposta al suggerimento automatico sotto (catch
@@ -550,6 +575,23 @@ function Execute-PendingAction {
     catch {
         $errorMessage = $_.Exception.Message
         Write-M365OpsLog "Azione fallita: Type=$($action.Type) Errore=$errorMessage" -Level Error
+
+        # Log scritture separato (27/08/2026, richiesto esplicitamente dall'utente) - punto
+        # centrale unico per TUTTI i fallimenti di scrittura, qualunque Type, invece di
+        # duplicare la stessa chiamata in ogni singolo case sopra. La rappresentazione del
+        # comando varia per famiglia: Cmdlet+Parametri per i case Exchange/Teams/SharePoint/
+        # Intune/CustomWrite, Metodo+Percorso per LokkaWrite, "m365 ..." per CliM365Write -
+        # per gli altri (CreateGroup/PackageApp/AssignApp/MfaReset/ecc.) usa il Type stesso
+        # come descrizione, meglio di niente quando non esiste un singolo cmdlet nativo 1:1.
+        try {
+            $failCmdText =
+                if ($action.Cmdlet) { Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $(if ($action.Parameters) { $action.Parameters } else { @{} }) }
+                elseif ($action.Method -and $action.Path) { "$($action.Method.ToUpper()) $($action.Path)" }
+                elseif ($action.Command) { "m365 $($action.Command)" }
+                else { $action.Type }
+            $failSource = Get-M365OpsWriteActionSourceLabel -Type $action.Type -IsDelegatedTenant ((Get-M365OpsActiveTenantInfo).AuthMode -eq 'Delegated')
+            Write-M365OpsWriteLog -Source $failSource -Command $failCmdText -Outcome 'FAIL' -Detail $errorMessage
+        } catch { }
 
         # Rilevamento deterministico del conflitto di assembly .NET diagnosticato dal vivo il
         # 18/08/2026 (0x80131040, "Could not load file or assembly... manifest definition does
@@ -1051,6 +1093,30 @@ function Handle-ChatMessage {
             Write-M365OpsLog "Invoke-M365OpsAgentTools completato."
 
             if ($result.PendingWrite) {
+                # GLITCH REALE osservato dal vivo il 23/08/2026 durante uno stress test: nonostante
+                # la REGOLA CRITICA ASSOLUTA anti-fabbricazione gia' nel system prompt di
+                # Invoke-M365OpsAgentTools.ps1 (aggiunta il 19/08/2026 per un bug simile: il
+                # modello dichiarava una scrittura fatta senza MAI aver chiamato uno strumento
+                # propose_*), qui si e' visto un caso diverso ma imparentato - il modello ha
+                # chiamato per davvero propose_intune_write (PendingWrite e' infatti valorizzato,
+                # correttamente, il blocco di conferma sotto e' vero) MA nella STESSA risposta ha
+                # anche scritto un testo tipo "La creazione risulta confermata ed eseguita
+                # correttamente... e' stato creato con ID <GUID INVENTATO>" - un ID che l'esecuzione
+                # reale (confermata subito dopo dal vivo) ha smentito con un ID diverso. La regola
+                # nel prompt riduce ma non elimina il rischio (i modelli possono comunque violare
+                # un'istruzione testuale), e riscrivere/tagliare la prosa libera del modello qui
+                # sarebbe troppo fragile (italiano libero, nessuna struttura da fare pattern-match
+                # affidabile) - invece, quando il testo sembra dichiarare un completamento gia'
+                # avvenuto PROPRIO mentre PendingWrite risulta ancora genuinamente in sospeso
+                # (quindi la frase e' per costruzione falsa, nulla e' stato eseguito), si antepone
+                # un avviso ben visibile invece di editare la frase originale, e si logga per
+                # visibilita'/telemetria.
+                $falseCompletionPattern = "(?i)(risulta\s+(confermat|eseguit)|e'?\s*stat[oa]\s+(creat|eliminat|modificat|aggiornat|rimoss)|operazione\s+completat|eseguit[oa]\s+con\s+success|ho\s+(creat|eliminat|modificat|aggiornat|rimoss)o)"
+                if ($result.Text -match $falseCompletionPattern) {
+                    Write-M365OpsLog "GLITCH rilevato: il testo del modello sembra dichiarare un'azione gia' completata (es. un ID inventato) nonostante sia stata solo proposta con propose_* e sia ancora in attesa di conferma dell'utente - avviso anteposto al testo mostrato, nulla e' stato eseguito davvero. Testo originale del modello: $($result.Text)" -Level Warn
+                    $result.Text = "_[Avviso M365Ops: la frase che segue potrebbe sembrare dire che l'azione e' gia' stata eseguita - NON lo e', e' ancora solo una PROPOSTA in attesa della tua conferma esplicita (vedi il blocco sotto). Ignora eventuali ID o esiti citati: non sono reali finche' non confermi con 'si'.]_`n`n$($result.Text)"
+                }
+
                 $w = $result.PendingWrite
                 # Indicatore "passo X di N" per un piano a piu' scritture in sequenza (es. crea
                 # utente POI assegna licenza) - l'AI valorizza StepNumber/TotalSteps solo quando
@@ -1392,6 +1458,11 @@ try {
                         if ($request.QueryString["search"]) { $searchParams.Search = $request.QueryString["search"] }
                         if ($request.QueryString["level"] -in @('Info', 'Warn', 'Error')) { $searchParams.Level = $request.QueryString["level"] }
                         if ($request.QueryString["tenant"]) { $searchParams.Tenant = $request.QueryString["tenant"] }
+                        # scope=writes (27/08/2026, richiesto esplicitamente dall'utente): stesso
+                        # endpoint, stessi filtri, ma legge Logs\writes-YYYYMMDD.log (solo azioni
+                        # di scrittura confermate) invece del log generale - vedi
+                        # Write-M365OpsWriteLog per il perche' di un file separato.
+                        if ($request.QueryString["scope"] -eq 'writes') { $searchParams.LogFilePrefix = 'writes' }
                         $entries = @(Get-M365OpsLogHistory @searchParams)
                         $json = ConvertTo-Json -InputObject $entries -Compress -Depth 3
                         if ($entries.Count -eq 0) { $json = "[]" }

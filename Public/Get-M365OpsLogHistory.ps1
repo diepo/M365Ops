@@ -12,13 +12,20 @@ function Get-M365OpsLogHistory {
     .PARAMETER Days
         Quanti giorni indietro cercare (oggi incluso). 30 di default, usa un numero piu' alto
         (es. 183 per ~6 mesi, 365 per un anno) per andare oltre.
+    .PARAMETER LogFilePrefix
+        Prefisso del nome file da cercare (27/08/2026, aggiunto per riusare questa stessa
+        funzione anche per il log scritture separato, Logs\writes-YYYYMMDD.log, invece di
+        duplicare tutta la logica di scansione/filtro qui sotto - vedi Write-M365OpsWriteLog
+        per il perche' di un file separato). Default 'm365ops' (comportamento originale,
+        invariato per ogni chiamante esistente).
     #>
     param(
         [int]$Days = 30,
         [string]$Search,
         [ValidateSet('Info', 'Warn', 'Error')] [string]$Level,
         [string]$Tenant,
-        [int]$MaxResults = 500
+        [int]$MaxResults = 500,
+        [string]$LogFilePrefix = 'm365ops'
     )
 
     $logDir = Join-Path $script:M365OpsModuleRoot 'Logs'
@@ -29,8 +36,8 @@ function Get-M365OpsLogHistory {
     # soddisfa comunque ">= soglia" - "Oggi" includeva quindi anche ieri. -Days conta i
     # giorni TOTALI da includere (oggi compreso), quindi si arretra di (Days - 1), non Days.
     $cutoff = (Get-Date).Date.AddDays(-([Math]::Max($Days, 1) - 1))
-    $files = Get-ChildItem -Path $logDir -Filter 'm365ops-*.log' -File | Where-Object {
-        if ($_.BaseName -match 'm365ops-(\d{8})$') {
+    $files = Get-ChildItem -Path $logDir -Filter "$LogFilePrefix-*.log" -File | Where-Object {
+        if ($_.BaseName -match "$LogFilePrefix-(\d{8})$") {
             try { [datetime]::ParseExact($Matches[1], 'yyyyMMdd', $null) -ge $cutoff } catch { $true }
         }
         else { $true }

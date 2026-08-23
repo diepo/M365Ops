@@ -78,10 +78,35 @@ while ($true) {
                 if ($ModuleType -eq 'Exchange') {
                     Import-Module ExchangeOnlineManagement -ErrorAction Stop
                     if ($req.params.AccessToken) {
-                        # Delegato - non ancora usato dai chiamanti in questo giro (vedi
-                        # Connect-M365OpsIsolatedModule.ps1, .NOTES: solo App-only per ora),
-                        # supportato qui comunque per quando verra' esteso.
+                        # Delegato via token gia' ottenuto altrove - non usato dai chiamanti
+                        # attuali (che per il ramo Delegato passano UserPrincipalName da solo,
+                        # vedi sotto), tenuto per compatibilita' futura.
                         Connect-ExchangeOnline -AccessToken $req.params.AccessToken -UserPrincipalName $req.params.UserPrincipalName -ShowBanner:$false -ErrorAction Stop | Out-Null
+                    } elseif ($req.params.UserPrincipalName) {
+                        # Delegato via popup interattivo (27/08/2026, richiesto con massima
+                        # priorita' dal vivo: conflitto reale Teams+Exchange poi Purview su un
+                        # tenant Delegato) - vedi Get-M365OpsIsolatedConnectParams.ps1 .NOTES per
+                        # il perche' NON e' -Device: qui stdout e' il canale del protocollo
+                        # JSON-RPC stesso, un codice dispositivo stampato come testo li' non
+                        # sarebbe mai visto da nessuno e la richiesta resterebbe bloccata fino al
+                        # timeout. Il popup browser/WAM invece e' una finestra GUI separata, non
+                        # tocca stdout - stesso principio gia' verificato dal vivo funzionante
+                        # per Teams delegato (Connect-M365OpsTeams.ps1) e per Purview delegato
+                        # standalone (Connect-M365OpsCompliance.ps1).
+                        Connect-ExchangeOnline -UserPrincipalName $req.params.UserPrincipalName -ShowBanner:$false -ErrorAction Stop | Out-Null
+                        $script:PurviewConnected = $false
+                        $script:PurviewError = $null
+                        try {
+                            $ippsParams = @{ UserPrincipalName = $req.params.UserPrincipalName; ErrorAction = 'Stop' }
+                            if ((Get-Command Connect-IPPSSession).Parameters.Keys -contains 'ShowBanner') { $ippsParams.ShowBanner = $false }
+                            # Niente -Device qui neanche per Purview, stesso motivo di sopra -
+                            # il popup e' l'unico percorso sicuro in questo processo.
+                            Connect-IPPSSession @ippsParams | Out-Null
+                            $script:PurviewConnected = $true
+                        } catch {
+                            $script:PurviewError = $_.Exception.Message
+                            [Console]::Error.WriteLine("Connect-IPPSSession (Purview) fallito nel worker isolato (delegato), non bloccante: $($_.Exception.Message)")
+                        }
                     } else {
                         # App-only: stesso certificato usato sia per Connect-ExchangeOnline
                         # (mailbox) sia per Connect-IPPSSession (Purview) - un SOLO worker

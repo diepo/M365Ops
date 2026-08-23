@@ -495,6 +495,10 @@
     <h2 style="margin-top:20px;">Cronologia log</h2>
     <p class="hint">Storico persistente (un file al giorno in <code>Logs\</code>) di messaggi ricevuti, tool AI chiamati/completati e azioni confermate eseguite. I file non vengono mai cancellati in automatico — restano su disco finché non li rimuovi tu manualmente, quindi la cronologia disponibile è già ben oltre 6 mesi. Il periodo qui sotto limita solo quanto indietro cerca QUESTA ricerca, non quanto esiste davvero.</p>
     <div class="actions" style="flex-wrap:wrap; row-gap:8px;">
+      <select id="log-scope-select" style="padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+        <option value="">Log generale (tutto)</option>
+        <option value="writes">Solo scritture (modifiche confermate sul tenant)</option>
+      </select>
       <select id="log-period-select" style="padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
         <option value="1">Oggi</option>
         <option value="7">Ultimi 7 giorni</option>
@@ -2123,12 +2127,14 @@
     const days = document.getElementById('log-period-select').value;
     const search = document.getElementById('log-search-input').value.trim();
     const level = document.getElementById('log-level-select').value;
+    const scope = document.getElementById('log-scope-select').value;
     view.textContent = 'Ricerca in corso...';
     status.textContent = '';
     try {
       const params = new URLSearchParams({ days });
       if (search) params.set('search', search);
       if (level) params.set('level', level);
+      if (scope) params.set('scope', scope);
       const res = await fetch('/api/logs/search?' + params.toString());
       const entries = await res.json();
       if (entries.error) {

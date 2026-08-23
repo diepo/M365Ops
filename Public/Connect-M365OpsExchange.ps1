@@ -108,8 +108,8 @@ function Connect-M365OpsExchange {
             # soluzione DEFINITIVA al conflitto - vedi Connect-M365OpsIsolatedModule.ps1 per
             # l'architettura completa): invece di limitarsi a mostrare il messaggio "riavvia
             # il server", si tenta di far funzionare DAVVERO questa connessione spostandola in
-            # un processo separato - solo App-only per ora (un tenant Delegato continua a
-            # vedere il messaggio classico, vedi Get-M365OpsIsolatedConnectParams.ps1).
+            # un processo separato - App-only E Delegato (27/08/2026: su Delegato il worker
+            # riapre un popup di login tutto suo, vedi Get-M365OpsIsolatedConnectParams.ps1).
             try {
                 Connect-M365OpsIsolatedModule -ModuleType 'Exchange' -ConnectParams (Get-M365OpsIsolatedConnectParams -ModuleType 'Exchange')
                 $script:M365OpsExchangeConnected = $true

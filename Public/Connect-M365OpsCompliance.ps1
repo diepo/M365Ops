@@ -87,9 +87,10 @@ function Connect-M365OpsCompliance {
     catch {
         $hint = Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Purview' -OtherService 'Microsoft Teams'
         if ($hint) {
-            # Isolamento reattivo (26/08/2026) - stesso worker isolato 'Exchange' usato da
-            # Connect-M365OpsExchange.ps1 (il worker connette SEMPRE anche Connect-IPPSSession
-            # in App-only, stesso certificato - vedi M365OpsIsolatedWorker.ps1), non un
+            # Isolamento reattivo (26/08/2026, esteso al Delegato il 27/08/2026) - stesso
+            # worker isolato 'Exchange' usato da Connect-M365OpsExchange.ps1 (il worker
+            # connette SEMPRE anche Connect-IPPSSession, App-only con lo stesso certificato o
+            # Delegato con lo stesso popup di login - vedi M365OpsIsolatedWorker.ps1), non un
             # secondo processo dedicato solo a Purview.
             try {
                 Connect-M365OpsIsolatedModule -ModuleType 'Exchange' -ConnectParams (Get-M365OpsIsolatedConnectParams -ModuleType 'Exchange')
