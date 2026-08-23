@@ -152,10 +152,33 @@ chat e qui se il lavoro richiede più tempo per essere fatto bene - non tagliare
 *(sezione aggiornata mano a mano che vengono spinnati - vedi anche i log sessione sotto per il
 dettaglio di cosa hanno trovato)*
 
-1. **Investigatore affidabilità login/popup** — (io stesso, non un agente separato, essendo
-   l'indagine appena iniziata e a bassa parallelizzabilità: richiede letture di codice mirate +
-   test dal vivo in sequenza) - obiettivo: capire perché il click su "Connetti" impiega molto
-   prima di aprire il browser, e perché a volte non si apre affatto, su tutte le connessioni
-   interessate (Graph/Exchange/Teams/SharePoint/Purview/Intune/CLI365).
-2. *(altri agenti da dichiarare qui appena spinnati - copertura GUI, comandi lettura/scrittura
-   per area, autoreview dei fix di questa maratona)*
+1. **Agente "Connection reliability investigator"** (general-purpose, background, sola lettura
+   di codice - nessuna modifica) — COMPLETATO. Traccia riga per riga cosa succede da
+   Connect-M365Ops{SharePoint,Teams,Intune,CliMicrosoft365,Compliance}.ps1 fino all'apertura
+   reale del browser. Trovato: (a) `Connect-M365OpsSharePoint.ps1` L60-71 puo' installare
+   PnP.PowerShell da PSGallery al volo (rete, decine di secondi-minuti); (b) gli
+   `Assert-M365Ops*SafeVersion` fanno un controllo integrita' file a ogni connect, che puo'
+   scatenare intermittentemente una reinstallazione se un file sembra corrotto (AV/scrittura
+   parziale); (c) `Sync-M365OpsSharePointAppRegistration` aggiunge un'ulteriore chiamata di rete
+   prima del login vero e proprio, la prima volta per tenant; (d) ipotesi WAM sollevata per
+   Purview (`Connect-IPPSSession` senza `-DisableWAM` equivalente, a differenza di Teams) - **verificata
+   e SMENTITA da me subito dopo**: le versioni moduli REALMENTE installate su questo PC
+   (`Get-Module -ListAvailable`, non assunto) sono ExchangeOnlineManagement 3.4.0 e
+   MicrosoftTeams 6.5.0, entrambe precedenti a quando Microsoft ha reso WAM il broker
+   predefinito (confermato via ricerca web: EXO da 3.7.0, Teams da 7.8.1-preview) - quindi WAM
+   non è la causa su QUESTA installazione, anche se resta un rischio reale se in futuro i
+   moduli si aggiornassero oltre quelle soglie. Causa reale piu' probabile, confermata: (a)+(b)+(c)
+   sopra, MA il problema piu' ingannevole trovato è che **la GUI non distingueva mai "sto
+   installando un modulo" da "sto aspettando il tuo login"** - stesso testo statico per
+   entrambe le fasi. **Fix spedito, v0.9.70, commit `eb28025`**: messaggio iniziale onesto sulla
+   possibile attesa moduli; soglia dell'avviso "server bloccato" alzata da 25s a 45s (25s
+   scattava spesso durante un'installazione ancora legittima) e riscritta per coprire entrambe
+   le cause plausibili. **Non risolto perché non risolvibile con un fix leggero**: i veri tempi
+   di installazione moduli/rete restano quelli che sono - il fix e' sulla comunicazione, non sulla
+   velocita' stessa. Se il problema persiste anche a moduli gia' installati (nessun reinstall in
+   corso), va riaperta l'indagine con log piu' dettagliati durante un test dal vivo.
+3. **Agente "Test cmdlet lettura Exchange/Intune/Purview"** (general-purpose, background, test
+   dal vivo via pwsh diretto su tenant "vnsys-test" AppOnly - nessun browser) — esegue per
+   davvero (non solo legge) quante piu' cmdlet Get-M365Ops* di queste tre aree riesce in 45-60
+   minuti, verifica l'output, corregge bug reali con fix sicuri (senza commit/push, lasciati
+   all'orchestratore).
