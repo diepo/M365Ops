@@ -123,10 +123,29 @@ function Connect-M365OpsCliMicrosoft365 {
         # comando finche' l'utente non completa il login - arriva qui SOLO con
         # -AllowInteractive esplicito (vedi sopra), stesso principio gia' usato per Teams/
         # SharePoint/Intune: un click diretto e consapevole dell'utente, mai dentro un flusso
-        # composto automatico. Nessun --appId qui: --authType browser usa il client pubblico
-        # integrato della CLI stessa (non serve una App Registration dedicata), stesso
-        # principio del device-code Graph gia' usato altrove in questo progetto.
-        $loginCommand = "m365 login --authType browser --tenant `"$($script:M365OpsContext.TenantId)`" --connectionName `"$connectionName`" --output json"
+        # composto automatico.
+        #
+        # BUG URGENTE trovato dal vivo il 23/08/2026 (segnalato in diretta dall'utente su un
+        # tenant Delegato reale, "AlePiras"): l'assunzione originale qui sopra - che
+        # '--authType browser' usasse un client pubblico integrato senza bisogno di --appId -
+        # era corretta su versioni piu' vecchie della CLI ma NON lo e' piu' sulla versione
+        # installata su questo PC (CLI for Microsoft 365 v11.10.0, verificato con
+        # 'm365 login --help': "--appId ... This option is crucial and should be specified if
+        # it isn't defined elsewhere"). Senza --appId, il comando entra in un prompt
+        # INTERATTIVO ("? appId:") in attesa di input da tastiera - invisibile e irrecuperabile
+        # in questo contesto (stdio e' il canale JSON-RPC verso il server MCP, non un vero
+        # terminale), esattamente la stessa classe di bug gia' vista e corretta il 21/08/2026 su
+        # Connect-M365OpsTeams (-UseDeviceAuthentication che stampava su una console nascosta) -
+        # il server restava bloccato per sempre in attesa di una risposta che non poteva mai
+        # arrivare, MAI un browser si apriva davvero. Corretto passando esplicitamente lo stesso
+        # client pubblico multi-tenant di Microsoft "Microsoft Graph Command Line Tools" gia'
+        # usato per il device-code Graph in questo stesso progetto (vedi
+        # Invoke-M365OpsDeviceCodeFlow.ps1, $script:M365OpsDeviceCodeClientId) - un'app Microsoft
+        # di primissima parte, presente per default in ogni tenant, nessuna App Registration
+        # dedicata da creare. Verificato dal vivo (23/08/2026): con questo appId il comando
+        # procede subito a "To sign in, use the web browser that just has been opened", nessun
+        # prompt interattivo.
+        $loginCommand = "m365 login --authType browser --appId `"$script:M365OpsDeviceCodeClientId`" --tenant `"$($script:M365OpsContext.TenantId)`" --connectionName `"$connectionName`" --output json"
     }
     else {
         if (-not $script:M365OpsContext.SecretEnvVar) {

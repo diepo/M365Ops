@@ -273,6 +273,7 @@
         <p class="hint" id="delegated-login-status">Nessuna sessione attiva.</p>
         <div class="actions">
           <button id="delegated-login-btn">Accedi a Microsoft Graph con il mio utente</button>
+          <button id="delegated-login-cancel-btn" style="display:none;">Annulla</button>
         </div>
         <div id="delegated-login-code" style="display:none; margin-top:10px; font-size:13px;"></div>
       </div>
@@ -284,6 +285,7 @@
         <p style="background:var(--ok-soft,#e6f4ea); color:var(--ok,#1e7a34); padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin:8px 0;"><b>✓ Coesiste con Teams:</b> il modulo <code>ExchangeOnlineManagement</code> resta sulla coppia di versioni 3.4.0/6.5.0 (con MicrosoftTeams) verificata priva del conflitto tra i due moduli — connettere Exchange PRIMA di Teams nella stessa sessione del server resta comunque la via più veloce (nessun sottoprocesso aggiuntivo). Se il conflitto scattasse comunque (es. ordine inverso, o versioni residue su questo PC), da fine agosto 2026 M365Ops lo risolve DAVVERO in automatico spostando la connessione in un processo isolato, senza bisogno di riavviare il server. Non aggiornare mai questi moduli a mano: M365Ops li reinstalla/ripara da sola ad ogni connessione. Dettaglio completo in guida, sezione 6.6.</p>
         <div class="actions">
           <button id="exchange-test-btn">Connetti / Test connessione Exchange</button>
+          <button id="exchange-login-cancel-btn" style="display:none;">Annulla</button>
           <span id="exchange-status-msg"></span>
         </div>
         <div id="exchange-login-code" style="display:none; margin-top:10px; font-size:13px;"></div>
@@ -1367,10 +1369,38 @@
         : `Si è aperta una finestra di login - incolla il codice lì.`);
   }
 
+  const delegatedLoginCancelBtn = document.getElementById('delegated-login-cancel-btn');
+  // Bug reale segnalato dal vivo il 23/08/2026: chiudere semplicemente il popup di login (o
+  // ignorarlo) senza cliccare ne' "Accetta" ne' "Annulla" DENTRO la pagina Microsoft non
+  // produce nessun errore OAuth (il device code resta "authorization_pending" agli occhi del
+  // server Microsoft, che non sa che il popup e' stato chiuso) - il poll continuava quindi a
+  // ricevere "Pending" e a rischedularsi da solo, MAI 'Completed' ne' 'Error', quindi il
+  // pulsante restava disabilitato fino alla scadenza naturale del codice (tipicamente ~15
+  // minuti) prima che l'utente potesse ritentare per davvero. Corretto con un secondo pulsante
+  // "Annulla" DEDICATO (stesso schema gia' in uso per cancel-edit-profile-btn, non un testo
+  // scambiato sullo stesso pulsante - richiesto esplicitamente dal vivo il 23/08/2026 per
+  // restare coerenti con lo stile/pattern gia' in uso altrove nella GUI): ferma SOLO il
+  // polling lato client (il device code lato server scade comunque da solo,
+  // Start-M365OpsDelegatedLogin sovrascrive senza problemi un flow precedente ancora pendente
+  // quando l'utente riparte) e riporta subito i pulsanti allo stato "pronto a ripartire".
+  let delegatedLoginPolling = false;
+
+  function resetDelegatedLoginUi() {
+    if (delegatedPollTimer) { clearTimeout(delegatedPollTimer); delegatedPollTimer = null; }
+    delegatedLoginPolling = false;
+    delegatedLoginBtn.disabled = false;
+    delegatedLoginCancelBtn.style.display = 'none';
+    delegatedLoginCode.style.display = 'none';
+  }
+
+  delegatedLoginCancelBtn.addEventListener('click', () => {
+    resetDelegatedLoginUi();
+    delegatedLoginStatus.textContent = 'Login annullato. Puoi ripartire quando vuoi.';
+  });
+
   delegatedLoginBtn.addEventListener('click', async () => {
     delegatedLoginBtn.disabled = true;
     delegatedLoginCode.style.display = 'none';
-    if (delegatedPollTimer) { clearTimeout(delegatedPollTimer); delegatedPollTimer = null; }
     try {
       const res = await fetch('/api/delegated-login/start', { method: 'POST' });
       const flow = await res.json();
@@ -1381,6 +1411,9 @@
       }
       await presentDeviceCode(flow, delegatedLoginCode);
       delegatedLoginStatus.textContent = 'In attesa che tu completi il login...';
+      delegatedLoginPolling = true;
+      delegatedLoginBtn.disabled = true;
+      delegatedLoginCancelBtn.style.display = '';
 
       const intervalMs = Math.max((flow.Interval || 5), 3) * 1000;
       // setTimeout auto-rischedulato, non setInterval (bug reale corretto il 17/08/2026): con
@@ -1396,21 +1429,17 @@
           const pollRes = await fetch('/api/delegated-login/poll', { method: 'POST' });
           const result = await pollRes.json();
           if (result.Status === 'Completed') {
-            delegatedPollTimer = null;
-            delegatedLoginCode.style.display = 'none';
-            delegatedLoginBtn.disabled = false;
+            resetDelegatedLoginUi();
             refreshDelegatedLoginBox();
             loadSetupStatus();
             return;
           } else if (result.Status === 'Error') {
-            delegatedPollTimer = null;
+            resetDelegatedLoginUi();
             delegatedLoginStatus.textContent = 'Errore: ' + result.Message;
-            delegatedLoginCode.style.display = 'none';
-            delegatedLoginBtn.disabled = false;
             return;
           }
         } catch (e) { /* riprova al prossimo giro */ }
-        delegatedPollTimer = setTimeout(pollDelegatedOnce, intervalMs);
+        if (delegatedLoginPolling) { delegatedPollTimer = setTimeout(pollDelegatedOnce, intervalMs); }
       };
       delegatedPollTimer = setTimeout(pollDelegatedOnce, intervalMs);
     } catch (e) {
@@ -1762,13 +1791,38 @@
   });
 
   let exchangePollTimer = null;
+  let exchangeLoginPolling = false;
+  const exchangeLoginCancelBtn = document.getElementById('exchange-login-cancel-btn');
+  // Stesso bug reale del login Graph (vedi commento su delegatedLoginBtn piu' sopra),
+  // segnalato dal vivo il 23/08/2026 sullo stesso principio: chiudere il popup di login senza
+  // decidere dentro la pagina Microsoft lascia il device code "authorization_pending" per
+  // sempre agli occhi del server, quindi il pulsante restava disabilitato fino alla scadenza
+  // naturale del codice. Stessa correzione del login Graph: un secondo pulsante "Annulla"
+  // DEDICATO (non un testo scambiato sul pulsante principale) annulla solo lato client e
+  // riporta subito i pulsanti pronti a ripartire.
+  function resetExchangeLoginUi(btn, codeBox) {
+    if (exchangePollTimer) { clearTimeout(exchangePollTimer); exchangePollTimer = null; }
+    exchangeLoginPolling = false;
+    btn.disabled = false;
+    exchangeLoginCancelBtn.style.display = 'none';
+    codeBox.style.display = 'none';
+  }
+
+  exchangeLoginCancelBtn.addEventListener('click', () => {
+    const btn = document.getElementById('exchange-test-btn');
+    const status = document.getElementById('exchange-status-msg');
+    const codeBox = document.getElementById('exchange-login-code');
+    resetExchangeLoginUi(btn, codeBox);
+    status.textContent = 'Login annullato. Puoi ripartire quando vuoi.';
+  });
+
   document.getElementById('exchange-test-btn').addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
     const status = document.getElementById('exchange-status-msg');
     const codeBox = document.getElementById('exchange-login-code');
+
     btn.disabled = true;
     codeBox.style.display = 'none';
-    if (exchangePollTimer) { clearTimeout(exchangePollTimer); exchangePollTimer = null; }
 
     try {
       const statusRes = await fetch('/api/mcp-status');
@@ -1797,6 +1851,9 @@
       }
       await presentDeviceCode(flow, codeBox);
       status.textContent = 'In attesa che tu completi il login...';
+      exchangeLoginPolling = true;
+      btn.disabled = true;
+      exchangeLoginCancelBtn.style.display = '';
 
       const intervalMs = Math.max((flow.Interval || 5), 3) * 1000;
       // setTimeout auto-rischedulato, non setInterval - vedi commento sullo stesso pattern nel
@@ -1807,18 +1864,14 @@
           const pollRes = await fetch('/api/exchange-delegated-login/poll', { method: 'POST' });
           const result = await pollRes.json();
           if (result.Status === 'Completed') {
-            exchangePollTimer = null;
-            codeBox.style.display = 'none';
+            resetExchangeLoginUi(btn, codeBox);
             status.textContent = 'Connesso.';
-            btn.disabled = false;
             loadConnectionStatus();
             loadSetupStatus();
             return;
           } else if (result.Status === 'Error') {
-            exchangePollTimer = null;
+            resetExchangeLoginUi(btn, codeBox);
             status.textContent = 'Errore: ' + result.Message;
-            codeBox.style.display = 'none';
-            btn.disabled = false;
             // Bug reale del 21/08/2026: un poll "in piu'" (fetch precedente andato in timeout
             // lato browser mentre il server, sincrono, stava ancora completando con successo)
             // poteva mostrare questo errore anche a connessione gia' riuscita - il pannello in
@@ -1830,7 +1883,7 @@
             return;
           }
         } catch (e) { /* riprova al prossimo giro */ }
-        exchangePollTimer = setTimeout(pollExchangeOnce, intervalMs);
+        if (exchangeLoginPolling) { exchangePollTimer = setTimeout(pollExchangeOnce, intervalMs); }
       };
       exchangePollTimer = setTimeout(pollExchangeOnce, intervalMs);
     } catch (e) {
@@ -1838,6 +1891,27 @@
       btn.disabled = false;
     }
   });
+
+  // Avviso "server bloccato" (23/08/2026, richiesto dal vivo dall'utente): SharePoint/Teams/
+  // Purview/Intune/CLI-Microsoft365-delegato NON hanno un flusso a codice-dispositivo come
+  // Graph/Exchange sopra - una singola chiamata bloccante (Connect-MicrosoftTeams
+  // -Interactive, m365 login --authType browser, ecc.) tiene occupato il server A THREAD
+  // SINGOLO finche' non finisce. Se l'utente chiude il popup di login senza completarlo, il
+  // server resta bloccato DAVVERO per tutti (non solo il pulsante lato client) finche' quella
+  // chiamata non scade da sola - un "Annulla" lato client qui sarebbe un fix finto: mostrerebbe
+  // il pulsante di nuovo pronto mentre il server e' ancora inchiodato per chiunque altro lo usi
+  // nel frattempo. Non essendo onestamente annullabile senza riscrivere questi flussi come
+  // start/poll (lavoro serio, non fatto qui), l'unico miglioramento onesto e' un AVVISO che
+  // compare se passa troppo tempo, cosi' l'utente sa cosa sta succedendo davvero e come uscirne
+  // (riavviare il server, tab Manutenzione) invece di restare a fissare uno stato "in corso..."
+  // senza spiegazioni.
+  function warnIfServerStillBlocked(statusEl, seconds = 25) {
+    const baseText = statusEl.textContent;
+    const timer = setTimeout(() => {
+      statusEl.innerHTML = baseText + ' <b>Il server sembra ancora bloccato.</b> Se hai chiuso la finestra di login senza completarla, questo e\' atteso: nessun pulsante puo\' sbloccarlo da qui, perche\' il server e\' a thread singolo e resta occupato dalla richiesta di login finche\' non scade da sola. Per sbloccarlo subito: tab Manutenzione → "Riavvia server".';
+    }, seconds * 1000);
+    return () => clearTimeout(timer);
+  }
 
   document.getElementById('sharepoint-test-btn').addEventListener('click', async (ev) => {
     // Bug reale corretto il 17/08/2026: il precedente flusso a codice dispositivo (non
@@ -1848,6 +1922,7 @@
     const btn = ev.currentTarget;
     const status = document.getElementById('sharepoint-status-msg');
     btn.disabled = true;
+    let cancelWarn = () => {};
     try {
       const statusRes = await fetch('/api/mcp-status');
       const statusData = await statusRes.json();
@@ -1856,17 +1931,20 @@
         const proceed = confirm('Si aprirà una finestra del browser per accedere: il server resterà bloccato per tutti finché non completi il login lì. Procedere?');
         if (!proceed) { btn.disabled = false; return; }
         status.textContent = 'apertura browser in corso... il server è bloccato finché non completi il login nella finestra appena aperta';
+        cancelWarn = warnIfServerStillBlocked(status);
       } else {
         status.textContent = 'connessione in corso...';
       }
 
       const res = await fetch('/api/sharepoint-test', { method: 'POST' });
+      cancelWarn();
       const data = await res.json();
       status.textContent = data.text || 'Fatto.';
       btn.disabled = false;
       loadConnectionStatus();
       loadSetupStatus();
     } catch (e) {
+      cancelWarn();
       status.textContent = 'Errore di comunicazione: ' + e.message;
       btn.disabled = false;
     }
@@ -1880,6 +1958,7 @@
     const btn = ev.currentTarget;
     const status = document.getElementById('teams-status-msg');
     btn.disabled = true;
+    let cancelWarn = () => {};
     try {
       const statusRes = await fetch('/api/mcp-status');
       const statusData = await statusRes.json();
@@ -1888,17 +1967,20 @@
         const proceed = confirm('Si aprirà una finestra per il login (codice dispositivo): il server resterà bloccato per tutti finché non lo completi. Procedere?');
         if (!proceed) { btn.disabled = false; return; }
         status.textContent = 'apertura login in corso... il server è bloccato finché non completi il login';
+        cancelWarn = warnIfServerStillBlocked(status);
       } else {
         status.textContent = 'connessione in corso...';
       }
 
       const res = await fetch('/api/teams-test', { method: 'POST' });
+      cancelWarn();
       const data = await res.json();
       status.textContent = data.text || 'Fatto.';
       btn.disabled = false;
       loadConnectionStatus();
       loadSetupStatus();
     } catch (e) {
+      cancelWarn();
       status.textContent = 'Errore di comunicazione: ' + e.message;
       btn.disabled = false;
     }
@@ -1911,6 +1993,7 @@
     const btn = ev.currentTarget;
     const status = document.getElementById('compliance-status-msg');
     btn.disabled = true;
+    let cancelWarn = () => {};
     try {
       const statusRes = await fetch('/api/mcp-status');
       const statusData = await statusRes.json();
@@ -1919,17 +2002,20 @@
         const proceed = confirm('Si aprirà una finestra per il login: il server resterà bloccato per tutti finché non lo completi. Procedere?');
         if (!proceed) { btn.disabled = false; return; }
         status.textContent = 'apertura login in corso... il server è bloccato finché non completi il login';
+        cancelWarn = warnIfServerStillBlocked(status);
       } else {
         status.textContent = 'connessione in corso...';
       }
 
       const res = await fetch('/api/compliance-test', { method: 'POST' });
+      cancelWarn();
       const data = await res.json();
       status.textContent = data.text || 'Fatto.';
       btn.disabled = false;
       loadConnectionStatus();
       loadSetupStatus();
     } catch (e) {
+      cancelWarn();
       status.textContent = 'Errore di comunicazione: ' + e.message;
       btn.disabled = false;
     }
@@ -1939,6 +2025,7 @@
     const btn = ev.currentTarget;
     const status = document.getElementById('intune-status-msg');
     btn.disabled = true;
+    let cancelWarn = () => {};
     try {
       const statusRes = await fetch('/api/mcp-status');
       const statusData = await statusRes.json();
@@ -1950,16 +2037,19 @@
         const proceed = confirm('Si aprirà una finestra del browser per scegliere l\'account: il server resterà bloccato per tutti finché non completi il login lì (limite del modulo Intune, non risolvibile come per Exchange). Procedere?');
         if (!proceed) { btn.disabled = false; return; }
         status.textContent = 'apertura browser in corso... il server è bloccato finché non completi il login nella finestra appena aperta';
+        cancelWarn = warnIfServerStillBlocked(status);
       } else {
         status.textContent = 'connessione in corso...';
       }
 
       const res = await fetch('/api/intune-test', { method: 'POST' });
+      cancelWarn();
       const data = await res.json();
       status.textContent = data.text || 'Fatto.';
       btn.disabled = false;
       loadConnectionStatus();
     } catch (e) {
+      cancelWarn();
       status.textContent = 'Errore di comunicazione: ' + e.message;
       btn.disabled = false;
     }
@@ -1969,6 +2059,7 @@
     const btn = ev.currentTarget;
     const status = document.getElementById('cli-m365-status-msg');
     btn.disabled = true;
+    let cancelWarn = () => {};
     try {
       const statusRes = await fetch('/api/mcp-status');
       const statusData = await statusRes.json();
@@ -1983,6 +2074,7 @@
         if (!proceed) { btn.disabled = false; return; }
         allowInteractive = true;
         status.textContent = 'apertura browser in corso... il server è bloccato finché non completi il login nella finestra appena aperta';
+        cancelWarn = warnIfServerStillBlocked(status);
       } else {
         status.textContent = 'connessione in corso...';
       }
@@ -1991,11 +2083,13 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'CLI-Microsoft365', allowInteractive })
       });
+      cancelWarn();
       const data = await res.json();
       status.textContent = data.text || (data.ok ? 'Fatto.' : 'Errore sconosciuto.');
       btn.disabled = false;
       loadConnectionStatus();
     } catch (e) {
+      cancelWarn();
       status.textContent = 'Errore di comunicazione: ' + e.message;
       btn.disabled = false;
     }
