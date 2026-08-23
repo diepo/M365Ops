@@ -567,3 +567,27 @@ primissima connessione per processo server resta pero' confermato.
 Entra/Purview oggi. SharePoint/Planner/Outlook via CLI365 restano limitati da vincoli reali
 (piattaforma/permessi), non da bug - nessuna azione ulteriore necessaria li', sono limiti onesti
 gia' comunicati come tali dagli errori reali della CLI, non fallimenti silenziosi.
+
+## Agenti 10 e 11 (in corso, paralleli): fallback CLI365 sulle scritture Entra + Scripts\Custom
+
+Spinnati in parallelo 23/08/2026, ~20:35, per rispettare la regola "parallelizzare dove
+possibile" - entrambi in sola lettura sul codice, con eventuali test di scrittura sul tenant
+"vnsys-test" (AppOnly) sempre nominati `ZZTEST-marathon-*` e ripuliti a fine test.
+
+1. **Agente "Fallback CLI365 scritture Entra"** (general-purpose, background) - riprende l'item
+   "prioritario, trovato dal vivo il 23/08/2026" nella sezione "Aree MAI toccate" sopra: valutare
+   con prove reali (non teoria) se estendere il fallback letture→CLI365 (gia' attivo dal
+   v0.9.68/69) anche alle scritture nel dominio Entra, confrontando un ciclo crea→elimina reale
+   fatto sia via Graph diretto sia via comando CLI365 equivalente. Deciso APPOSTA di procedere
+   solo se le prove mostrano che e' sicuro (una scrittura mal instradata ha conseguenze piu' serie
+   di una lettura) - se trova differenze reali di normalizzazione/validazione, non deve
+   implementare nulla, solo documentare perche' con le prove concrete.
+2. **Agente "Stress-test Scripts\Custom"** (general-purpose, background) - area mai testata in
+   nessuna maratona precedente. Verifica che gli script personalizzati si carichino davvero al
+   boot del modulo, vengano invocati con parametri reali sul tenant "vnsys-test" con output
+   osservato (non assunto), e siano davvero esposti all'AI tramite
+   `Invoke-M365OpsAgentTools.ps1` (un bug li' significherebbe "lo script funziona da solo ma l'AI
+   non puo' mai chiamarlo davvero").
+
+Esiti non ancora noti al momento di questa dichiarazione - saranno integrati in questo file al
+completamento di ciascuno.
