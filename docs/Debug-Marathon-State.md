@@ -373,3 +373,39 @@ dettaglio di cosa hanno trovato)*
   eccezione sfuggita al gestore per-richiesta terminerebbe l'intero processo senza lasciare
   traccia nei log. Aggiunto un `catch` che logga l'eccezione fatale prima che il processo
   termini davvero - non impedisce un crash genuino, ma garantisce diagnosticabilita' se succede.
+
+## Maratona sull'ambiente Delegato "AlePiras" (iniziata dopo che l'utente ha completato tutti i
+login umani reali - io non posso testare questo tenant direttamente, sessione live solo sul suo
+processo server, non nel mio ambiente sandboxato - l'utente esegue gli scenari, io interpreto e
+correggo)
+
+- **Scenario 1 "mostrami i team di cui faccio parte" - bug reale trovato e corretto, v0.9.77**:
+  vedi sopra (sezione "domande in prima persona"), stessa causa del bug #2 sotto.
+- **Scenario 5 "quanti utenti hanno mfa non configurata?" - bug reale trovato e corretto,
+  v0.9.78**: il modello ha risposto "non posso determinarlo... servirebbe interrogare i metodi
+  di autenticazione" SENZA tentare nessuna chiamata reale - confermato nel log
+  (Avvio→completato in 3s, zero righe "Tool AI chiamato" nel mezzo), a differenza di altre
+  domande nella STESSA conversazione che hanno chiamato tool regolarmente (es. Planner, 2
+  chiamate reali poco dopo) - quindi non e' un problema di "tool rotti", il modello ha scelto
+  di non provare SOLO per questa domanda. Causa: nessun tool dedicato per un conteggio
+  aggregato su tutto il tenant (solo per un singolo utente via UPN) - il modello doveva
+  improvvisare l'endpoint Graph giusto (`/reports/authenticationMethods/userRegistrationDetails`)
+  da solo ogni volta, funzionava a volte (era gia' riuscito su vnsys-test in precedenza nella
+  stessa maratona) e a volte no. Verificato dal vivo che l'endpoint e' corretto (52 utenti, 35
+  senza MFA, stesso conteggio esatto di prima) - aggiunta la guida esplicita nella descrizione
+  del tool `get_user_mfa_status`, non piu' lasciato all'improvvisazione.
+- **Scenario "crea gruppo ZZTEST-delegata + elimina" (dal log) - PASS**: ciclo completo
+  propose_graph_write→conferma→propose_graph_write(delete)→conferma, entrambi riusciti, nessun
+  residuo (confermato dal log stesso, "Esecuzione azione confermata" su entrambi i turni).
+- **Scenario "ci sono piani planner attivi?" (CLI365-escluso, via Graph diretto stavolta) -
+  PASS**: 2 chiamate reali (`/groups` poi `/groups/{id}/planner/plans`), completato in ~9s -
+  molto piu' veloce del test equivalente su vnsys-test (che aveva impiegato ~3 minuti e bloccato
+  temporaneamente il server, vedi sopra) - probabilmente perche' qui e' passato da Graph diretto
+  (sessione delegata gia' attiva) invece che dover avviare il sottoprocesso CLI365 la prima
+  volta.
+- **Scenario "Teams delegato" (il primo test dell'utente, prima di questo batch) - vedi sezione
+  dedicata sopra "Un 'crash' segnalato dal vivo su Teams..."** - non era un crash, isolamento
+  reattivo riuscito, ma nessun avviso all'utente su un secondo popup + NetworkError client dopo
+  un successo lato server. Corretto in v0.9.76.
+- Scenari 2/3/4 (SharePoint/Purview/Intune) del batch suggerito non ancora riportati
+  dall'utente al momento di scrivere questo - da verificare quando arrivano.
