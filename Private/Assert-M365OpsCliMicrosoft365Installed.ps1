@@ -47,7 +47,35 @@ function Assert-M365OpsCliMicrosoft365Installed {
         # -NoNewWindow + Wait: installazione sincrona, l'utente vede il progresso reale nella
         # console del server (stesso posto dove compaiono gia' i log di avvio) invece di un
         # tentativo silenzioso che sembra bloccato senza spiegazione.
-        $installOutput = & $npmCmd install -g "@pnp/cli-microsoft365" 2>&1
+        #
+        # BUG REALE trovato dal vivo il 23/08/2026 (maratona "CLI365 mai toccate con dati
+        # reali"): '2>&1' su un comando nativo (npm) impacchetta ogni riga di STDERR come
+        # ErrorRecord - npm scrive normalissimi avvisi non fatali su stderr (es. "npm warn
+        # allow-scripts ..." per protobufjs, presente su OGNI installazione recente di questo
+        # pacchetto, nessun problema reale). Sotto $ErrorActionPreference = 'Stop' - impostato
+        # deliberatamente a livello di modulo (vedi M365Ops.psm1) - Windows PowerShell 5.1
+        # promuove il primo di quegli ErrorRecord a eccezione terminante NON APPENA attraversa
+        # la pipeline (qui, il primo '| ForEach-Object { Write-Host $_ }'), MOLTO prima di
+        # arrivare al controllo esplicito su $LASTEXITCODE sotto - installazione riuscita
+        # (verificato dal vivo, exit 0, pacchetto installato per davvero) ma segnalata come
+        # fallita, con l'avviso npm scambiato per l'errore vero. Verificato dal vivo che PowerShell
+        # 7 (il runtime reale della GUI, vedi altri gap gia' noti "solo 5.1" in
+        # Debug-Marathon-State.md) NON soffre di questo problema - ma resta un bug reale per
+        # chiunque importi il modulo a mano su Windows PowerShell 5.1 (l'host predefinito su
+        # molte installazioni Windows per un .ps1 aperto a doppio clic), quindi corretto qui
+        # invece di lasciarlo solo come nota. Fix: EAP locale 'Continue' solo per la durata di
+        # questa chiamata (ripristinato subito dopo, in un blocco finally) - le righe di stderr
+        # restano visibili (ancora scritte da Write-Host) ma non promosse a eccezione; il
+        # controllo esplicito su $LASTEXITCODE sotto resta l'UNICA fonte di verita' su successo/
+        # fallimento reale, esattamente come progettato.
+        $previousEap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $installOutput = & $npmCmd install -g "@pnp/cli-microsoft365" 2>&1
+        }
+        finally {
+            $ErrorActionPreference = $previousEap
+        }
         $installOutput | ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) {
             throw "npm install terminato con codice di uscita $LASTEXITCODE."

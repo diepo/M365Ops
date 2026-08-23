@@ -531,14 +531,39 @@ Delegato.
 Marathon Report (artifact) aggiornato in parallelo con una nuova sezione 12 dedicata a questo
 lavoro - vedi `https://claude.ai/code/artifact/201ca6a9-4334-492c-af59-b6e5c5118be2`.
 
-## Agente 9 (in corso): comandi reali CLI Microsoft 365 mai testati oltre il login
+## Agente 9: comandi reali CLI Microsoft 365 mai testati oltre il login
 
 **Agente "Test CLI Microsoft 365 comandi reali"** (general-purpose, background, sola lettura sul
-tenant - nessuna scrittura in questo giro) — AVVIATO 23/08/2026, ~20:20. Compito: verificare dal
-vivo, con comandi reali (`spo`/`entra`/`outlook`/`planner`/`purview`) attraverso lo stesso
-percorso che userebbe l'AI in chat (mai `m365` CLI grezzo bypassando il modulo), se il connettore
-CLI Microsoft 365 - reso di default per ogni tenant e col login riparato in v0.9.67, ma mai
-verificato con dati reali oltre il login stesso - funziona davvero end-to-end. Area segnalata
-"mai toccata, priorita' alta" nella sezione corrispondente sopra. Su "vnsys-test" (AppOnly,
-nessuna interazione umana necessaria). Esito non ancora noto al momento di questa dichiarazione -
-sara' integrato in questo file al completamento.
+tenant - nessuna scrittura in questo giro) — COMPLETATO. Setup identico al percorso reale
+dell'AI: `Connect-M365Ops -TenantProfile 'vnsys-test'` (AppOnly) poi `Connect-M365OpsMcpServer
+-Name 'CLI-Microsoft365'`, comandi invocati via `Invoke-M365OpsMcpServerTool` (stesso codice
+della chat), mai `m365` CLI grezzo. Solo verbi di lettura (`get`/`list`/`search`), nessuna
+scrittura sul tenant in questo giro.
+
+**1 bug reale trovato e corretto, riverificato dal vivo - v0.9.82**:
+`Assert-M365OpsCliMicrosoft365Installed.ps1` catturava l'output di `npm install -g
+@pnp/cli-microsoft365` con `2>&1` - npm scrive avvisi non fatali su stderr (es. "npm warn
+allow-scripts..." per una dipendenza, presente su ogni installazione recente del pacchetto).
+Sotto `$ErrorActionPreference = 'Stop'` (impostato a livello di modulo), Windows PowerShell 5.1
+promuove il PRIMO di quegli avvisi a eccezione terminante ben prima del controllo esplicito su
+`$LASTEXITCODE` - un'installazione riuscita per davvero (exit 0, verificato dal vivo) veniva
+segnalata come fallita. PowerShell 7 (il runtime reale della GUI) non ne soffre - resta comunque
+un bug reale per chi importa il modulo a mano su 5.1, stessa classe del gap gia' noto sulla
+lettura file senza `-Encoding`. Corretto con un `$ErrorActionPreference = 'Continue'` locale solo
+per la chiamata npm (ripristinato in `finally`) - il controllo su `$LASTEXITCODE` resta l'unica
+fonte di verita'. Riprodotto e riverificato dal vivo due volte sotto `powershell.exe` 5.1.
+
+**Risultati dei comandi reali** (pwsh 7, "vnsys-test"): `entra user list` → 56 utenti reali;
+`entra m365group list` → gruppo reale `vnsysit`; `purview auditlog list` → dati di audit
+sostanziali reali (eventi quarantena phishing, etichette sensibilita', promozione admin Yammer).
+Falliscono CORRETTAMENTE (non bug): `spo site list` (limite documentato, l'auth a client
+secret/id non e' supportata da SharePoint per questo), `planner plan list`/`outlook event list`
+(permessi Graph realmente mancanti su questa App Registration - `Calendars.Read` non concesso).
+Nessuna ripetizione del blocco di ~3 minuti segnalato in passato in questo giro (test su processi
+isolati, non sul vero server GUI) - il costo reale di ~2 minuti per l'installazione npm alla
+primissima connessione per processo server resta pero' confermato.
+
+**Verdetto**: CLI Microsoft 365 e' genuinamente utilizzabile end-to-end dall'AI in chat per
+Entra/Purview oggi. SharePoint/Planner/Outlook via CLI365 restano limitati da vincoli reali
+(piattaforma/permessi), non da bug - nessuna azione ulteriore necessaria li', sono limiti onesti
+gia' comunicati come tali dagli errori reali della CLI, non fallimenti silenziosi.
