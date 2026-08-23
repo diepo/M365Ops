@@ -407,5 +407,41 @@ correggo)
   dedicata sopra "Un 'crash' segnalato dal vivo su Teams..."** - non era un crash, isolamento
   reattivo riuscito, ma nessun avviso all'utente su un secondo popup + NetworkError client dopo
   un successo lato server. Corretto in v0.9.76.
-- Scenari 2/3/4 (SharePoint/Purview/Intune) del batch suggerito non ancora riportati
-  dall'utente al momento di scrivere questo - da verificare quando arrivano.
+- **Scenari 2/3/4 (SharePoint/Purview/Intune) - confermati PASS dall'utente** ("provati e
+  tutto ok"), nessun dettaglio negativo riportato.
+- **Bug reale segnalato dal vivo dall'utente: "Stato permessi" mostrava note di sviluppo
+  interne** ("nota: Verificato dal vivo il 21/08/2026...") - fuorviante e senza senso per un
+  utente finale. Corretto in `Get-M365OpsDelegatedPermissionsCheck.ps1` e
+  `Get-M365OpsAppPermissionsCheck.ps1`, v0.9.79: le date/verifiche restano SOLO nei commenti di
+  codice, il campo `Note` mostrato all'utente ora dice solo cio' che gli serve.
+- **Report della maratona non aggiornato da un po' - segnalato dall'utente**: mi ero
+  concentrato sui commit al repository (questo file + changelog), trascurando l'artifact
+  "Marathon Report" pubblicato all'inizio della sessione. Aggiornato con una nuova sezione 11
+  che copre l'intera fase v0.9.67→v0.9.80 (CLI365 + tenant Delegato reale). Promemoria per le
+  prossime maratone: aggiornare ANCHE l'artifact a intervalli regolari, non solo questo file -
+  l'utente lo controlla attivamente.
+
+## Agente 8: test scrittura Purview/Entra avanzato (RBAC Intune, PIM, device objects)
+
+**Agente "Test scrittura Purview/Entra avanzato"** (general-purpose, background, test dal vivo
+via pwsh diretto su "vnsys-test", nessun browser) — COMPLETATO. Confermato: nessuna cmdlet di
+SCRITTURA Purview esiste in questo codebase (solo letture) - non un gap, un fatto verificato
+controllando l'intera cartella Public/. Nessuna cmdlet PIM/directory-role/device-object/app-
+registration esiste nemmeno. L'unica area di scrittura Entra/Graph non ancora coperta era il
+RBAC Intune (ruoli custom + assegnazioni).
+**2 bug reali trovati e corretti, entrambi riverificati dal vivo - v0.9.80**:
+- `Set-M365OpsRoleAssignment`: POST sulla rotta SBAGLIATA (tipo base astratto `roleAssignment`,
+  documentata su Microsoft Learn ma rifiutata sempre dal backend reale con 400) - il tipo
+  concreto usato davvero da Intune (`deviceAndAppManagementRoleAssignment`) si crea sulla
+  collezione di primo livello con `@odata.type` + `roleDefinition@odata.bind`. Corretto anche
+  il campo sbagliato per "chi puo' usare il ruolo" (`scopeMembers` → `members`). Stessa
+  correzione di rotta propagata a `Remove-M365OpsRoleAssignment` (mai verificata prima perche'
+  nessuna assegnazione era mai stata creata con successo).
+- Stesso file, secondo bug: un solo gruppo in `-ScopeGroupIds` produceva `resourceScopes` come
+  stringa scalare invece di array (spacchettamento di array a un elemento attraverso l'output
+  di un if/else, comportamento noto della pipeline PowerShell) - corretto forzando l'array con
+  `@(...)`.
+Pulizia finale confermata: `ZZTEST-marathon-CustomRole`, `ZZTEST-marathon-RoleAssignment`,
+`ZZTEST-marathon-RoleGroup` tutti eliminati e verificati assenti con query indipendenti. Nessun
+nuovo residuo (il sito SharePoint `ZZTEST-marathon-Site` gia' noto resta l'unico residuo aperto,
+non toccato da questo agente).
