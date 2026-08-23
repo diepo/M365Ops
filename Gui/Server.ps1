@@ -2260,6 +2260,26 @@ try {
         }
     }
 }
+catch {
+    # Rete di sicurezza aggiunta il 23/08/2026 (indagine su una segnalazione dal vivo -
+    # "sembra che il server sia crashato" - in quel caso specifico il server NON era
+    # davvero crashato, il log confermava un login Teams riuscito tramite isolamento
+    # reattivo e il client ha solo perso la connessione TCP durante un'attesa umana molto
+    # lunga - ma indagando si e' notato che questo ciclo principale try{while}finally{}
+    # non aveva MAI avuto un catch: qualunque eccezione che sfugge al try/catch per
+    # singola richiesta piu' sotto (o che arriva da fuori quel blocco, es. da
+    # $listener.GetContext() stesso) risalirebbe fino a qui SENZA essere mai loggata,
+    # terminando l'intero processo in modo silenzioso e non diagnosticabile - un vero
+    # crash futuro, se mai capitasse, non lascerebbe alcuna traccia utile. Logga qui
+    # l'eccezione fatale PRIMA che il processo termini, cosi' la prossima volta (se
+    # capita davvero) si sa almeno cosa l'ha causata, invece di doverlo indovinare dai
+    # log parziali di prima del blocco.
+    try {
+        Write-M365OpsLog "ERRORE FATALE nel ciclo principale del server - il processo sta per terminare: $($_.Exception.GetType().FullName): $($_.Exception.Message)`n$($_.ScriptStackTrace)" -Level Error
+    } catch {}
+    Write-Host "ERRORE FATALE: $($_.Exception.Message)" -ForegroundColor Red
+    throw
+}
 finally {
     $listener.Stop()
     $listener.Close()

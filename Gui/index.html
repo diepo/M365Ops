@@ -1954,8 +1954,19 @@
       loadSetupStatus();
     } catch (e) {
       cancelWarn();
-      status.textContent = 'Errore di comunicazione: ' + e.message;
+      // Bug reale segnalato dal vivo il 23/08/2026: su un login molto lungo (attesa umana
+      // reale nel popup, aggravata da un eventuale isolamento reattivo Teams/Exchange, vedi
+      // sezione 6.6 della guida) la connessione TCP del browser puo' cadere PRIMA che la
+      // risposta torni indietro, anche se il server ha completato con successo - fetch() da'
+      // "NetworkError when attempting to fetch resource", un errore che sembra un fallimento
+      // ma NON lo e' necessariamente: il login lato server puo' essere gia' riuscito (visto
+      // dal vivo: log server "connessione riuscita", ma il client mostrava solo l'errore di
+      // rete grezzo, lasciando pensare a un crash che non c'era). Ricontrolla subito lo stato
+      // vero invece di lasciare l'utente con un messaggio fuorviante.
+      status.textContent = 'Errore di comunicazione: ' + e.message + ' - verifico lo stato reale della connessione (potrebbe essere comunque riuscita)...';
       btn.disabled = false;
+      loadConnectionStatus();
+      loadSetupStatus();
     }
   });
 
@@ -1973,9 +1984,15 @@
       const statusData = await statusRes.json();
 
       if (statusData.authMode === 'Delegated') {
-        const proceed = confirm('Si aprirà una finestra per il login (codice dispositivo): il server resterà bloccato per tutti finché non lo completi. Procedere?');
+        // Nota sul possibile SECONDO popup aggiunta il 23/08/2026 (segnalato dal vivo:
+        // l'utente ha visto un popup, ha completato il login, poi ha ricevuto solo un errore
+        // di rete senza sapere che nel frattempo era scattato il conflitto .NET noto - sezione
+        // 6.6 - e l'isolamento reattivo aveva aperto un SECONDO popup, tutto suo, nel processo
+        // worker separato - login riuscito comunque, ma senza nessun avviso il flusso sembrava
+        // rotto/bloccato).
+        const proceed = confirm('Si aprirà una finestra per il login: il server resterà bloccato per tutti finché non lo completi. Se scatta un conflitto tecnico noto tra i moduli Teams/Exchange, il sistema lo risolve da solo aprendo un SECONDO popup di login in un processo separato - è normale, completa anche quello se compare. Procedere?');
         if (!proceed) { btn.disabled = false; return; }
-        status.textContent = 'preparazione in corso (verifica/installazione moduli, può richiedere fino a un minuto la prima volta)... poi si apre il login, e il server resta bloccato finché non lo completi';
+        status.textContent = 'preparazione in corso (verifica/installazione moduli, può richiedere fino a un minuto la prima volta)... poi si apre il login (a volte un secondo popup separato, se scatta un conflitto tecnico noto), e il server resta bloccato finché non lo completi';
         cancelWarn = warnIfServerStillBlocked(status);
       } else {
         status.textContent = 'connessione in corso...';
@@ -1990,8 +2007,12 @@
       loadSetupStatus();
     } catch (e) {
       cancelWarn();
-      status.textContent = 'Errore di comunicazione: ' + e.message;
+      // Stesso bug del catch su SharePoint qui sopra (vedi commento li' per il dettaglio
+      // completo): un NetworkError qui non significa che il login sia fallito davvero.
+      status.textContent = 'Errore di comunicazione: ' + e.message + ' - verifico lo stato reale della connessione (potrebbe essere comunque riuscita)...';
       btn.disabled = false;
+      loadConnectionStatus();
+      loadSetupStatus();
     }
   });
 
@@ -2025,8 +2046,12 @@
       loadSetupStatus();
     } catch (e) {
       cancelWarn();
-      status.textContent = 'Errore di comunicazione: ' + e.message;
+      // Stesso bug del catch su SharePoint qui sopra (vedi commento li' per il dettaglio
+      // completo): un NetworkError qui non significa che il login sia fallito davvero.
+      status.textContent = 'Errore di comunicazione: ' + e.message + ' - verifico lo stato reale della connessione (potrebbe essere comunque riuscita)...';
       btn.disabled = false;
+      loadConnectionStatus();
+      loadSetupStatus();
     }
   });
 
@@ -2059,8 +2084,11 @@
       loadConnectionStatus();
     } catch (e) {
       cancelWarn();
-      status.textContent = 'Errore di comunicazione: ' + e.message;
+      // Stesso bug del catch su SharePoint piu' sopra (vedi commento li' per il dettaglio
+      // completo): un NetworkError qui non significa che il login sia fallito davvero.
+      status.textContent = 'Errore di comunicazione: ' + e.message + ' - verifico lo stato reale della connessione (potrebbe essere comunque riuscita)...';
       btn.disabled = false;
+      loadConnectionStatus();
     }
   });
 
@@ -2099,8 +2127,11 @@
       loadConnectionStatus();
     } catch (e) {
       cancelWarn();
-      status.textContent = 'Errore di comunicazione: ' + e.message;
+      // Stesso bug del catch su SharePoint piu' sopra (vedi commento li' per il dettaglio
+      // completo): un NetworkError qui non significa che il login sia fallito davvero.
+      status.textContent = 'Errore di comunicazione: ' + e.message + ' - verifico lo stato reale della connessione (potrebbe essere comunque riuscita)...';
       btn.disabled = false;
+      loadConnectionStatus();
     }
   });
 

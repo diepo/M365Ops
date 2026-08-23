@@ -339,3 +339,37 @@ dettaglio di cosa hanno trovato)*
   pulizia) → eliminato subito dopo, `DELETE /groups/{id}` confermato "Success (No Content)".
   Trasparenza fonte/comando presente su entrambi i passaggi. Nessun bug, nessun residuo lasciato
   sul tenant.
+
+- **Segnalazione dal vivo dell'utente: "sembra che il server sia crashato" durante il login
+  Teams delegato - INDAGATO, NON era un crash, 2 fix reali spediti, v0.9.76**: l'utente ha
+  completato un login Teams delegato su un tenant reale (non il mio, il suo - AlePiras) e ha
+  ricevuto "Errore di comunicazione: NetworkError when attempting to fetch resource",
+  interpretandolo come un crash del server. I log reali che l'utente stesso ha condiviso hanno
+  chiarito la vera sequenza: conflitto .NET noto (sezione 6.6) rilevato → isolamento reattivo
+  scattato → connessione riuscita tramite un SECONDO popup di login (nel processo worker
+  isolato) → successo lato server. Il problema vero: durante l'attesa umana reale del login
+  (aggravata da un secondo popup mai comunicato all'utente), la connessione TCP del browser e'
+  caduta prima che la risposta tornasse - `fetch()` restituisce un generico NetworkError,
+  indistinguibile da un fallimento vero anche quando il server ha gia' finito con successo.
+  **Fix**: (1) tutti e 5 i pulsanti di connessione bloccanti ora ricontrollano lo stato reale
+  della connessione quando il `fetch()` stesso fallisce, invece di lasciare solo il messaggio
+  d'errore grezzo; (2) Teams avvisa ora esplicitamente (nel popup di conferma e nel messaggio di
+  stato) che potrebbe comparire un secondo popup separato se scatta il conflitto noto.
+  **Domanda dell'utente, con risposta**: "è possibile rendere multi-thread il server, così
+  queste operazioni non blocchino/facciano crashare tutto?" - risposta data in chat (vedi
+  trascrizione): NON raccomandato come riscrittura piena in questo giro - l'intera architettura
+  del progetto (scritture proponi-poi-conferma con un solo slot in memoria, contesto tenant
+  attivo condiviso, gestione processi MCP) e' deliberatamente e ripetutamente documentata come
+  "mai concorrente" per la sicurezza dei dati - multi-threading vero richiederebbe ripensare
+  tutto questo stato condiviso in modo thread-safe, un lavoro grosso e rischioso (bug di
+  concorrenza potenzialmente peggiori del problema attuale, es. fuga di dati tra richieste
+  concorrenti di tenant diversi). Alternativa proposta invece (non ancora implementata, da
+  valutare in un giro futuro se il problema si ripete spesso): eseguire SOLO le operazioni di
+  login bloccanti (Teams/SharePoint/Purview/Intune/CLI365) in un job/runspace in background,
+  cosi' il resto del server (pagine, log, altri tenant) resta reattivo durante l'attesa, senza
+  toccare il modello di concorrenza del resto dell'app.<br><br>
+  **Rete di sicurezza indipendente aggiunta nello stesso giro**: il ciclo principale del server
+  (`Gui/Server.ps1`) non aveva MAI un `catch` esterno (solo `try{while}finally{}`) - qualunque
+  eccezione sfuggita al gestore per-richiesta terminerebbe l'intero processo senza lasciare
+  traccia nei log. Aggiunto un `catch` che logga l'eccezione fatale prima che il processo
+  termini davvero - non impedisce un crash genuino, ma garantisce diagnosticabilita' se succede.
