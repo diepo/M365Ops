@@ -40,6 +40,16 @@ function Get-M365OpsTeamsExternalAccessConfig {
     #>
     Connect-M365OpsTeams
 
+    # BUG reale trovato dal vivo il 23/08/2026 su vnsys-test: le 4 righe sotto avevano
+    # ciascuna il PROPRIO set di colonne (nessuno schema unificato), a differenza del
+    # gemello Get-M365OpsTeamsPolicies (che unisce esplicitamente tutte le colonne con
+    # $null per quelle non pertinenti, proprio per evitare questo problema - vedi le
+    # NOTES di quella funzione). Risultato verificato dal vivo: ConvertTo-Csv/Export-Csv/
+    # Format-Table (che usano le proprieta' del PRIMO oggetto per l'intera tabella) fanno
+    # sparire silenziosamente dati reali - es. AllowUserChat=True per 'Ospiti -
+    # messaggistica' spariva del tutto dal CSV, pur essendo presente e leggibile per
+    # proprieta' diretta sull'oggetto. Corretto unendo tutte le colonne su ogni riga,
+    # stesso schema di Get-M365OpsTeamsPolicies.
     $body = {
         $federation = Get-CsTenantFederationConfiguration -ErrorAction Stop | ForEach-Object {
             [pscustomobject]@{
@@ -49,30 +59,63 @@ function Get-M365OpsTeamsExternalAccessConfig {
                 AllowPublicUsers   = $_.AllowPublicUsers
                 AllowTeamsConsumer = $_.AllowTeamsConsumer
                 BlockedDomains     = ($_.BlockedDomains | Out-String).Trim()
+                AllowUserChat      = $null
+                AllowGiphy         = $null
+                AllowUserEditMessage = $null
+                AllowIPVideo       = $null
+                AllowMeetNow       = $null
+                ScreenSharingMode  = $null
+                AllowPrivateCalling = $null
             }
         }
         $guestMessaging = Get-CsTeamsGuestMessagingConfiguration -ErrorAction Stop | ForEach-Object {
             [pscustomobject]@{
                 ConfigType = 'Ospiti - messaggistica'
                 Identity   = $_.Identity
+                AllowFederatedUsers = $null
+                AllowPublicUsers   = $null
+                AllowTeamsConsumer = $null
+                BlockedDomains     = $null
                 AllowUserChat      = $_.AllowUserChat
                 AllowGiphy         = $_.AllowGiphy
                 AllowUserEditMessage = $_.AllowUserEditMessage
+                AllowIPVideo       = $null
+                AllowMeetNow       = $null
+                ScreenSharingMode  = $null
+                AllowPrivateCalling = $null
             }
         }
         $guestMeeting = Get-CsTeamsGuestMeetingConfiguration -ErrorAction Stop | ForEach-Object {
             [pscustomobject]@{
                 ConfigType = 'Ospiti - riunioni'
                 Identity   = $_.Identity
+                AllowFederatedUsers = $null
+                AllowPublicUsers   = $null
+                AllowTeamsConsumer = $null
+                BlockedDomains     = $null
+                AllowUserChat      = $null
+                AllowGiphy         = $null
+                AllowUserEditMessage = $null
                 AllowIPVideo    = $_.AllowIPVideo
                 AllowMeetNow    = $_.AllowMeetNow
                 ScreenSharingMode = $_.ScreenSharingMode
+                AllowPrivateCalling = $null
             }
         }
         $guestCalling = Get-CsTeamsGuestCallingConfiguration -ErrorAction Stop | ForEach-Object {
             [pscustomobject]@{
                 ConfigType = 'Ospiti - chiamate'
                 Identity   = $_.Identity
+                AllowFederatedUsers = $null
+                AllowPublicUsers   = $null
+                AllowTeamsConsumer = $null
+                BlockedDomains     = $null
+                AllowUserChat      = $null
+                AllowGiphy         = $null
+                AllowUserEditMessage = $null
+                AllowIPVideo       = $null
+                AllowMeetNow       = $null
+                ScreenSharingMode  = $null
                 AllowPrivateCalling = $_.AllowPrivateCalling
             }
         }

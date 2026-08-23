@@ -95,7 +95,20 @@ function Connect-M365OpsTeams {
         Write-M365OpsLog "Connect-MicrosoftTeams (delegato, interattivo, modulo v$teamsModuleVersion, DisableWAM=$supportsDisableWam) avviato - in attesa del popup di login..."
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
-            Connect-MicrosoftTeams @connectTeamsParams
+            # | Out-Null aggiunto (bug reale trovato dal vivo il 23/08/2026 su vnsys-test):
+            # Connect-MicrosoftTeams restituisce un oggetto (Account/Environment/Tenant/
+            # TenantId) quando riesce - senza sopprimerlo, quell'oggetto finisce
+            # sull'output pipeline di QUESTA funzione e, a cascata, su quello di OGNI
+            # chiamante che invoca Connect-M365OpsTeams come prima istruzione senza
+            # catturarne il risultato (es. Get-M365OpsTeamsList) - un oggetto extra con
+            # proprieta' del tutto diverse (niente DisplayName/GroupId/...) si mescolava
+            # ai risultati reali, visibile come una riga vuota in testa alla tabella.
+            # Capita SOLO alla prima connessione riuscita in una sessione (le chiamate
+            # successive fanno return anticipato su $script:M365OpsTeamsConnected), motivo
+            # per cui non era mai stato notato in test brevi. Stessa causa e stessa
+            # correzione gia' applicate lato Exchange, vedi
+            # Invoke-M365OpsWithExoRepairRetry.ps1 riga 46.
+            Connect-MicrosoftTeams @connectTeamsParams | Out-Null
         } catch {
             Write-M365OpsLog "Connect-MicrosoftTeams (delegato) FALLITO dopo $([int]$sw.Elapsed.TotalSeconds)s: $($_.Exception.Message)" -Level Error
             throw
@@ -109,11 +122,14 @@ function Connect-M365OpsTeams {
         throw "Il profilo '$($script:M365OpsContext.Name)' non ha un ExchangeCertThumbprint configurato (lo stesso certificato serve anche per Teams). Usa Set-M365OpsTenant -ExchangeCertThumbprint per impostarlo."
     }
 
+    # | Out-Null: stesso pipeline leak del ramo Delegated sopra (vedi commento li'), qui
+    # sul ramo AppOnly - Connect-MicrosoftTeams restituisce un oggetto anche con
+    # certificato, non solo con login interattivo.
     Connect-MicrosoftTeams `
         -ApplicationId $script:M365OpsContext.ClientId `
         -Certificate $script:M365OpsContext.ExchangeCertThumbprint `
         -TenantId $script:M365OpsContext.TenantId `
-        -ErrorAction Stop
+        -ErrorAction Stop | Out-Null
 
     $script:M365OpsTeamsConnected = $true
     }

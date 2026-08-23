@@ -226,13 +226,27 @@ dettaglio di cosa hanno trovato)*
    era sbagliata - corretta. Letture Entra aggiuntive (conditional access, compliance state
    summary, app registration) tutte OK, nessun problema.
 6. **Agente "Test lettura Teams/SharePoint"** (general-purpose, background, test dal vivo via
-   pwsh diretto su "vnsys-test" AppOnly - nessun browser) — IN CORSO. Copre l'area rimasta
-   scoperta dall'agente 3 (Exchange/Intune/Purview) - tutte le Get-M365Ops* di Teams e
-   SharePoint/OneDrive, con lo stesso principio "invocato per davvero, non solo letto". Avvisato
-   di non trattare un limite di permesso/licenza noto (es. policy Teams senza il permesso
-   Skype/Teams Tenant Admin API) come un bug, e di non provare a "risolvere" un eventuale
-   conflitto .NET Teams/Exchange se dovesse ripresentarsi (fuori scope, gia' un'architettura
-   complessa esistente) - solo segnalarlo se capita.
+   pwsh diretto su "vnsys-test" AppOnly - nessun browser) — COMPLETATO. 16 cmdlet invocate per
+   davvero. **2 bug reali trovati e corretti, entrambi riverificati dal vivo - v0.9.74**:
+   - `Connect-M365OpsTeams`: `Connect-MicrosoftTeams` restituisce un oggetto quando riesce
+     (Account/Environment/Tenant/TenantId) - non soppresso con `Out-Null` (a differenza del
+     lato Exchange, gia' corretto), finiva sulla pipeline di output e si mescolava ai risultati
+     reali di ogni chiamante alla PRIMA connessione riuscita per sessione (es.
+     `Get-M365OpsTeamsList` restituiva 16 righe invece di 15, con una vuota in testa) - mai
+     notato prima perche' capita solo una volta per sessione. Aggiunto `| Out-Null` su entrambi
+     i rami (Delegato+AppOnly).
+   - `Get-M365OpsTeamsExternalAccessConfig`: le 4 sezioni (federazione/messaggistica-ospiti/
+     riunioni-ospiti/chiamate-ospiti) avevano ciascuna il proprio set di colonne invece di uno
+     schema unificato (a differenza del gemello `Get-M365OpsTeamsPolicies`, che lo fa apposta) -
+     `ConvertTo-Csv`/`Export-Csv`/`Format-Table` usano le proprieta' del PRIMO oggetto per
+     l'intera tabella, quindi dati reali (es. `AllowUserChat=True`) sparivano silenziosamente da
+     ogni export tabellare pur essendo presenti sull'oggetto. Corretto unificando le colonne.
+   - Nota di documentazione aggiornata nello stesso giro: `Get-M365OpsTeamsPolicies` dichiarava
+     ancora "permesso non concesso, non verificato" - risulta invece concesso su questo tenant
+     (19 righe reali restituite), nota corretta per riflettere lo stato vero.
+   - Nessun limite di permesso/licenza ha bloccato nulla in questo giro (il permesso Teams
+     Admin API risulta gia' concesso), nessun conflitto .NET Teams/Exchange incontrato (script
+     fresco, coerente con quanto gia' documentato sopra sull'open item).
 
 ## Test dal vivo (io stesso, GUI su vnsys-test) durante l'attesa degli agenti
 

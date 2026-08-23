@@ -5,15 +5,14 @@ function Get-M365OpsTeamsPolicies {
         dalla colonna PolicyType - stesso principio di Get-M365OpsThreatPolicies per Exchange
         (colonne non pertinenti a un tipo restano vuote per quella riga, mai un dato inventato).
     .NOTES
-        NON ANCORA VERIFICATO DAL VIVO (17/08/2026): richiede il permesso Application
-        'application_access' sotto l'API "Skype and Teams Tenant Admin API" (diversa sia da
-        Microsoft Graph sia dall'API "SharePoint" usata per Sites.FullControl.All) - non ancora
-        concesso su questo tenant, Get-CsTeamsMeetingPolicy/Get-CsTeamsCallingPolicy/
-        Get-CsTeamsMessagingPolicy falliscono con "Access Denied. Provide different credential
-        or request access." Le proprieta' selezionate sotto sono quelle documentate e stabili
-        di ciascuna cmdlet, non indovinate, ma vanno riconfermate con un test reale appena il
-        permesso e' disponibile (stessa disciplina gia' usata per Get-M365OpsSharePointSites,
-        poi confermata corretta al primo test reale) - vedi sezione 4.4 della guida.
+        VERIFICATO DAL VIVO il 23/08/2026 (maratona di debug) su vnsys-test: il permesso
+        Application 'application_access' sotto l'API "Skype and Teams Tenant Admin API"
+        (diversa sia da Microsoft Graph sia dall'API "SharePoint" usata per
+        Sites.FullControl.All) risulta concesso su questo tenant - Get-CsTeamsMeetingPolicy/
+        Get-CsTeamsCallingPolicy/Get-CsTeamsMessagingPolicy restituiscono dati reali (19 righe
+        nel test), le proprieta' selezionate sotto confermate corrette. Su un tenant SENZA
+        quel permesso, le stesse cmdlet falliscono ancora con "Access Denied. Provide different
+        credential or request access." - vedi sezione 4.4 della guida per come concederlo.
 
         Retry via isolamento reattivo aggiunto il 23/08/2026 (bug reale trovato dal vivo su
         Get-M365OpsTeamsExternalAccessConfig.ps1, stesso schema qui - vedi quel file per il
