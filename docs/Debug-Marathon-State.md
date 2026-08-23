@@ -644,6 +644,11 @@ scritture Entra→CLI365) - `git diff 462213f..45166a6` (o l'equivalente range c
 commit si aggiungono prima del prossimo giro), SOLO regressioni introdotte da questi fix
 specifici, non nuovi bug indipendenti.
 
+**RIPARTITO** 24/08/2026 subito dopo la chiusura di fase sopra (limite di sessione presumibilmente
+resettato, 23:40 Europe/Rome gia' passate) - stesso identico task, retry pulito (l'agente
+precedente non aveva prodotto nessuna modifica prima di fermarsi). Esito non ancora noto al
+momento di questa dichiarazione.
+
 ## Chiusura di questa fase della maratona (23-24/08/2026)
 
 Iniziata 23/08/2026 12:42, ampiamente oltre il minimo di 4 ore richiesto. In questa fase (dopo la
