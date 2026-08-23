@@ -76,6 +76,31 @@ function Set-M365OpsTenant {
     }
 
     $existing = $config[$Name]
+
+    # Bug reale trovato dal vivo il 23/08/2026 (bug-hunt di 16 ore, riprodotto live, non solo
+    # per lettura): storico chat e Knowledge Base sono salvati su disco con un nome file
+    # derivato da $Name tramite $Name -replace '[^\w\-]', '_' (stessa regex ripetuta identica
+    # in Get-M365OpsChatHistory/Add-M365OpsChatHistoryTurn/Clear-M365OpsChatHistory/
+    # Add-M365OpsKnowledgeDocument/Remove-M365OpsKnowledgeDocument/Get-M365OpsKnowledgeCatalog/
+    # Get-M365OpsKnowledgeDocumentText) - questa regex NON e' iniettiva: "North West" e
+    # "North_West", o "Contoso.Test" e "Contoso Test", si riducono allo STESSO nome file
+    # ("North_West"/"Contoso_Test"), riprodotto dal vivo. Due profili tenant DIVERSI con nomi
+    # che collidono solo dopo la sanitizzazione finirebbero quindi a condividere lo stesso file
+    # di storico chat/Knowledge Base - lo storico conversazionale (e i documenti caricati) di
+    # un tenant diventerebbero visibili/mescolati nell'altro, esattamente la classe di fuga di
+    # dati tra tenant gia' corretta per $script:LastReportPath in Connect-M365Ops.ps1. Bloccato
+    # qui, all'origine (la creazione del profilo), invece di in ognuna delle sette funzioni che
+    # leggono/scrivono quei file - un profilo che AGGIORNA se stesso (nome gia' esistente
+    # identico) resta sempre permesso, solo un nome NUOVO che collide con un profilo DIVERSO
+    # gia' salvato viene rifiutato.
+    if (-not $existing) {
+        $safeName = $Name -replace '[^\w\-]', '_'
+        $collidingProfile = $config.Keys | Where-Object { $_ -ne $Name -and ($_ -replace '[^\w\-]', '_') -eq $safeName } | Select-Object -First 1
+        if ($collidingProfile) {
+            throw "Il nome profilo '$Name' si riduce allo stesso nome file interno di un profilo GIA' ESISTENTE, '$collidingProfile' (entrambi diventano '$safeName' una volta tolti spazi/punteggiatura) - storico chat e Knowledge Base finirebbero mescolati tra i due tenant. Scegli un nome diverso (es. con un trattino o senza spazi/punti)."
+        }
+    }
+
     $config[$Name] = @{
         TenantId                      = $TenantId
         ClientId                      = $ClientId

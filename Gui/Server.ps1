@@ -327,6 +327,41 @@ function Complete-M365OpsWriteResponse {
     @{ role = 'system'; text = "$BaseText`n`n_Fonte: $source. Comando eseguito: $CommandText._" }
 }
 
+function Write-M365OpsWriteFailureIfNeeded {
+    <#
+        Bug reale trovato dal vivo il 23/08/2026 (bug-hunt di 16 ore): il blocco catch generico
+        di Execute-PendingAction (sotto) e' l'UNICO punto che logga un fallimento nel log
+        scritture separato - ma parecchi case (LokkaWrite quando Graph rifiuta con un 400/403
+        restituito come risultato normale del tool anziche' come eccezione PowerShell,
+        CliM365Write con lo stesso schema, PackageApp/AssignApp quando una dipendenza/gruppo/
+        app non si risolve) uscivano con un `return @{ role = 'error'; ... }` diretto, MAI
+        un'eccezione - quel `catch` non scatta mai per questi casi, quindi restano
+        sistematicamente assenti dal log scritture nonostante siano fallimenti di scrittura
+        reali e quotidiani (non casi limite). Invece di aggiungere la stessa chiamata di log in
+        ognuno dei ~10 punti di return sparsi nei vari case (rischio concreto di dimenticarne
+        uno futuro), il controllo vive qui, UNA volta, richiamato dai due punti che invocano
+        Execute-PendingAction (single-azione e coda) subito dopo aver ricevuto il risultato -
+        cosi' resta corretto per costruzione anche per un case nuovo aggiunto in futuro che
+        dimenticasse di loggare da solo.
+    #>
+    param($Action, $Result)
+    if (-not $Result -or $Result.role -notin @('error', 'ai')) { return }
+    # 'ai' capita quando un fallimento passa dalla diagnosi/correzione AI (Invoke-M365OpsErrorTriage)
+    # invece di un semplice errore - e' comunque un fallimento della scrittura originale, va
+    # loggato come tale (stesso principio gia' in uso in Execute-PendingQueue per decidere se
+    # fermare la sequenza, vedi il commento li').
+    if ($Action.Type -in @('RestartServer', 'NewCustomScript', 'ApplyFix', 'Queue')) { return }
+    try {
+        $failCmdText =
+            if ($Action.Cmdlet) { Format-M365OpsCommandLine -Cmdlet $Action.Cmdlet -Parameters $(if ($Action.Parameters) { $Action.Parameters } else { @{} }) }
+            elseif ($Action.Method -and $Action.Path) { "$($Action.Method.ToUpper()) $($Action.Path)" }
+            elseif ($Action.Command) { "m365 $($Action.Command)" }
+            else { $Action.Type }
+        $failSource = Get-M365OpsWriteActionSourceLabel -Type $Action.Type -IsDelegatedTenant ((Get-M365OpsActiveTenantInfo).AuthMode -eq 'Delegated')
+        Write-M365OpsWriteLog -Source $failSource -Command $failCmdText -Outcome 'FAIL' -Detail $Result.text
+    } catch { }
+}
+
 function Execute-PendingAction {
     param($action)
     Write-M365OpsLog "Esecuzione azione confermata: Type=$($action.Type) Cmdlet=$($action.Cmdlet)"
@@ -679,6 +714,7 @@ function Execute-PendingQueue {
     $outputs = @()
     foreach ($action in $queue) {
         $result = Execute-PendingAction $action
+        Write-M365OpsWriteFailureIfNeeded -Action $action -Result $result
         $outputs += $result.text
         # role='ai' capita quando un passo fallisce e passa dalla diagnosi/correzione AI
         # (Invoke-M365OpsErrorTriage) invece di un semplice errore - anche in quel caso il
@@ -735,7 +771,9 @@ function Handle-ChatMessage {
                     return @{ role = 'error'; text = "Applicazione della correzione fallita: $($_.Exception.Message)" }
                 }
             }
-            return (Execute-PendingAction $action)
+            $actionResult = Execute-PendingAction $action
+            Write-M365OpsWriteFailureIfNeeded -Action $action -Result $actionResult
+            return $actionResult
         }
         elseif ($isCancel) {
             $script:PendingAction = $null
@@ -899,6 +937,28 @@ function Handle-ChatMessage {
                 $detectionVersion = $null
                 $uninstallCmd = $null
                 $detectionNote = "detection ($($scriptPlan.DetectionNote))"
+            } elseif ([IO.Path]::GetExtension($script:LoadedFilePath) -eq '.msi') {
+                # Ramo MSI dedicato (23/08/2026, bug reale trovato dal vivo, bug-hunt di 16 ore):
+                # prima di questo fix un .msi cadeva nel ramo EXE sotto, producendo un
+                # InstallCommandLine tipo "App.msi /S" - non un comando valido: MSI non si
+                # avvia da solo con uno switch, va invocato tramite msiexec. Inoltre .msi e' un
+                # OLE compound document, non un eseguibile PE: (Get-Item).VersionInfo e la
+                # ricerca di firme installer (Inno/NSIS/...) su un .msi non trovano mai nulla
+                # di significativo, quindi $insight per un .msi era comunque inutile per dedurre
+                # switch/nome/publisher. La ProductCode GUID (necessaria per un uninstall
+                # silenzioso affidabile via msiexec /x) non e' deducibile in modo sicuro senza
+                # aprire il database MSI (COM WindowsInstaller.Installer) - non tentato qui per
+                # non rischiare un GUID sbagliato: l'uninstall resta esplicitamente da
+                # verificare, come gia' accade per un EXE senza firma riconosciuta.
+                $fileNameOnly = Split-Path -Leaf $script:LoadedFilePath
+                $installCmd = "msiexec /i `"$fileNameOnly`" /quiet /norestart"
+                $uninstallCmd = "REM uninstall MSI: serve la ProductCode (GUID) di questo pacchetto - msiexec /x {PRODUCT-CODE-GUID} /quiet /norestart. Trovala con 'Get-Package -Name `"$displayName`"' su una macchina dove e' gia' installato, o nel registro sotto HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall."
+                $detectionMode = 'Version'
+                $detectionPath = "C:\Program Files\$displayName"
+                $detectionFile = "$displayName.exe"
+                $detectionVersion = "1.0.0.0"
+                $detectionRegKeyPath = $null; $detectionRegValueName = $null
+                $detectionNote = "detection: $detectionPath\$detectionFile >= $detectionVersion (dedotta dal solo nome prodotto richiesto - un .msi non espone gli stessi metadati exe di un file .exe, verifica il percorso di installazione reale prima di assegnare l'app)"
             } else {
                 $useRegistry = $lower -match 'registro|registry'
                 $switchPart = if ($insight.SuggestedSilentSwitch) { $insight.SuggestedSilentSwitch } else { "/S" }
@@ -1025,6 +1085,19 @@ function Handle-ChatMessage {
             $detectionVersion = $null
             $uninstallCmd = $null
             $detectionText = "Detection: $($scriptPlan.DetectionNote)"
+        } elseif ([IO.Path]::GetExtension($script:LoadedFilePath) -eq '.msi') {
+            # Stesso fix del ramo a coda sopra (23/08/2026, bug reale trovato dal vivo, bug-hunt
+            # di 16 ore) - vedi li' per il dettaglio completo del perche' un .msi non puo' usare
+            # la stessa logica "filename + switch" di un .exe.
+            $fileNameOnly = Split-Path -Leaf $script:LoadedFilePath
+            $installCmd = "msiexec /i `"$fileNameOnly`" /quiet /norestart"
+            $uninstallCmd = "REM uninstall MSI: serve la ProductCode (GUID) di questo pacchetto - msiexec /x {PRODUCT-CODE-GUID} /quiet /norestart. Trovala con 'Get-Package -Name `"$displayName`"' su una macchina dove e' gia' installato, o nel registro sotto HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall."
+            $detectionMode = 'Version'
+            $detectionPath = "C:\Program Files\$displayName"
+            $detectionFile = "$displayName.exe"
+            $detectionVersion = "1.0.0.0"
+            $detectionRegKeyPath = $null; $detectionRegValueName = $null
+            $detectionText = "Detection: $detectionPath\$detectionFile >= $detectionVersion`n(dedotta dal solo nome prodotto richiesto - un .msi non espone gli stessi metadati exe di un file .exe, verifica il percorso di installazione reale prima di assegnare l'app)"
         } else {
             $switchPart = if ($insight.SuggestedSilentSwitch) { $insight.SuggestedSilentSwitch } else { "/S (nessuna firma installer riconosciuta - verifica tu lo switch corretto)" }
             $installCmd = "$(Split-Path -Leaf $script:LoadedFilePath) $switchPart"
@@ -1079,7 +1152,16 @@ function Handle-ChatMessage {
         return @{ role = 'system'; text = "$confirmText`n(rispondi 'si' o 'no')" }
     }
     elseif (($lower -match 'assegna\w*.{0,25}(app|required|available|obbligator|opzional|tutti|grupp)') -and
-            ($lower -notmatch '\b(ticket|mail|record|flusso|subject|categoria|tag|triage|competente)\b')) {
+            ($lower -notmatch '\b(ticket|mail|record|flusso|subject|categoria|tag|triage|competente)\b') -and
+            # Guardia anti-domanda-di-supporto (23/08/2026, bug reale trovato dal vivo,
+            # bug-hunt di 16 ore): questo ramo standalone usava lo stesso identico trigger di
+            # $hasAssignIntent sopra (vedi il blocco richieste composte, che GIA' applica
+            # $looksLikeTroubleshootingQuestion per lo stesso identico motivo) ma senza mai
+            # applicare la stessa guardia qui - "Ho assegnato l'app come available a tutti ma
+            # alcuni utenti non riescono a installarla, sai perche'?" matcha comunque il
+            # trigger (assegnato+available+tutti) e proponeva una NUOVA assegnazione live
+            # invece di rispondere alla domanda di supporto.
+            (-not $looksLikeTroubleshootingQuestion)) {
         if (-not $script:LastAppId) { return @{ role = 'system'; text = "Non ho un'app recente da assegnare — creane una prima (carica un file e chiedimi di pacchettizzarla)." } }
         $intentValue = $null
         if ($lower -match 'required|obbligator|forzat') { $intentValue = 'required' }

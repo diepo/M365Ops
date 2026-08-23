@@ -76,6 +76,24 @@ function Export-M365OpsDataReport {
     # --- PDF: una sezione titolata per argomento, con eventuali grafici prima della tabella ---
     $pdfPath = $null
     if ('pdf' -in $Formats) {
+      # try/catch attorno all'INTERO blocco PDF, non solo alla chiamata Export-M365OpsReport
+      # sotto (23/08/2026, bug reale trovato dal vivo, riprodotto - bug-hunt di 16 ore):
+      # Group-Object -Property $field poco sotto lancia un'eccezione TERMINANTE
+      # ("Cannot compare... because the objects are not the same type or the object does not
+      # implement IComparable") quando $field e' una colonna con un valore OGGETTO NIDIFICATO
+      # singolo (non un array - quelli sono gia' appiattiti da ConvertTo-M365OpsFlatRows, ma un
+      # singolo oggetto come signInActivity/assignedPlan/manager passa attraverso invariato) -
+      # comune sui campi Graph reali. Questo blocco di costruzione di $pdfSections viveva PRIMA
+      # e FUORI dal try/catch che il commento sotto descrive (aggiunto il 17/08/2026 per un bug
+      # simile ma piu' ristretto, solo sulla chiamata di scrittura PDF vera e propria) - se
+      # Group-Object falliva qui, l'eccezione risaliva FUORI dall'intera funzione, facendo
+      # perdere anche $xlsxPath gia' generato con successo poco sopra (il chiamante non riceve
+      # mai il pscustomobject di ritorno, quindi nessun modo di sapere che l'xlsx esiste
+      # comunque su disco) - esattamente il bug che il commento sotto dice gia' risolto, ma per
+      # una causa diversa mai coperta. Ora l'intero blocco (costruzione contenuto PDF INCLUSA)
+      # e' nello stesso try, cosi' un fallimento qui degrada sempre a un avviso, mai a
+      # un'eccezione che si porta via anche l'xlsx.
+      try {
         $pdfSections = foreach ($s in $Sections) {
             # Appiattito PRIMA di raggruppare per i grafici e di costruire la tabella: un campo
             # con valore ARRAY (es. ManagedBy di un gruppo) raggrupperebbe tutte le righe insieme
@@ -116,6 +134,13 @@ function Export-M365OpsDataReport {
         catch {
             $warnings += "PDF non generato: $($_.Exception.Message)"
         }
+      }
+      catch {
+        # Copre la costruzione di $pdfSections sopra (Group-Object su un campo con oggetti
+        # nidificati, o qualunque altro errore imprevisto nel montaggio dell'HTML) - stessa
+        # filosofia dell'altro catch: un fallimento qui non deve MAI far perdere l'xlsx.
+        $warnings += "PDF non generato: $($_.Exception.Message)"
+      }
     }
 
     if (-not $xlsxPath -and -not $pdfPath) { throw "Nessun file generato: $($warnings -join '; ')" }
