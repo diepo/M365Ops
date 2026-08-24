@@ -682,7 +682,16 @@
     const CHAT_COLLAPSE_THRESHOLD = 1500;
     if (text && text.length > CHAT_COLLAPSE_THRESHOLD) {
       let expanded = false;
-      const renderBody = () => { body.textContent = expanded ? text : text.slice(0, CHAT_COLLAPSE_THRESHOLD) + '…'; };
+      // Come per il taglio lato IA in Invoke-M365OpsAgentTools.ps1 (stessa classe di bug trovata
+      // durante la review di questo commit): String.slice() in JS taglia per unita' di codice
+      // UTF-16, quindi puo' spezzare a meta' una coppia surrogata (es. un emoji) esattamente sul
+      // bordo del limite, mostrando un carattere "orfano"/spezzato prima del "…". Qui l'impatto e'
+      // solo estetico (il testo completo resta comunque intatto e raggiungibile espandendo), ma
+      // arretriamo comunque di una posizione quando il bordo cade su un surrogato alto.
+      let cutAt = CHAT_COLLAPSE_THRESHOLD;
+      const boundaryCode = text.charCodeAt(cutAt - 1);
+      if (boundaryCode >= 0xD800 && boundaryCode <= 0xDBFF) { cutAt--; }
+      const renderBody = () => { body.textContent = expanded ? text : text.slice(0, cutAt) + '…'; };
       renderBody();
       const toggle = document.createElement('button');
       toggle.textContent = 'Mostra tutto';

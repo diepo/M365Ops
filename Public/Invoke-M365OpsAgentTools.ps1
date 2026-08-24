@@ -1055,7 +1055,19 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
     $messages = @($History | Where-Object { $_ } | ForEach-Object {
         $content = $_.text
         if ($content -and $content.Length -gt $maxHistoryCharsPerTurn) {
-            $content = $content.Substring(0, $maxHistoryCharsPerTurn) + " [...troncato per il contesto IA - il testo completo resta visibile in chat]"
+            # Regression trovata durante la review di questo stesso commit (25/08/2026): .NET
+            # [string]::Substring() taglia per unita' di codice UTF-16, non per caratteri veri -
+            # se il taglio cade esattamente a meta' di una coppia surrogata (es. un emoji, U+10000+)
+            # si perde il surrogato basso, lasciando un surrogato alto orfano. Riprodotto dal vivo:
+            # quella stringa passa ConvertTo-Json/round-trip in memoria senza errori, MA quando
+            # Invoke-RestMethod la converte in byte UTF-8 per la chiamata HTTP reale il surrogato
+            # orfano non e' rappresentabile e viene silenziosamente sostituito da un carattere di
+            # replacement (U+FFFD) - l'IA riceverebbe testo corrotto come contesto, senza nessun
+            # errore visibile. Corretto arretrando il taglio di una posizione quando cade su un
+            # surrogato alto, cosi' la coppia resta intera (o entrambi dentro, o entrambi fuori).
+            $cutLength = $maxHistoryCharsPerTurn
+            if ([char]::IsHighSurrogate($content[$cutLength - 1])) { $cutLength-- }
+            $content = $content.Substring(0, $cutLength) + " [...troncato per il contesto IA - il testo completo resta visibile in chat]"
         }
         @{ role = $_.role; content = $content }
     })

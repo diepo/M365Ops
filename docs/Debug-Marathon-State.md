@@ -946,5 +946,25 @@ dipendere implicitamente dal vecchio taglio a 3000 caratteri, correttezza del nu
 spostato in `Invoke-M365OpsAgentTools.ps1` (casi limite: testo `$null`/vuoto, taglio esatto al
 confine, possibile corruzione di caratteri Unicode multi-byte con `.Substring()`), correttezza
 del toggle GUI "Mostra tutto" (soglia 1500 caratteri, interazione con allegati/pulsanti di
-conferma, funzionamento sia su messaggi live sia su storico ricaricato). Esito non ancora noto al
-momento di questa dichiarazione.
+conferma, funzionamento sia su messaggi live sia su storico ricaricato). — COMPLETATO.
+
+**1 bug reale trovato e corretto, in due punti gemelli - v0.9.94**: sia `.Substring()` lato
+server (PowerShell, `Invoke-M365OpsAgentTools.ps1`) sia `.slice()` lato client (JavaScript,
+`Gui/index.html`) tagliano una stringa per unita' di codice UTF-16, non per caratteri veri - un
+taglio che cade esattamente a meta' di una coppia surrogata (es. un'emoji) lascia un surrogato
+alto orfano. Riprodotto dal vivo lato server: la stringa passa `ConvertTo-Json` senza errori, ma
+`Invoke-RestMethod` (la chiamata HTTP reale verso l'IA) converte il surrogato orfano in un
+carattere di replacement (U+FFFD) in modo silenzioso - contesto IA corrotto senza nessun errore
+visibile. Lato client stesso problema ma solo estetico (il testo completo resta comunque
+raggiungibile espandendo). Corretto in entrambi i punti arretrando il taglio di una posizione
+quando cade su un surrogato alto.
+
+**Altre aree controllate, nessun problema trovato**: grep dell'intero repository per
+`Get-M365OpsChatHistory`/`ChatHistory-` (10 file) - nessun altro punto dipendeva implicitamente
+dal vecchio taglio; `$maxPairs = 8` confermato intatto; testo `$null`/vuoto e taglio esatto al
+confine dei 3000 caratteri gestiti correttamente; toggle GUI funzionante identico su messaggi live
+e su storico ricaricato. **Verificato dal vivo end-to-end su "vnsys-test"**: risposta di 5270
+caratteri salvata per intero, turno successivo funzionante, toggle testato nel browser reale in
+entrambe le direzioni dopo il fix. Nota di trasparenza: il test dal vivo ha aggiunto 2 turni di
+chat innocui alla cronologia reale di "vnsys-test" (lasciati apposta, ripulirli avrebbe rischiato
+di cancellare cronologia vera dell'utente nello stesso file).
