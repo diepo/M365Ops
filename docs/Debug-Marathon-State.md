@@ -545,6 +545,24 @@ gia' documentato per l'isolamento reattivo Delegato in generale (vedi open item 
 Da verificare quando l'utente prova di persona il nuovo pulsante "Connetti Teams" su un tenant
 Delegato.
 
+## Fuori maratona: nota sorgente estesa a OGNI interazione (v0.9.87)
+
+Seguito diretto del v0.9.86 (sopra): segnalato dal vivo dall'utente che "dammi i fattori mfa di
+X" non mostrava nessuna nota - quella domanda matcha un comando del catalogo locale
+(`Gui/CommandCatalog.ps1`, `RequiresAI=$false`), percorso completamente diverso da
+`Invoke-M365OpsAgentTools`. Estratta `Get-M365OpsAiProviderLabel` (Private, condivisa) e applicata
+la nota a tre punti in `Gui/Server.ps1`: dispatch catalogo (con e senza IA, inclusi gli errori),
+diagnosi/correzione scritture fallite, fallback dopo un errore del loop AI principale. Verificato
+dal vivo MfaStatus (nessuna IA) e CompliancePatterns (IA reale). Commit `517e7f9`.
+
+**Agente "Regression check v0.9.87"** (general-purpose, background) — AVVIATO 24/08/2026, su
+richiesta esplicita dell'utente ("doipo fai girare agente esteno per debug"). Scope: SOLO il
+commit `517e7f9` - in particolare se il pattern generico di append della nota funziona per TUTTE
+le ~20 voci del catalogo (non solo le 2 gia' testate), eventuale collisione con
+`$script:LastReportPath`/`$attachments` o con parser lato GUI, e raggiungibilita' reale di
+`Get-M365OpsAiProviderLabel` da `Gui/Server.ps1`. Esito non ancora noto al momento di questa
+dichiarazione.
+
 Marathon Report (artifact) aggiornato in parallelo con una nuova sezione 12 dedicata a questo
 lavoro - vedi `https://claude.ai/code/artifact/201ca6a9-4334-492c-af59-b6e5c5118be2`.
 
