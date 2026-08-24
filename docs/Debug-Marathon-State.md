@@ -872,3 +872,20 @@ del documento - verificato dal vivo che il percorso di fallback funziona corrett
 
 Tutti e 3 i fix riverificati dal vivo end-to-end, incluso un test completo nella GUI reale nel
 browser dopo ogni correzione. Spedito in v0.9.91.
+
+## Seguito: conteggio token nella nota "Elaborata da IA" (v0.9.92)
+
+Richiesta esplicita dell'utente, con richiesta di verifica preventiva su eventuali rallentamenti:
+il conteggio token (spediti/ricevuti/dalla cache) arriva GRATIS nello stesso campo "usage" gia'
+presente in ogni risposta HTTP di Claude/Azure OpenAI - confermato leggendo la struttura reale
+della risposta prima di implementare, zero chiamate aggiuntive, zero latenza in piu'.
+
+Aggiunto un parametro opzionale `-ReturnUsage` a `Invoke-M365OpsAgent` (Public) - default `$false`,
+comportamento esistente delle altre ~5 funzioni chiamanti (`Invoke-M365OpsErrorTriage`,
+`Get-M365OpsCompliancePatterns`, ecc.) rimasto identico, verificato dal vivo (`CompliancePatterns`
+del catalogo continua a restituire una stringa semplice come prima). Usato per ora solo in
+`/api/analyze-headers-ai`: nota finale diventa "Elaborata da IA: Y (N token inviati, M ricevuti[,
+di cui K dalla cache])". Verificato dal vivo con una chiamata reale (1095 inviati, 631 ricevuti).
+Spedito in v0.9.92. Scope deliberatamente limitato alla sola route richiesta dall'utente
+("in questo caso dell'analisi") - estendere la nota token alle altre interazioni IA (loop
+tool-calling generale, triage errori, ecc.) resta un lavoro futuro se richiesto.

@@ -12,6 +12,18 @@ function Invoke-M365OpsAgent {
         (spesso il motore sotto al brand Copilot) — usa quel provider se ti serve restare
         nell'ecosistema Microsoft/Azure.
 
+    .PARAMETER ReturnUsage
+        Se presente, restituisce un pscustomobject { Text; InputTokens; OutputTokens;
+        CachedTokens } invece della sola stringa di testo (25/08/2026, richiesto esplicitamente
+        dall'utente per mostrare quanti token sono stati spesi in una specifica interazione IA -
+        l'analizzatore intestazioni per primo). Il conteggio arriva GRATIS nella stessa risposta
+        HTTP gia' attesa per il testo (campo "usage" di entrambe le API, Claude e Azure OpenAI) -
+        nessuna chiamata aggiuntiva, nessun costo di latenza in piu' (verificato leggendo la
+        struttura della risposta prima di implementare, non assunto). Default $false per NON
+        toccare il contratto esistente delle altre ~5 funzioni che chiamano gia' questa e si
+        aspettano una stringa semplice (Invoke-M365OpsErrorTriage, Invoke-M365OpsActionRecovery,
+        Get-M365OpsCompliancePatterns, ecc.) - estendere quelle a un uso piu' ampio di questo
+        parametro resta un lavoro futuro separato, non fatto qui per non rischiare di romperle.
     .EXAMPLE
         Invoke-M365OpsAgent -Prompt "Raggruppa questi dispositivi non conformi per causa comune" -Context $devicesJson
     #>
@@ -19,7 +31,8 @@ function Invoke-M365OpsAgent {
         [Parameter(Mandatory)] [string]$Prompt,
         [string]$Context,
         [ValidateSet('Claude', 'AzureOpenAI')] [string]$Provider = 'Claude',
-        [int]$MaxTokens = 2000
+        [int]$MaxTokens = 2000,
+        [switch]$ReturnUsage
     )
 
     $fullPrompt = if ($Context) { "$Prompt`n`n--- DATI (JSON grezzo) ---`n$Context" } else { $Prompt }
@@ -48,6 +61,14 @@ function Invoke-M365OpsAgent {
                 # applicato qui: un contenuto vuoto arrivava fino al chiamante senza spiegazione.
                 Write-M365OpsLog "Claude (Invoke-M365OpsAgent): risposta vuota (stop_reason=$($response.stop_reason))" -Level Error
                 $claudeText = "Il modello non ha prodotto una risposta (motivo interno: $($response.stop_reason)) - prova a riformulare in modo piu' semplice."
+            }
+            if ($ReturnUsage) {
+                return [pscustomobject]@{
+                    Text         = $claudeText
+                    InputTokens  = $response.usage.input_tokens
+                    OutputTokens = $response.usage.output_tokens
+                    CachedTokens = $response.usage.cache_read_input_tokens
+                }
             }
             return $claudeText
         }
@@ -110,6 +131,14 @@ function Invoke-M365OpsAgent {
                 # esattamente questo sintomo).
                 Write-M365OpsLog "Azure OpenAI (Invoke-M365OpsAgent): risposta vuota (finish_reason=$($response.choices[0].finish_reason), completion_tokens=$($response.usage.completion_tokens), reasoning_tokens=$($response.usage.completion_tokens_details.reasoning_tokens))" -Level Error
                 $azureText = "Il modello non ha prodotto una risposta (motivo interno: $($response.choices[0].finish_reason)) - prova a riformulare in modo piu' semplice."
+            }
+            if ($ReturnUsage) {
+                return [pscustomobject]@{
+                    Text         = $azureText
+                    InputTokens  = $response.usage.prompt_tokens
+                    OutputTokens = $response.usage.completion_tokens
+                    CachedTokens = $response.usage.prompt_tokens_details.cached_tokens
+                }
             }
             return $azureText
         }

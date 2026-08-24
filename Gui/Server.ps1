@@ -2069,8 +2069,16 @@ try {
                         $analysis = Get-M365OpsMessageHeaderAnalysis -RawText $body.rawText
                         $analysisJson = $analysis | Select-Object -ExcludeProperty RawText | ConvertTo-Json -Depth 10 -Compress
                         $prompt = "Un amministratore IT ha incollato delle intestazioni email o un blocco di diagnostica NDR di Exchange Online per capire perche' un'email non e' stata consegnata o e' arrivata in ritardo. Sotto trovi (1) l'analisi GIA' calcolata in locale (hop di consegna con ritardi, esito SPF/DKIM/DMARC, rapporto antispam, o il codice NDR se e' un rimbalzo) e (2) il testo originale incollato. Spiega in italiano semplice, per un amministratore IT non necessariamente esperto di SMTP: cosa e' successo, la causa PIU' probabile (basandoti sui dati reali sopra, non su ipotesi generiche), e i prossimi passi concreti di troubleshooting. Se l'analisi locale ha gia' segnalato delle osservazioni (campo Warnings), usale come punto di partenza principale invece di ripartire da zero. Sii specifico e concreto, non generico.`n`n--- ANALISI LOCALE (JSON) ---`n$analysisJson`n`n--- TESTO ORIGINALE INCOLLATO ---`n$($body.rawText)"
-                        $aiText = Invoke-M365OpsAgent -Prompt $prompt -Provider $script:ActiveAIProvider -MaxTokens 1500
-                        $aiText += "`n`n_Elaborata da IA: $(Get-M365OpsAiProviderLabel -Provider $script:ActiveAIProvider)._"
+                        # -ReturnUsage (25/08/2026, richiesto esplicitamente dall'utente, con la
+                        # richiesta esplicita di verificare PRIMA che non introduca rallentamenti):
+                        # il conteggio token arriva GRATIS nella stessa risposta HTTP gia' attesa
+                        # per il testo (campo "usage" di Claude/Azure OpenAI) - zero chiamate in
+                        # piu', zero latenza aggiuntiva, verificato leggendo la struttura della
+                        # risposta prima di usarla, non assunto.
+                        $aiResult = Invoke-M365OpsAgent -Prompt $prompt -Provider $script:ActiveAIProvider -MaxTokens 1500 -ReturnUsage
+                        $tokenNote = "$($aiResult.InputTokens) token inviati, $($aiResult.OutputTokens) ricevuti"
+                        if ($aiResult.CachedTokens -gt 0) { $tokenNote += ", di cui $($aiResult.CachedTokens) dalla cache" }
+                        $aiText = $aiResult.Text + "`n`n_Elaborata da IA: $(Get-M365OpsAiProviderLabel -Provider $script:ActiveAIProvider) ($tokenNote)._"
                         $json = (@{ ok = $true; text = $aiText } | ConvertTo-Json -Compress)
                     } catch {
                         $json = (@{ ok = $false; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
