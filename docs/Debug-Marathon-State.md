@@ -646,7 +646,8 @@ specifici, non nuovi bug indipendenti.
 
 **RIPARTITO** 24/08/2026 subito dopo la chiusura di fase sopra (limite di sessione presumibilmente
 resettato, 23:40 Europe/Rome gia' passate) - stesso identico task, retry pulito (l'agente
-precedente non aveva prodotto nessuna modifica prima di fermarsi). — COMPLETATO. Scope rivisto:
+precedente non aveva prodotto nessuna modifica prima di fermarsi). — COMPLETATO (dettaglio piu'
+sotto). Scope rivisto:
 `git diff e79355f..45166a6` (il range originale `462213f..45166a6` escludeva per un dettaglio
 tecnico le modifiche del commit 462213f stesso, che E' il commit v0.9.81 - ampliato al genitore
 per coprire l'intero blocco descritto nel task).
@@ -680,3 +681,21 @@ L'unico task lasciato esplicitamente a meta' e' l'autoreview dedicato del blocco
 Nessun nuovo residuo di test lasciato sul tenant in questa fase (tutti i cicli crea/elimina
 verificati con query indipendenti). Report narrativo aggiornato in parallelo ad ogni chiusura:
 `https://claude.ai/code/artifact/201ca6a9-4334-492c-af59-b6e5c5118be2`.
+
+## Fuori maratona: nota "elaborata da IA" sempre presente in chat (v0.9.86)
+
+Richiesta diretta dell'utente (24/08/2026), non parte del giro di audit sistematico ma un fix
+mirato: durante un'analisi sui token spediti alle API IA (richiesta separata, vedi conversazione),
+l'utente ha chiesto di rendere sempre visibile in chat QUALE motore IA ha risposto, non solo quali
+dati sono stati consultati - prima la nota "Fonte dati: ..." compariva solo se almeno un tool era
+stato chiamato, lasciando una risposta puramente conversazionale senza nessuna indicazione che
+fosse comunque stata scritta dall'IA. Implementato in `Invoke-M365OpsAgentTools.ps1`: nuova
+`$aiProviderLabel` (Claude Sonnet 4.5 o Azure OpenAI), applicata sui tre punti di uscita della
+funzione. Verificato dal vivo entrambe le varianti su "vnsys-test". Commit `93909d2`.
+
+**Agente "Regression check v0.9.86"** (general-purpose, background) — AVVIATO 24/08/2026, su
+richiesta esplicita dell'utente ("spinna agente di debug per verificare assenza di regressioni").
+Scope: SOLO il commit `93909d2` (`git diff 86339fb..93909d2`) - il pattern `+= if(){} else{}`
+usato ai tre punti di uscita, lo scope di `$Provider`/`$aiProviderLabel`, eventuale interferenza
+con `PendingWrite`/`Attachments` o con un parsing lato GUI del testo "Fonte dati:". Esito non
+ancora noto al momento di questa dichiarazione.
