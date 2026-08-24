@@ -911,3 +911,31 @@ corretta "506 token inviati, 488 ricevuti", clausola cache correttamente omessa 
 Confermato anche che `cache_read_input_tokens` per Claude sara' sempre 0 in pratica (nessun
 `cache_control` mai inviato in questo progetto, solo un commento storico) - gestito
 correttamente dalla guardia `-gt 0`.
+
+## Seguito: risposte lunghe non piu' tagliate dopo reload + toggle "Mostra tutto" (v0.9.93)
+
+Segnalato dal vivo dall'utente con uno screenshot: un'analisi lunga (pattern di non conformita'
+dispositivi) appariva tagliata a meta' frase con "[...troncato]" - non nella risposta live, ma
+dopo un ricaricamento della pagina.
+
+**Causa reale trovata**: `Add-M365OpsChatHistoryTurn.ps1` troncava a 3000 caratteri PRIMA di
+salvare su disco - lo stesso file serve pero' due scopi opposti: ridisegnare la chat per l'utente
+(dove serve il testo COMPLETO) e fornire contesto all'IA nei turni successivi (dove un limite di
+lunghezza e' corretto per non gonfiare costo/tempo di risposta). Lo stesso taglio applicato a
+entrambi cancellava per sempre la coda del testo anche per la visualizzazione umana.
+
+**Corretto separando i due scopi** (richiesto esplicitamente: "implementa una cosa che non rompa
+quanto gia' fatto finora"): `Add-M365OpsChatHistoryTurn.ps1` ora salva SEMPRE il testo completo
+(solo la redazione password resta); il limite di 3000 caratteri si sposta SOLO al punto in cui lo
+storico diventa contesto IA (`Invoke-M365OpsAgentTools.ps1`, nuova `$maxHistoryCharsPerTurn`).
+Aggiunto anche, su richiesta esplicita, un pulsante "Mostra tutto"/"Mostra meno" lato GUI per i
+messaggi oltre 1500 caratteri - un limite puramente di leggibilita', mai di perdita di contenuto.
+
+**Verificato dal vivo end-to-end su "vnsys-test"**: risposta di 5091 caratteri salvata per intero
+(nessun `[...troncato]`, confermato via `GET /api/chat/history`); un turno successivo che usa
+quello storico come contesto continua a funzionare correttamente (riassunto coerente, nessun
+errore); pulsante "Mostra tutto"/"Mostra meno" testato nel browser reale, espansione e
+ricompressione funzionanti in entrambe le direzioni su piu' messaggi.
+
+Spedito in v0.9.93. Su richiesta esplicita dell'utente ("a valle rifai tutte le verifiche con gli
+agent di debug"), agenti di regressione da avviare subito dopo questa dichiarazione - vedi sotto.

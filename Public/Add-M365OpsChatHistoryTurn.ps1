@@ -2,13 +2,27 @@ function Add-M365OpsChatHistoryTurn {
     <#
     .SYNOPSIS
         Aggiunge uno scambio (utente + risposta) allo storico conversazione locale del tenant e
-        salva su disco, con un tetto su numero di scambi e lunghezza di ciascun messaggio - senza
-        limite, un report/elenco dispositivi lungo finirebbe reinviato per intero ad ogni chiamata
-        AI successiva, gonfiando costo e tempo di risposta ad ogni turno.
+        salva su disco, con un tetto sul numero di scambi conservati (gli ultimi $maxPairs).
     .NOTES
         Prima di salvare, redige eventuali password in chiaro presenti nel testo (es. corpo JSON di
         una scrittura utente proposta con passwordProfile) - principio "zero segreti su disco" gia'
         applicato a tenants.json, qui esteso ai segreti che possono comparire DENTRO una conversazione.
+
+        Bug reale trovato dal vivo il 25/08/2026 (segnalato dall'utente: un'analisi lunga in chat
+        appariva tagliata a meta' frase con "[...troncato]" - non nella risposta live appena
+        ricevuta, ma dopo un ricaricamento della pagina): questa funzione troncava il testo a
+        3000 caratteri PRIMA di salvarlo su disco - lo stesso file salvato viene pero' usato per
+        DUE scopi diversi con esigenze opposte: (1) ridisegnare la chat per l'utente al
+        caricamento pagina (GET /api/chat/history), dove va mostrato il testo COMPLETO, mai
+        tagliato; (2) fornire contesto conversazionale all'IA nei turni successivi
+        (Invoke-M365OpsAgentTools.ps1), dove un limite di lunghezza resta una scelta corretta per
+        non gonfiare costo/tempo di risposta reinviando per intero un report lungo ad ogni
+        chiamata. Il taglio a 3000 caratteri qui applicato ad ENTRAMBI gli scopi cancellava per
+        sempre la parte finale del testo anche per la visualizzazione umana, l'unico caso dove
+        non ha senso. Corretto separando i due scopi: qui si salva SEMPRE il testo completo (solo
+        la redazione password resta), il limite di lunghezza per il contesto IA si applica ora
+        SOLO al momento di costruire i messaggi per l'IA (vedi Invoke-M365OpsAgentTools.ps1,
+        $maxHistoryCharsPerTurn), mai qui.
     #>
     param(
         [Parameter(Mandatory)] [string]$TenantName,
@@ -19,14 +33,12 @@ function Add-M365OpsChatHistoryTurn {
 
     if (-not $UserText -and -not $AssistantText) { return }
 
-    $maxCharsPerTurn = 3000
     $maxPairs = 8
 
     $redact = {
         param($s)
         if (-not $s) { return $s }
         $s = $s -replace '("password"\s*:\s*")[^"]*(")', '$1[REDACTED]$2'
-        if ($s.Length -gt $maxCharsPerTurn) { $s = $s.Substring(0, $maxCharsPerTurn) + " [...troncato]" }
         return $s
     }
 

@@ -667,9 +667,35 @@
     header.appendChild(timeTag);
     const body = document.createElement('div');
     body.className = 'mono';
-    body.textContent = text;
     div.appendChild(header);
     div.appendChild(body);
+
+    // "Mostra tutto" (25/08/2026, richiesto esplicitamente dall'utente dopo aver notato un
+    // messaggio tagliato con "[...troncato]" - causa reale gia' corretta lato server (vedi
+    // Add-M365OpsChatHistoryTurn.ps1/Invoke-M365OpsAgentTools.ps1: quel taglio serviva SOLO a
+    // limitare il contesto rimandato all'IA, mai a nascondere testo all'utente - ora il testo
+    // arriva qui SEMPRE completo). Questo e' un secondo limite, puramente di leggibilita' nella
+    // GUI, non di perdita di contenuto: un messaggio molto lungo (es. un'analisi dettagliata a
+    // piu' paragrafi) resta collassato di default per non dominare lo schermo, ma l'intero
+    // testo e' sempre raggiungibile con un click - nessun dato scartato, solo nascosto finche'
+    // non richiesto esplicitamente.
+    const CHAT_COLLAPSE_THRESHOLD = 1500;
+    if (text && text.length > CHAT_COLLAPSE_THRESHOLD) {
+      let expanded = false;
+      const renderBody = () => { body.textContent = expanded ? text : text.slice(0, CHAT_COLLAPSE_THRESHOLD) + '…'; };
+      renderBody();
+      const toggle = document.createElement('button');
+      toggle.textContent = 'Mostra tutto';
+      toggle.style.cssText = 'margin-top:6px; font-size:11.5px; background:var(--surface-alt); border:1px solid var(--border); border-radius:var(--radius-sm); padding:3px 10px; cursor:pointer;';
+      toggle.addEventListener('click', () => {
+        expanded = !expanded;
+        renderBody();
+        toggle.textContent = expanded ? 'Mostra meno' : 'Mostra tutto';
+      });
+      div.appendChild(toggle);
+    } else {
+      body.textContent = text;
+    }
 
     if (attachments && attachments.length > 0) {
       const files = document.createElement('div');

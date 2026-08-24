@@ -1042,7 +1042,23 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
     # stessa filosofia gia' in uso per la rete di sicurezza sull'OUTPUT (righe piu' sotto),
     # ora anche sull'INPUT. Corretto anche il chiamante in Server.ps1 (@(...) su entrambe le
     # chiamate a Get-M365OpsChatHistory) per la causa radice vera e propria.
-    $messages = @($History | Where-Object { $_ } | ForEach-Object { @{ role = $_.role; content = $_.text } })
+    # Limite di lunghezza per turno SOLO qui, non piu' in Add-M365OpsChatHistoryTurn.ps1
+    # (spostato il 25/08/2026, bug reale segnalato dal vivo: lo stesso taglio applicato anche al
+    # salvataggio su disco cancellava per sempre la parte finale di risposte lunghe pure nella
+    # visualizzazione umana, l'unico scopo per cui NON ha senso un limite - vedi il commento
+    # esteso in quel file per la storia completa). Qui invece il limite resta corretto: e' il
+    # punto in cui lo storico diventa contesto per l'IA, dove un turno molto lungo (es. un'analisi
+    # dettagliata di piu' migliaia di caratteri) reinviato per intero ad ogni round/turno
+    # successivo gonfierebbe inutilmente costo e tempo di risposta - lo stesso valore (3000)
+    # gia' in uso prima, solo spostato al punto giusto.
+    $maxHistoryCharsPerTurn = 3000
+    $messages = @($History | Where-Object { $_ } | ForEach-Object {
+        $content = $_.text
+        if ($content -and $content.Length -gt $maxHistoryCharsPerTurn) {
+            $content = $content.Substring(0, $maxHistoryCharsPerTurn) + " [...troncato per il contesto IA - il testo completo resta visibile in chat]"
+        }
+        @{ role = $_.role; content = $content }
+    })
     $messages += @{ role = "user"; content = $Prompt }
 
     for ($round = 0; $round -lt $MaxRounds; $round++) {
