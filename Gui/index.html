@@ -258,6 +258,7 @@
     <button class="tab-btn" data-tab="ai">Motore AI</button>
     <button class="tab-btn" data-tab="mcp">MCP / Connettori</button>
     <button class="tab-btn" data-tab="email">Email</button>
+    <button class="tab-btn" data-tab="headers">Intestazioni email</button>
     <button class="tab-btn" data-tab="maint">Manutenzione</button>
   </div>
 
@@ -509,6 +510,18 @@
       </div>
     </div>
     <p class="hint" style="margin-top:14px;">Dopo aver generato un report (CSV/Excel/PDF) in chat, scrivi "invialo per email a indirizzo@dominio.it" per spedirlo come allegato.</p>
+  </div>
+
+  <div class="tab-panel" id="tab-headers" style="display:none;">
+    <h2>Analizza intestazioni email</h2>
+    <p class="hint">Incolla le intestazioni complete di un'email (da "Visualizza origine messaggio"/"Visualizza dettagli messaggio Internet" in Outlook) oppure un blocco di diagnostica NDR/message-trace di Exchange (es. l'output di <code>Get-MessageTrace</code>, o un rimbalzo incollato da un'email di errore) - il formato viene riconosciuto automaticamente. L'analisi avviene interamente in locale, nessun dato lascia questo PC finche' non premi esplicitamente "Chiedi all'IA".</p>
+    <textarea id="headers-input" rows="10" style="width:100%; font-family:'IBM Plex Mono', ui-monospace, monospace; font-size:12px; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); resize:vertical;" placeholder="Incolla qui le intestazioni email o il blocco NDR..."></textarea>
+    <div class="actions" style="margin-top:10px;">
+      <button id="headers-analyze-btn">Analizza</button>
+      <button id="headers-clear-btn" style="background:var(--surface-alt);">Pulisci</button>
+      <span id="headers-status-msg"></span>
+    </div>
+    <div id="headers-result" style="margin-top:16px;"></div>
   </div>
 
   <div class="tab-panel" id="tab-maint" style="display:none;">
@@ -1789,6 +1802,162 @@
       status.textContent = data.text || 'Salvato.';
     } catch (e) {
       status.textContent = 'Errore: ' + e.message;
+    }
+  });
+
+  // --- Analizza intestazioni email / NDR (25/08/2026, richiesto esplicitamente dall'utente
+  // dopo un caso reale di troubleshooting NDR - replica in locale l'analisi di
+  // https://mha.azurewebsites.net, senza mai mandare le intestazioni a un servizio esterno per
+  // il parsing: solo il pulsante "Chiedi all'IA", separato ed esplicito, manda il testo
+  // all'IA gia' configurata in questa app, stesso principio di ogni altra funzione IA qui). ---
+  function escapeHtmlHeaders(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function renderHeadersResult(data) {
+    const e = escapeHtmlHeaders;
+    let html = '';
+
+    if (data.warnings && data.warnings.length > 0) {
+      html += `<div style="background:var(--warn-soft); border:1px solid var(--warn); border-radius:var(--radius-sm); padding:10px 14px; margin-bottom:14px; font-size:12.5px;">
+        <strong>Osservazioni:</strong><ul style="margin:6px 0 0; padding-left:18px;">${data.warnings.map(w => `<li>${e(w)}</li>`).join('')}</ul>
+      </div>`;
+    }
+
+    if (data.kind === 'Ndr') {
+      const n = data.ndr || {};
+      html += `<div style="background:var(--surface-alt); border-radius:var(--radius-sm); padding:12px 14px; font-size:12.5px;">
+        <h3 style="margin-top:0;">Diagnostica NDR</h3>
+        <table style="width:100%; border-collapse:collapse;">
+          <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">Codice SMTP</td><td>${e(n.smtpCode) || '—'}</td></tr>
+          <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">Codice esteso</td><td>${e(n.enhancedCode) || '—'}</td></tr>
+          <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">Messaggio</td><td>${e(n.text) || '—'}</td></tr>
+          <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">Server (FQDN)</td><td>${e(n.fqdn) || '—'}</td></tr>
+          <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">IP</td><td>${e(n.ip) || '—'}</td></tr>
+          <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">Ultimo tentativo</td><td>${e(n.lastRetryTime) || '—'}</td></tr>
+        </table>
+      </div>`;
+      return html;
+    }
+
+    const s = data.summary || {};
+    html += `<div style="background:var(--surface-alt); border-radius:var(--radius-sm); padding:12px 14px; font-size:12.5px; margin-bottom:14px;">
+      <h3 style="margin-top:0;">Riepilogo</h3>
+      <table style="width:100%; border-collapse:collapse;">
+        <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">Oggetto</td><td>${e(s.subject) || '—'}</td></tr>
+        <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">Message-ID</td><td style="word-break:break-all;">${e(s.messageId) || '—'}</td></tr>
+        <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">Data</td><td>${e(s.date) || '—'}</td></tr>
+        <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">Da</td><td>${e(s.from) || '—'}</td></tr>
+        <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">A</td><td>${e(s.to) || '—'}</td></tr>
+        ${s.cc ? `<tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">Cc</td><td>${e(s.cc)}</td></tr>` : ''}
+      </table>
+    </div>`;
+
+    if (data.hops && data.hops.length > 0) {
+      html += `<div style="overflow-x:auto; margin-bottom:14px;"><table style="width:100%; border-collapse:collapse; font-size:12px;">
+        <thead><tr style="background:var(--surface-alt); text-align:left;">
+          <th style="padding:6px 8px;">Hop</th><th style="padding:6px 8px;">Da</th><th style="padding:6px 8px;">A</th><th style="padding:6px 8px;">Tipo</th><th style="padding:6px 8px;">Ora</th><th style="padding:6px 8px;">Ritardo</th>
+        </tr></thead><tbody>
+        ${data.hops.map(h => {
+          const slow = h.delaySec !== null && h.delaySec >= 60;
+          return `<tr style="border-top:1px solid var(--border);">
+            <td style="padding:6px 8px;">${h.hop}</td>
+            <td style="padding:6px 8px; word-break:break-all;">${e(h.from)}</td>
+            <td style="padding:6px 8px; word-break:break-all;">${e(h.by) || '—'}</td>
+            <td style="padding:6px 8px;">${e(h.type) || '—'}</td>
+            <td style="padding:6px 8px; white-space:nowrap;">${e(h.time) || '—'}</td>
+            <td style="padding:6px 8px; ${slow ? 'color:var(--warn); font-weight:600;' : ''}">${h.delaySec === null ? '—' : h.delaySec + ' s'}</td>
+          </tr>`;
+        }).join('')}
+        </tbody></table></div>`;
+    }
+
+    if (data.authentication) {
+      const a = data.authentication;
+      const badge = (label, v) => {
+        if (!v) return '';
+        const color = v === 'pass' ? 'var(--ok)' : (v === 'none' ? 'var(--text-muted)' : 'var(--critical)');
+        return `<span style="display:inline-block; margin-right:10px; padding:3px 8px; border-radius:var(--radius-sm); border:1px solid ${color}; color:${color}; font-size:11.5px; font-weight:600;">${label}: ${e(v)}</span>`;
+      };
+      html += `<div style="margin-bottom:14px;"><h3 style="margin:0 0 8px;">Autenticazione</h3>${badge('SPF', a.spf)}${badge('DKIM', a.dkim)}${badge('DMARC', a.dmarc)}${badge('Compauth', a.compAuth)}</div>`;
+    }
+
+    if (data.antispamReport && data.antispamReport.fields) {
+      const fields = data.antispamReport.fields;
+      html += `<div style="margin-bottom:14px;"><h3 style="margin:0 0 8px;">Rapporto antispam (X-Forefront-Antispam-Report)</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:12px;">
+        ${Object.keys(fields).map(k => `<tr style="border-top:1px solid var(--border);">
+          <td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap; vertical-align:top;">${e(k)}</td>
+          <td style="padding:4px 8px; word-break:break-all;">${e(fields[k].value)}</td>
+          <td style="padding:4px 0; color:var(--text-muted); font-size:11px;">${e(fields[k].label) || ''}</td>
+        </tr>`).join('')}
+        </table></div>`;
+    }
+
+    return html;
+  }
+
+  let lastHeadersRawText = '';
+
+  document.getElementById('headers-clear-btn').addEventListener('click', () => {
+    document.getElementById('headers-input').value = '';
+    document.getElementById('headers-result').innerHTML = '';
+    document.getElementById('headers-status-msg').textContent = '';
+  });
+
+  document.getElementById('headers-analyze-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('headers-analyze-btn');
+    const status = document.getElementById('headers-status-msg');
+    const resultEl = document.getElementById('headers-result');
+    const rawText = document.getElementById('headers-input').value;
+    if (!rawText.trim()) { status.textContent = 'Incolla prima qualcosa da analizzare.'; return; }
+    lastHeadersRawText = rawText;
+    btn.disabled = true;
+    status.textContent = 'analisi in corso...';
+    resultEl.innerHTML = '';
+    try {
+      const res = await fetch('/api/analyze-headers', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rawText })
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        status.textContent = 'Errore: ' + (data.text || 'sconosciuto');
+        btn.disabled = false;
+        return;
+      }
+      status.textContent = '';
+      resultEl.innerHTML = renderHeadersResult(data) + `
+        <div class="actions" style="margin-top:10px;">
+          <button id="headers-ai-btn">Chiedi all'IA una spiegazione in chiaro</button>
+          <span id="headers-ai-status"></span>
+        </div>
+        <div id="headers-ai-result" style="margin-top:10px; white-space:pre-wrap; font-size:13px;"></div>`;
+      document.getElementById('headers-ai-btn').addEventListener('click', async (ev) => {
+        const aiBtn = ev.currentTarget;
+        const aiStatus = document.getElementById('headers-ai-status');
+        const aiResult = document.getElementById('headers-ai-result');
+        aiBtn.disabled = true;
+        aiStatus.textContent = 'l\'IA sta analizzando...';
+        try {
+          const aiRes = await fetch('/api/analyze-headers-ai', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rawText: lastHeadersRawText })
+          });
+          const aiData = await aiRes.json();
+          aiStatus.textContent = '';
+          aiResult.textContent = aiData.text || 'Nessuna risposta.';
+          aiBtn.disabled = false;
+        } catch (e) {
+          aiStatus.textContent = 'Errore: ' + e.message;
+          aiBtn.disabled = false;
+        }
+      });
+      btn.disabled = false;
+    } catch (e) {
+      status.textContent = 'Errore di comunicazione: ' + e.message;
+      btn.disabled = false;
     }
   });
 

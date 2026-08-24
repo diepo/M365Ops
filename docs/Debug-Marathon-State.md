@@ -782,3 +782,47 @@ come gruppo, incontrato un vero limite di permesso Planner e caduto correttament
 invece che su `get_group_overview`, cache-hit 93-98% su tutti i 6 round). In nessuno dei 6 scenari
 totali (3 miei + 3 dell'agente) il modello ha mai usato una delle 6 scorciatoie escluse in
 precedenza.
+
+## Fuori maratona: nuova funzionalita' - analisi intestazioni email/NDR con IA (v0.9.90)
+
+**Non un fix, una funzionalita' nuova**: richiesta esplicitamente dall'utente durante un caso
+reale di troubleshooting (un NDR "550 5.4.1 Recipient address rejected: Access denied" da un
+apparato FortiAnalyzer, inoltrato in chat da un collega dell'utente). Dopo aver diagnosticato quel
+caso specifico con ricerca web (confermato: quasi sempre Directory-Based Edge Blocking sul lato
+destinatario, non un problema di relay/IP come il nome del codice farebbe pensare), l'utente ha
+chiesto di integrare l'equivalente del Message Header Analyzer di Microsoft
+(`https://mha.azurewebsites.net`) dentro M365Ops, con un collegamento al motore IA per la
+spiegazione.
+
+**Cosa e' stato costruito**: nuovo file `Private/Get-M365OpsMessageHeaderAnalysis.ps1` (parser
+locale, zero dipendenze esterne, zero chiamate di rete per il solo parsing) che riconosce
+automaticamente due formati - intestazioni RFC 5322 complete (hop di consegna con ritardo
+calcolato, SPF/DKIM/DMARC, rapporto antispam X-Forefront-Antispam-Report decodificato) oppure un
+blocco di diagnostica NDR/message-trace di Exchange (codice SMTP/esteso scomposto, con
+spiegazione mirata per i pattern piu' comuni, es. 5.4.1). Nuova tab "Intestazioni email" nel
+pannello impostazioni (`Gui/index.html`), due nuove route in `Gui/Server.ps1`
+(`/api/analyze-headers` per il parsing puro, `/api/analyze-headers-ai` per la spiegazione IA -
+quest'ultima SOLO su click esplicito separato, mai automatica, con la stessa nota "Elaborata da
+IA" del v0.9.86/87 per coerenza).
+
+**1 bug reale trovato e corretto durante il test dal vivo** (non un caso costruito a mano - il
+blocco NDR reale incollato dall'utente in questa stessa conversazione): il valore LED del blocco
+NDR arriva spesso spezzato su piu' righe (l'ID di tracciamento tra parentesi quadre va a capo da
+solo) - `.` non matcha mai un a-capo in .NET regex senza l'opzione Singleline, quindi l'estrazione
+di SmtpCode/EnhancedCode/Text falliva sempre silenziosamente su un LED multi-riga pur avendo
+catturato correttamente il testo grezzo. Corretto normalizzando spazi/a-capo in una singola
+stringa prima di estrarre i codici.
+
+**Verificato dal vivo, end-to-end, su piu' livelli**: unit test diretto del parser (formato
+intestazioni: 5 hop, ritardi 0/1/0/4 secondi, identico all'output di riferimento screenshot di
+Microsoft Message Header Analyzer fornito dall'utente; formato NDR: codici estratti correttamente
+dopo il fix); chiamata diretta alle due nuove route HTTP sul server reale (`localhost:8745`,
+riavviato per caricare il nuovo codice); **test nella GUI vera nel browser** (tab aperta, testo
+incollato via `form_input`, pulsante "Analizza" cliccato, risultato HTML verificato via
+`innerText` - riepilogo/hop/autenticazione/antispam tutti corretti; pulsante "Chiedi all'IA"
+cliccato, risposta reale di Azure OpenAI ricevuta e verificata, diagnosi corretta e coerente con
+l'analisi locale, nota "Elaborata da IA" presente). Il caso NDR reale FortiAnalyzer di questa
+conversazione e' stato usato come test end-to-end: la spiegazione IA ha correttamente identificato
+il Directory-Based Edge Blocking come causa piu' probabile, stessa diagnosi gia' data in chat con
+ricerca web manuale - confermando che lo strumento locale ora rende quella stessa qualita' di
+diagnosi disponibile senza bisogno di una ricerca esterna ogni volta.

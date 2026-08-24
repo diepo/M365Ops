@@ -84,4 +84,8 @@ $customNames = Get-ChildItem -Path $script:M365OpsCustomScriptsPath -Filter '*.p
 # interazione, non solo al loop AI con tool-calling, richiesto esplicitamente dall'utente):
 # Gui\Server.ps1 la chiama direttamente sia per il catalogo comandi locali (voci con
 # RequiresAI=$true) sia per il percorso di triage/recovery errori via AI.
-Export-ModuleMember -Function (@($publicNames) + @($customNames) + 'Invoke-M365OpsGraphRequest' + 'Get-M365OpsNormalizedChatText' + 'Start-M365OpsIsolatedModuleConnectAsync' + 'Get-M365OpsIsolatedModuleConnectAsyncStatus' + 'Get-M365OpsAiProviderLabel')
+# Get-M365OpsMessageHeaderAnalysis aggiunta il 25/08/2026 (analisi intestazioni email/NDR in
+# GUI, richiesta esplicitamente dall'utente): Gui\Server.ps1 la chiama direttamente sia per il
+# parsing locale (/api/analyze-headers) sia per costruire il contesto strutturato passato
+# all'IA (/api/analyze-headers-ai).
+Export-ModuleMember -Function (@($publicNames) + @($customNames) + 'Invoke-M365OpsGraphRequest' + 'Get-M365OpsNormalizedChatText' + 'Start-M365OpsIsolatedModuleConnectAsync' + 'Get-M365OpsIsolatedModuleConnectAsyncStatus' + 'Get-M365OpsAiProviderLabel' + 'Get-M365OpsMessageHeaderAnalysis')
