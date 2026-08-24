@@ -939,3 +939,12 @@ ricompressione funzionanti in entrambe le direzioni su piu' messaggi.
 
 Spedito in v0.9.93. Su richiesta esplicita dell'utente ("a valle rifai tutte le verifiche con gli
 agent di debug"), agenti di regressione da avviare subito dopo questa dichiarazione - vedi sotto.
+
+**Agente "Regression review chat-history truncation fix"** (general-purpose, background) —
+AVVIATO 25/08/2026. Scope: SOLO il commit `a63ab9d` - altri punti nel codice che potrebbero
+dipendere implicitamente dal vecchio taglio a 3000 caratteri, correttezza del nuovo taglio
+spostato in `Invoke-M365OpsAgentTools.ps1` (casi limite: testo `$null`/vuoto, taglio esatto al
+confine, possibile corruzione di caratteri Unicode multi-byte con `.Substring()`), correttezza
+del toggle GUI "Mostra tutto" (soglia 1500 caratteri, interazione con allegati/pulsanti di
+conferma, funzionamento sia su messaggi live sia su storico ricaricato). Esito non ancora noto al
+momento di questa dichiarazione.
