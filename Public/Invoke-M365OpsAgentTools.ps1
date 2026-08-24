@@ -81,6 +81,16 @@ function Invoke-M365OpsAgentTools {
     # solo al momento di comporre la nota finale.
     $sourceLabelsUsed = @()
 
+    # Etichetta del motore IA usato per QUESTA risposta (24/08/2026, richiesto esplicitamente
+    # dall'utente: "puoi mettere nelle fonti... che nella conversazione e' stata usata la IA?")
+    # - stesso principio gia' in uso per $sourceLabelsUsed (sapere sempre DA DOVE arriva una
+    # risposta), qui applicato al fatto stesso che sia stata l'IA a produrla, non solo a quali
+    # dati abbia consultato. Mostrata SEMPRE in fondo alla risposta finale, anche quando nessun
+    # tool e' stato chiamato (risposta puramente conversazionale) - in quel caso e' l'UNICA
+    # nota mostrata, perche' $sourceLabelsUsed resta vuoto ma l'IA e' comunque stata usata per
+    # scrivere la risposta.
+    $aiProviderLabel = if ($Provider -eq 'Claude') { 'Claude Sonnet 4.5 (Anthropic)' } else { 'Azure OpenAI' }
+
     # CLI Microsoft 365 come sostituto PROATTIVO di Graph quando la sessione Graph delegata
     # generica non e' attiva (23/08/2026, richiesto esplicitamente dal vivo dall'utente dopo il
     # bug del fallback reattivo v0.9.68 - "senza graph attivo bisogna usare il cli per ogni cosa
@@ -1142,12 +1152,15 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                     Write-M365OpsLog "Azure OpenAI: risposta finale vuota (finish_reason=$($response.choices[0].finish_reason), completion_tokens=$($response.usage.completion_tokens), reasoning_tokens=$($response.usage.completion_tokens_details.reasoning_tokens))" -Level Error
                     $azureFinalText = "Il modello non ha prodotto una risposta (motivo interno: $($response.choices[0].finish_reason)) - probabile esaurimento del budget di token su una richiesta complessa. Prova a riformulare in modo piu' semplice o a spezzarla in piu' passaggi."
                 }
-                # Nota sorgente (26/08/2026, richiesta esplicitamente dall'utente): SOLO se
-                # almeno un tool e' stato davvero chiamato in questa risposta - una risposta
-                # puramente conversazionale (nessun dato del tenant coinvolto) non ne ha
-                # bisogno.
-                if ($sourceLabelsUsed.Count -gt 0) {
-                    $azureFinalText += "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', ')._"
+                # Nota sorgente (26/08/2026, richiesta esplicitamente dall'utente): il dettaglio
+                # dei dati consultati compare SOLO se almeno un tool e' stato davvero chiamato.
+                # La nota sul MOTORE IA (24/08/2026, vedi $aiProviderLabel sopra) compare invece
+                # SEMPRE - anche su una risposta puramente conversazionale l'IA e' comunque stata
+                # usata per scriverla, anche se nessun dato del tenant e' stato consultato.
+                $azureFinalText += if ($sourceLabelsUsed.Count -gt 0) {
+                    "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', '). Elaborata da IA: $aiProviderLabel._"
+                } else {
+                    "`n`n_Risposta generata da IA ($aiProviderLabel) senza consultare dati del tenant._"
                 }
                 return [pscustomobject]@{ Text = $azureFinalText; PendingWrite = $pendingWrite; Attachments = $reportAttachments }
             }
@@ -1196,8 +1209,12 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                     Write-M365OpsLog "Claude: risposta finale vuota (stop_reason=$($response.stop_reason))" -Level Error
                     $claudeFinalText = "Il modello non ha prodotto una risposta (motivo interno: $($response.stop_reason)) - prova a riformulare in modo piu' semplice o a spezzarla in piu' passaggi."
                 }
-                if ($sourceLabelsUsed.Count -gt 0) {
-                    $claudeFinalText += "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', ')._"
+                # Stessa logica del ramo Azure sopra: dettaglio dati SOLO se almeno un tool e'
+                # stato chiamato, nota sul motore IA SEMPRE presente.
+                $claudeFinalText += if ($sourceLabelsUsed.Count -gt 0) {
+                    "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', '). Elaborata da IA: $aiProviderLabel._"
+                } else {
+                    "`n`n_Risposta generata da IA ($aiProviderLabel) senza consultare dati del tenant._"
                 }
                 return [pscustomobject]@{ Text = $claudeFinalText; PendingWrite = $pendingWrite; Attachments = $reportAttachments }
             }
@@ -1882,13 +1899,21 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
     }
 
     $attemptSummary = if ($attemptedCalls) { "- " + (($attemptedCalls | Select-Object -Unique) -join "`n- ") } else { "(nessuna chiamata effettuata)" }
-    return [pscustomobject]@{
-        Text = @"
+    $maxRoundsText = @"
 Non sono riuscito a dare una risposta completa entro $MaxRounds passaggi. Ecco cosa ho provato:
 $attemptSummary
 
 Motivo piu' probabile: la domanda richiede dati che Microsoft Graph non espone direttamente (es. permessi di mailbox, altri dati Exchange-specifici), oppure serve iterare su troppi elementi per il numero di passaggi disponibili. Se riguarda mailbox condivise o permessi di posta, servirebbe collegare Exchange Online PowerShell (non ancora disponibile in questo sistema).
 "@
+    # Stessa nota sul motore IA degli altri due punti di uscita sopra - anche un tentativo
+    # non concluso ha comunque impegnato l'IA per tutti i round provati.
+    $maxRoundsText += if ($sourceLabelsUsed.Count -gt 0) {
+        "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', '). Elaborata da IA: $aiProviderLabel._"
+    } else {
+        "`n`n_Risposta generata da IA ($aiProviderLabel) senza consultare dati del tenant._"
+    }
+    return [pscustomobject]@{
+        Text         = $maxRoundsText
         PendingWrite = $pendingWrite
         Attachments  = $reportAttachments
     }
