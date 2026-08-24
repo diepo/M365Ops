@@ -763,5 +763,22 @@ frase esplicita nel system prompt (round-invariante, non rompe mai la cache).
 **Agente "Regression review token-caching fix"** (general-purpose, background) — AVVIATO
 24/08/2026, per coprire scenari aggiuntivi oltre ai 3 gia' testati da me e verificare eventuali
 dettagli tecnici (ordine di valutazione delle variabili nel system prompt heredoc, parita' tra
-provider Claude/Azure, riferimenti residui al vecchio nome `roundOneShortcutNames`). Esito non
-ancora noto al momento di questa dichiarazione.
+provider Claude/Azure, riferimenti residui al vecchio nome `roundOneShortcutNames`). — COMPLETATO.
+
+**Nessuna regressione trovata**. Confermato: `$graphOverlapToolNames`/`$graphOverlapWarning`
+calcolate PRIMA dell'heredoc del system prompt (ordine corretto, nessuna interpolazione vuota);
+`$currentTools` calcolato una sola volta per round, consumato identicamente da entrambi i rami
+provider (il fix e' uniforme nell'implementazione - solo il BENEFICIO di cache resta specifico di
+Azure, dato che `cache_control` non e' mai usato per Claude in questo file, confermato con grep a
+zero risultati); zero riferimenti residui al vecchio nome `roundOneShortcutNames` in tutto il
+repository; il dispatch `propose_*`/`PendingWrite`/`Attachments` non e' toccato da questo diff.
+
+**3 scenari live aggiuntivi, tutti corretti**: "panoramica del gruppo gruppo_dynamicdl" (mai
+`get_group_overview`, cache-hit salito 14,5%→66,2%→90,2%→97,6% nel corso della conversazione);
+"quali pc del tenant hanno problemi di compliance?" (frase terse, evita deliberatamente le parole
+del catalogo - mai `list_devices`/`get_device_compliance_reasons`, cache-hit 97,9% al round 1);
+"riepilogo completo su PlannerTest" (ambiguo utente/gruppo di proposito - risolto correttamente
+come gruppo, incontrato un vero limite di permesso Planner e caduto correttamente su `cli_m365_*`
+invece che su `get_group_overview`, cache-hit 93-98% su tutti i 6 round). In nessuno dei 6 scenari
+totali (3 miei + 3 dell'agente) il modello ha mai usato una delle 6 scorciatoie escluse in
+precedenza.

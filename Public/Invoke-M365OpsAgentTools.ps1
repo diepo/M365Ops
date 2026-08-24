@@ -116,9 +116,28 @@ function Invoke-M365OpsAgentTools {
         $cliM365ProactivePreference = "`nATTENZIONE PROATTIVA PER QUESTA CONVERSAZIONE: la sessione Graph delegata generica NON risulta attiva ORA per questo tenant (graph_api_call/propose_graph_write falliranno subito con 'Nessuna sessione delegata attiva' - non e' un'ipotesi, e' gia' verificato). CLI Microsoft 365 e' pero' gia' configurato e potrebbe gia' essere connesso in modo INDIPENDENTE (login separato, vedi sotto): per QUALUNQUE lettura O SCRITTURA che rientra nel suo dominio (Entra ID/Outlook/Planner/OneDrive/Purview-ricerca-conformita'/Teams-lato-app-o-chat), trattalo come EQUIVALENTE a Graph e usa DIRETTAMENTE cli_m365_run_command o propose_cli_m365_command come primo tentativo, PRIMA di graph_api_call/propose_graph_write - non ha senso tentare un percorso che sai gia' in anticipo fallire. Resta valido tutto il resto invariato: SharePoint mai su CLI365 (i comandi 'spo' falliscono sempre su questa integrazione), Exchange profondo/Intune/criteri Teams mai su CLI365 (solo sui moduli PowerShell dedicati) - se l'argomento e' fuori dal dominio di CLI365 o anche CLI365 fallisce, spiega chiaramente che serve il login Graph generico ('Accedi con il mio utente', tab Tenant)."
     }
 
+    # Strumenti che si sovrappongono ai dati che graph_api_call puo' gia' dare (motivo storico:
+    # un test reale aveva mostrato il modello scegliere get_user_overview invece di
+    # graph_api_call quando disponibile fin dal primo tentativo). Fino al 24/08/2026 questi
+    # venivano ESCLUSI dall'elenco strumenti del solo primo giro (round 0) per forzare Graph come
+    # primo tentativo - ma questo rendeva l'elenco strumenti DIVERSO tra il round 0 e i round
+    # successivi, rompendo il prefisso comune richiesto dal prompt caching (sia Claude
+    # cache_control sia il caching automatico di Azure richiedono i token iniziali IDENTICI byte
+    # per byte tra una richiesta e l'altra - vedi indagine costi/token del 24/08/2026, richiesta
+    # esplicitamente dall'utente: un test dal vivo ha mostrato solo 12,9% di cache hit su Azure
+    # invece del quasi-totale atteso tra due round della stessa conversazione, proprio a causa di
+    # questa differenza). Corretto: l'elenco strumenti e' ora IDENTICO su ogni round (vedi
+    # $currentTools piu' sotto, nessuna esclusione per round), la preferenza per graph_api_call e'
+    # invece rinforzata SOLO nel prompt (round-invariante per costruzione, non rompe mai la
+    # cache) elencando esplicitamente questi strumenti per nome invece della sola frase generica
+    # gia' presente prima. Riverificato dal vivo dopo il cambio che il comportamento preferito
+    # (Graph come primo tentativo) resta lo stesso su piu' prove ripetute, non solo in teoria.
+    $graphOverlapToolNames = @('list_devices', 'list_noncompliant_devices', 'get_device_compliance_reasons', 'get_user_overview', 'get_group_overview', 'get_user_mfa_status')
+    $graphOverlapWarning = "In particolare, per il PRIMO tentativo di lettura NON usare mai $($graphOverlapToolNames -join ', ') anche se compaiono gia' disponibili: prova SEMPRE prima graph_api_call, usa questi strumenti SOLO come fallback se graph_api_call non basta o fallisce."
+
     $systemPrompt = @"
 Per leggere dati dal tenant, usa 'graph_api_call' (via Lokka): e' lo strumento primario, copre qualunque endpoint Graph.
-Se compaiono anche altri strumenti di lettura (list_devices, get_user_overview, exo_query, ecc.), sono un FALLBACK disponibile solo perche' il primo tentativo con Lokka non e' bastato - usali solo per quello che Lokka non e' riuscito a darti.
+Se compaiono anche altri strumenti di lettura (list_devices, get_user_overview, exo_query, ecc.), sono un FALLBACK disponibile solo perche' il primo tentativo con Lokka non e' bastato - usali solo per quello che Lokka non e' riuscito a darti. $graphOverlapWarning
 Se sono disponibili gli strumenti cli_m365_* (CLI Microsoft 365, secondo connettore oltre a Lokka - non tutti i tenant lo hanno configurato): stessa logica di priorita', mai il primo tentativo. Provali SOLO per Entra ID/Outlook/Planner/OneDrive/Purview-ricerca-conformita'/Teams-lato-app-o-chat quando graph_api_call non ha gia' dato il dato cercato (es. un endpoint Graph che non esiste per quel caso specifico) - MAI per Exchange profondo (mailbox/gruppi/regole, resta esclusivamente su exo_query), Intune (resta esclusivamente sugli strumenti Intune dedicati) o criteri/policy Teams (resta esclusivamente su teams_query) - questi tre restano sempre e solo sui moduli PowerShell interni, cli_m365_* non li copre affatto. SharePoint: MAI cli_m365_*, i comandi 'spo' falliscono sempre su questa integrazione (client secret non supportato da SharePoint) - usa sempre sharepoint_query/propose_sharepoint_write.
 ECCEZIONE su tenant Delegati - CONNESSIONE assente, non solo dato assente (bug reale osservato dal vivo il 23/08/2026: su un tenant Delegato con SOLO CLI Microsoft 365 connesso (login fatto, funzionante), alla domanda "quanti utenti ha il tenant?" graph_api_call e' fallito con "sessione delegata non attiva" - un errore di CONNESSIONE mancante, non di dato non trovato - e la risposta finale ha chiesto all'utente un SECONDO login separato per Microsoft Graph, invece di provare cli_m365_run_command (es. 'm365 entra user list'), che avrebbe risposto subito senza bisogno di nessun login aggiuntivo, visto che CLI Microsoft 365 su un tenant Delegato si autentica in modo COMPLETAMENTE INDIPENDENTE dalla sessione Graph generica - vedi Connect-M365OpsCliMicrosoft365.ps1, sono due login separati, uno NON implica l'altro). Se graph_api_call fallisce specificamente con un errore di sessione/connessione mancante (non un 403/404 sul dato stesso) su un tenant Delegato, e cli_m365_run_command e' disponibile e l'argomento rientra nel suo dominio (Entra/Outlook/Planner/OneDrive/Purview-ricerca/Teams-app-chat), PROVALO prima di rispondere che serve un login - potrebbe gia' essere connesso e rispondere subito. Chiedi un nuovo login solo se anche questo tentativo fallisce o l'argomento non rientra nel dominio di CLI Microsoft 365.
 $cliM365ProactivePreference
@@ -1026,22 +1045,16 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
     $messages = @($History | Where-Object { $_ } | ForEach-Object { @{ role = $_.role; content = $_.text } })
     $messages += @{ role = "user"; content = $Prompt }
 
-    # Solo questi restano fuori dal primo giro: si sovrappongono ai dati che graph_api_call
-    # puo' gia' dare (motivo storico del gating - un test reale ha mostrato il modello
-    # scegliere get_user_overview invece di graph_api_call quando disponibile fin da subito).
-    # Tutti gli ALTRI strumenti "fallback" (Exchange, report, MFA, script personalizzati) NON
-    # si sovrappongono a graph_api_call - tenerli fuori dal primo giro era un bug reale del
-    # 17/08/2026: il modello concludeva "gli strumenti EXO/generate_report non sono disponibili
-    # in questa sessione" invece di capire che sarebbero comparsi al giro successivo, e si
-    # arrendeva subito con un messaggio che sembra una limitazione tecnica ma non lo e'.
-    $roundOneShortcutNames = @('list_devices', 'list_noncompliant_devices', 'get_device_compliance_reasons', 'get_user_overview', 'get_group_overview', 'get_user_mfa_status')
-
     for ($round = 0; $round -lt $MaxRounds; $round++) {
-        # Primo giro: Graph (via Lokka se disponibile, altrimenti diretto) PIU' ogni strumento
-        # fallback che non compete con graph_api_call sugli stessi dati (Exchange, report, MFA,
-        # script). Dal secondo giro in poi, anche le scorciatoie Graph-overlap sopra - cosi'
-        # Graph resta garantito il primo tentativo SOLO dove davvero si sovrappongono.
-        $currentTools = if ($round -eq 0) { $lokkaTools + @($fallbackTools | Where-Object { $_.name -notin $roundOneShortcutNames }) } else { $lokkaTools + $fallbackTools }
+        # Elenco strumenti IDENTICO su ogni round (24/08/2026, vedi $graphOverlapToolNames piu'
+        # sopra per il motivo del cambio - prima variava tra il round 0 e i successivi, rompendo
+        # il prefisso comune richiesto dal prompt caching). La preferenza per graph_api_call come
+        # primo tentativo resta comunque garantita, ora tramite $graphOverlapWarning nel prompt
+        # invece che escludendo tool dall'elenco - stesso principio gia' in uso per il bug del
+        # 17/08/2026 (mai piu' nascondere Exchange/report/MFA/script al primo giro, causava
+        # "questi strumenti non sono disponibili in questa sessione" invece di essere provati
+        # dal giro successivo), esteso ora anche ai 6 strumenti Graph-overlap.
+        $currentTools = $lokkaTools + $fallbackTools
 
         if ($Provider -eq 'AzureOpenAI') {
             # --- Ramo Azure OpenAI (Chat Completions, tools/tool_choice) ---
