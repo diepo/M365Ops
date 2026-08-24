@@ -700,6 +700,11 @@ function Execute-PendingAction {
         if (Test-M365OpsFixApplicable $triage $moduleRoot) {
             $script:PendingAction = @{ Type = 'ApplyFix'; Triage = $triage; ConfirmText = $text }
         }
+        # Nota sorgente (24/08/2026, stesso principio del catalogo comandi sopra): questo e' un
+        # percorso di diagnosi/correzione di una scrittura fallita, l'IA viene davvero
+        # interpellata (Invoke-M365OpsErrorTriage, e Invoke-M365OpsActionRecovery quando
+        # $recoveryPrefix e' popolato) - mai stato reso esplicito prima d'ora.
+        $text += "`n`n_Fonte: diagnosi errore con analisi IA. Elaborata da IA: $(Get-M365OpsAiProviderLabel -Provider $script:ActiveAIProvider)._"
         return @{ role = 'ai'; text = $text }
     }
 }
@@ -825,6 +830,23 @@ function Handle-ChatMessage {
             $result = if ($null -ne $captured) { & $entry.Handler $captured } else { & $entry.Handler }
             $text = & $entry.Formatter $result
             $role = if ($entry.RequiresAI) { 'ai' } else { 'system' }
+            # Nota sorgente SEMPRE presente (24/08/2026, richiesto esplicitamente dall'utente
+            # dopo aver notato che "dammi i fattori mfa di X" - voce MfaStatus del catalogo,
+            # RequiresAI=$false - non mostrava nessuna nota, a differenza delle risposte passate
+            # dal loop AI generale che dal v0.9.86 la mostrano sempre): stesso principio esteso
+            # qui, l'unico altro punto che restituisce dati reali all'utente. RequiresAI=$false
+            # (la stragrande maggioranza, es. MfaStatus/ListDevices) e' un comando locale a
+            # costo zero, nessuna IA coinvolta - lo si dice esplicitamente invece di lasciare
+            # un'assenza di nota come unico modo (implicito, mai spiegato) per dedurlo.
+            # RequiresAI=$true (es. CompliancePatterns) chiama davvero l'IA (vedi
+            # Get-M365OpsCompliancePatterns -Provider $script:ActiveAIProvider) - stessa
+            # etichetta del motore usata dal loop AI generale (Get-M365OpsAiProviderLabel,
+            # Private, estratta apposta il 24/08/2026 per essere condivisa tra i due punti).
+            $text += if ($entry.RequiresAI) {
+                "`n`n_Fonte: comando locale '$($entry.Name)' con analisi IA. Elaborata da IA: $(Get-M365OpsAiProviderLabel -Provider $script:ActiveAIProvider)._"
+            } else {
+                "`n`n_Fonte: comando locale '$($entry.Name)', nessuna IA usata._"
+            }
             # Se l'handler ha appena generato un report (LastReportPath cambiato rispetto a
             # prima della chiamata), rendilo scaricabile dalla GUI invece di lasciare solo
             # il percorso su disco nel testo - l'utente non deve andare a cercarselo a mano.
@@ -834,7 +856,7 @@ function Handle-ChatMessage {
             return @{ role = $role; text = $text; attachments = $attachments }
         }
         catch {
-            return @{ role = 'error'; text = "Errore in '$($entry.Name)': $($_.Exception.Message)" }
+            return @{ role = 'error'; text = "Errore in '$($entry.Name)': $($_.Exception.Message)`n`n_Fonte: comando locale '$($entry.Name)', nessuna IA usata (fallito prima di completare)._" }
         }
     }
 
@@ -1362,7 +1384,7 @@ function Handle-ChatMessage {
             try {
                 $response = Invoke-M365OpsAgent -Prompt $msg -Provider $script:ActiveAIProvider
                 if (-not $response) { throw "risposta di fallback vuota" }
-                return @{ role = 'ai'; text = "$response`n`n(Nota: risposta senza accesso ai dati del tenant - il tentativo con gli strumenti e' fallito: $originalError)" }
+                return @{ role = 'ai'; text = "$response`n`n(Nota: risposta senza accesso ai dati del tenant - il tentativo con gli strumenti e' fallito: $originalError)`n`n_Fonte: nessun dato del tenant consultato (fallback dopo un errore). Elaborata da IA: $(Get-M365OpsAiProviderLabel -Provider $script:ActiveAIProvider)._" }
             }
             catch {
                 Write-M365OpsLog "Anche il fallback AI senza strumenti e' fallito: $($_.Exception.Message)" -Level Error

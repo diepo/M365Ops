@@ -80,4 +80,8 @@ $customNames = Get-ChildItem -Path $script:M365OpsCustomScriptsPath -Filter '*.p
 # Start-/Get-M365OpsIsolatedModuleConnectAsync* aggiunte il 23/08/2026 (login Teams/Exchange
 # delegati non piu' bloccanti, richiesto esplicitamente dall'utente) - stesso motivo delle due
 # sopra: Gui\Server.ps1 le chiama direttamente per i nuovi endpoint di polling.
-Export-ModuleMember -Function (@($publicNames) + @($customNames) + 'Invoke-M365OpsGraphRequest' + 'Get-M365OpsNormalizedChatText' + 'Start-M365OpsIsolatedModuleConnectAsync' + 'Get-M365OpsIsolatedModuleConnectAsyncStatus')
+# Get-M365OpsAiProviderLabel aggiunta il 24/08/2026 (nota "Elaborata da IA" estesa a OGNI
+# interazione, non solo al loop AI con tool-calling, richiesto esplicitamente dall'utente):
+# Gui\Server.ps1 la chiama direttamente sia per il catalogo comandi locali (voci con
+# RequiresAI=$true) sia per il percorso di triage/recovery errori via AI.
+Export-ModuleMember -Function (@($publicNames) + @($customNames) + 'Invoke-M365OpsGraphRequest' + 'Get-M365OpsNormalizedChatText' + 'Start-M365OpsIsolatedModuleConnectAsync' + 'Get-M365OpsIsolatedModuleConnectAsyncStatus' + 'Get-M365OpsAiProviderLabel')

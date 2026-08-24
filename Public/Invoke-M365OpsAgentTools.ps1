@@ -88,8 +88,10 @@ function Invoke-M365OpsAgentTools {
     # dati abbia consultato. Mostrata SEMPRE in fondo alla risposta finale, anche quando nessun
     # tool e' stato chiamato (risposta puramente conversazionale) - in quel caso e' l'UNICA
     # nota mostrata, perche' $sourceLabelsUsed resta vuoto ma l'IA e' comunque stata usata per
-    # scrivere la risposta.
-    $aiProviderLabel = if ($Provider -eq 'Claude') { 'Claude Sonnet 4.5 (Anthropic)' } else { 'Azure OpenAI' }
+    # scrivere la risposta. Estratta in Get-M365OpsAiProviderLabel (Private) il 24/08/2026 -
+    # richiesta poi la STESSA nota anche fuori da questa funzione (catalogo comandi locali,
+    # triage errori via AI in Gui/Server.ps1), un solo posto da mantenere per la mappa nomi.
+    $aiProviderLabel = Get-M365OpsAiProviderLabel -Provider $Provider
 
     # CLI Microsoft 365 come sostituto PROATTIVO di Graph quando la sessione Graph delegata
     # generica non e' attiva (23/08/2026, richiesto esplicitamente dal vivo dall'utente dopo il
