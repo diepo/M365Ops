@@ -2007,7 +2007,13 @@ try {
                     $body = $reader.ReadToEnd() | ConvertFrom-Json
                     try {
                         $analysis = Get-M365OpsMessageHeaderAnalysis -RawText $body.rawText
-                        $payload = [ordered]@{ ok = $true; kind = $analysis.Kind; warnings = @($analysis.Warnings) }
+                        # rawText incluso nella risposta (25/08/2026, richiesto esplicitamente
+                        # dall'utente: "vorrei avere un riferimento diretto ai raw data
+                        # analizzati") - la GUI lo mostra in una sezione dedicata sotto il
+                        # risultato interpretato, cosi' resta sempre visibile ESATTAMENTE cosa e'
+                        # stato analizzato, senza dover riaprire/ricontrollare la casella di
+                        # incolla originale.
+                        $payload = [ordered]@{ ok = $true; kind = $analysis.Kind; warnings = @($analysis.Warnings); rawText = $analysis.RawText }
                         if ($analysis.Kind -eq 'Ndr') {
                             $n = $analysis.Ndr
                             $payload.ndr = [ordered]@{

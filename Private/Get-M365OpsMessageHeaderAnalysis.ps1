@@ -102,26 +102,47 @@ function Get-M365OpsRawHeaderAnalysis {
     # su una minima variazione reale (verificato dal vivo contro intestazioni Exchange Online,
     # on-premises Exchange, e gateway di terze parti come Fortinet/Cisco - la sintassi varia
     # abbastanza da richiedere questa tolleranza).
-    $hopPattern = '^from\s+(?<from>.+?)\s+by\s+(?<by>.+?)(?:\s+with\s+(?<with>.+?))?;\s*(?<date>[A-Za-z]{3},.+)$'
+    # "from" e' opzionale in due varianti reali oltre al caso standard "from X by Y":
+    # - "(from user@localhost) by host ...;" (hop di consegna locale Sendmail/Postfix, RFC 5321
+    #   esempio storico, ancora comune sull'ultimo hop prima della mailbox su MTA Unix) - il from
+    #   e' tra parentesi invece che nudo dopo la keyword "from".
+    # - "by host with SMTP id ...;" senza "from" affatto (hop puramente interno alla stessa
+    #   infrastruttura, visto dal vivo su Gmail/Google Workspace tra i propri datacenter) - qui
+    #   non esiste proprio un mittente esplicito da riportare.
+    # Data: il nome del giorno + virgola ("Mon,") e' facoltativo per costruzione (RFC 5322
+    # permette day-of-week opzionale) - alcuni gateway on-premises e Cisco IronPort/ESA lo
+    # omettono, es. "24 Aug 2026 10:00:00 +0200" - richiederlo nella regex faceva fallire l'INTERO
+    # match dell'hop (non solo la data), buttando via anche from/by/with gia' corretti.
+    $hopPattern = '^(?:from\s+(?<from>.+?)\s+|\(from\s+(?<from2>.+?)\)\s+)?by\s+(?<by>.+?)(?:\s+with\s+(?<with>.+?))?;\s*(?<date>(?:[A-Za-z]{3},\s*)?.+)$'
     $hops = @()
     $prevTime = $null
     $hopNum = 0
     foreach ($h in $chronological) {
         $hopNum++
         $m = [regex]::Match($h, $hopPattern)
-        $fromHost = if ($m.Success) { $m.Groups['from'].Value.Trim() } else { $null }
+        $fromHost = if ($m.Success -and $m.Groups['from'].Success) { $m.Groups['from'].Value.Trim() }
+                    elseif ($m.Success -and $m.Groups['from2'].Success) { $m.Groups['from2'].Value.Trim() }
+                    else { $null }
         $byHost = if ($m.Success) { $m.Groups['by'].Value.Trim() } else { $null }
         $withClause = if ($m.Success -and $m.Groups['with'].Success) { $m.Groups['with'].Value.Trim() } else { $null }
         $dateText = if ($m.Success) { $m.Groups['date'].Value.Trim() } else { $null }
 
         $parsedTime = $null
         if ($dateText) {
-            try { $parsedTime = [datetimeoffset]::Parse($dateText, [System.Globalization.CultureInfo]::InvariantCulture) } catch {
+            # Molti server (Gmail/Google Workspace in testa, ma anche Postfix/Sendmail con
+            # "(CEST)"/"(UTC)" ecc.) aggiungono un commento con l'abbreviazione del fuso orario tra
+            # parentesi DOPO l'offset numerico, es. "Mon, 24 Aug 2026 01:23:39 -0700 (PDT)" - ne'
+            # DateTimeOffset.Parse ne' il cast lo accettano (l'offset numerico e' gia' presente e
+            # sufficiente, il commento e' ridondante) - rimosso prima del parsing, altrimenti OGNI
+            # hop con questo formato perdeva completamente Time e DelaySec pur avendo una data
+            # perfettamente valida.
+            $dateForParse = $dateText -replace '\s*\([^)]*\)\s*$', ''
+            try { $parsedTime = [datetimeoffset]::Parse($dateForParse, [System.Globalization.CultureInfo]::InvariantCulture) } catch {
                 # Alcuni gateway on-premises omettono il nome del giorno o usano un formato non
                 # standard (verificato dal vivo su un hop Exchange on-prem) - un secondo
                 # tentativo senza vincolare la cultura, prima di arrendersi e mostrare il testo
                 # grezzo invece di una data vuota che sembrerebbe un bug.
-                try { $parsedTime = [datetimeoffset]$dateText } catch { $parsedTime = $null }
+                try { $parsedTime = [datetimeoffset]$dateForParse } catch { $parsedTime = $null }
             }
         }
         $delaySeconds = if ($parsedTime -and $prevTime) { [math]::Round(($parsedTime - $prevTime).TotalSeconds, 1) } else { $null }
@@ -132,7 +153,11 @@ function Get-M365OpsRawHeaderAnalysis {
 
         $hops += [pscustomobject]@{
             Hop      = $hopNum
-            From     = if ($fromHost) { $fromHost } else { $h }
+            # Il testo grezzo va in From SOLO se l'intero hop non e' stato riconosciuto (nessun
+            # campo strutturato disponibile) - un hop riconosciuto ma senza clausola "from"
+            # esplicita (es. Gmail interno "by host with SMTP id ...;", nessun mittente dichiarato)
+            # deve restare $null e non mostrare l'intera riga grezza spacciandola per un mittente.
+            From     = if ($fromHost) { $fromHost } elseif (-not $m.Success) { $h } else { $null }
             By       = $byHost
             Type     = $withClause
             Time     = if ($parsedTime) { $parsedTime.ToString('dd/MM/yyyy HH:mm:ss zzz') } else { $dateText }

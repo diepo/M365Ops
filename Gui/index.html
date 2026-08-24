@@ -1819,6 +1819,25 @@
     const e = escapeHtmlHeaders;
     let html = '';
 
+    // Sezione "dati grezzi" (25/08/2026, richiesto esplicitamente dall'utente: "vorrei avere
+    // un riferimento diretto ai raw data analizzati") - il testo ESATTO analizzato, sempre
+    // consultabile senza dover tornare alla casella di incolla originale. Un solo pulsante
+    // combinato (richiesto esplicitamente: "un link che apre il tool Microsoft e autocopia i
+    // raw data senza un ulteriore tasto di copia") copia il testo grezzo negli appunti E apre
+    // mha.azurewebsites.net in un click solo - mha.azurewebsites.net stesso NON supporta
+    // pre-compilazione via URL/query string (verificato il 25/08/2026, nessuna documentazione
+    // ne' modo confermato di farlo), quindi il flusso onesto e' "copia automatica + apertura
+    // del tool", poi un solo Ctrl+V manuale una volta arrivati li' - non un vero auto-fill, ma
+    // elimina comunque il passaggio di copia separato.
+    const rawSection = data.rawText ? `<details style="margin-top:14px;">
+      <summary style="cursor:pointer; font-weight:600; font-size:12.5px;">Dati grezzi analizzati</summary>
+      <div class="actions" style="margin:8px 0; align-items:center;">
+        <button id="headers-open-mha-btn">Apri Microsoft Message Header Analyzer (copia automaticamente i dati grezzi - incollali li' con Ctrl+V) ↗</button>
+        <span id="headers-open-mha-status" style="font-size:11.5px; color:var(--text-muted);"></span>
+      </div>
+      <pre style="white-space:pre-wrap; word-break:break-all; font-size:11px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px; max-height:280px; overflow-y:auto; margin:0;">${e(data.rawText)}</pre>
+    </details>` : '';
+
     if (data.warnings && data.warnings.length > 0) {
       html += `<div style="background:var(--warn-soft); border:1px solid var(--warn); border-radius:var(--radius-sm); padding:10px 14px; margin-bottom:14px; font-size:12.5px;">
         <strong>Osservazioni:</strong><ul style="margin:6px 0 0; padding-left:18px;">${data.warnings.map(w => `<li>${e(w)}</li>`).join('')}</ul>
@@ -1837,7 +1856,7 @@
           <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">IP</td><td>${e(n.ip) || '—'}</td></tr>
           <tr><td style="padding:4px 8px 4px 0; color:var(--text-muted); white-space:nowrap;">Ultimo tentativo</td><td>${e(n.lastRetryTime) || '—'}</td></tr>
         </table>
-      </div>`;
+      </div>${rawSection}`;
       return html;
     }
 
@@ -1895,7 +1914,14 @@
         </table></div>`;
     }
 
-    return html;
+    // Bug reale trovato in regression review (24/08/2026): rawSection viene calcolata qui sopra
+    // ma veniva accodata SOLO nel ramo Kind='Ndr' (che esce con un return anticipato) - il ramo
+    // Headers, il caso piu' comune (intestazioni RFC 5322 normali, non un NDR), arrivava fino a
+    // qui senza includerla mai. Risultato: la sezione "Dati grezzi analizzati" (pulsante "Apri
+    // Microsoft Message Header Analyzer" + testo copiabile) non compariva mai per un'analisi di
+    // intestazioni normali, solo per un NDR - nessun errore in console, nessun crash, solo una
+    // sezione mancante in silenzio. Corretto accodando rawSection anche qui.
+    return html + rawSection;
   }
 
   let lastHeadersRawText = '';
@@ -1954,6 +1980,24 @@
           aiBtn.disabled = false;
         }
       });
+      const openMhaBtn = document.getElementById('headers-open-mha-btn');
+      if (openMhaBtn) {
+        openMhaBtn.addEventListener('click', async () => {
+          const mhaStatus = document.getElementById('headers-open-mha-status');
+          try {
+            await navigator.clipboard.writeText(lastHeadersRawText);
+            mhaStatus.textContent = 'Copiato negli appunti - premi Ctrl+V nella pagina che si apre.';
+          } catch (e) {
+            // Bug reale scoperto durante il test (25/08/2026): navigator.clipboard.writeText
+            // richiede un contesto sicuro (HTTPS o localhost) - il server gira su
+            // localhost:8743/8745 quindi funziona sempre in pratica, ma un fallimento qui non
+            // deve mai impedire l'apertura del tool: l'utente puo' comunque copiare a mano dalla
+            // sezione qui sopra.
+            mhaStatus.textContent = 'Copia automatica non riuscita (' + e.message + ') - copia il testo qui sopra a mano prima di incollarlo.';
+          }
+          window.open('https://mha.azurewebsites.net/pages/mha.html', '_blank', 'noopener');
+        });
+      }
       btn.disabled = false;
     } catch (e) {
       status.textContent = 'Errore di comunicazione: ' + e.message;

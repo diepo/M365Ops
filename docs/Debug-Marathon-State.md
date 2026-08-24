@@ -826,3 +826,49 @@ conversazione e' stato usato come test end-to-end: la spiegazione IA ha corretta
 il Directory-Based Edge Blocking come causa piu' probabile, stessa diagnosi gia' data in chat con
 ricerca web manuale - confermando che lo strumento locale ora rende quella stessa qualita' di
 diagnosi disponibile senza bisogno di una ricerca esterna ogni volta.
+
+## Seguito: pulsante combinato copia+apri MHA + 2 agenti dedicati (v0.9.91)
+
+Su richiesta esplicita dell'utente ("fai partire gli agenti per controllare tutto"), avviati due
+agenti in parallelo su v0.9.90 appena spedito:
+
+**Agente "Regression review header analyzer feature"** — COMPLETATO. **1 bug reale trovato e
+corretto**: la sezione "Dati grezzi analizzati" (aggiunta durante il lavoro in corso su questo
+stesso commit, prima del completamento dell'agente) veniva calcolata ma accodata SOLO nel ramo
+`Kind='Ndr'` (uscita anticipata) - il ramo `Headers`, il caso piu' comune, arrivava al `return`
+finale senza mai includerla. Nessun errore, nessun crash, solo una sezione mancante in silenzio.
+Confermato dal vivo (server riavviato, testato in browser: `headers-open-mha-btn` risultava
+`null` dopo un'analisi di intestazioni normali) e corretto (`return html + rawSection;`),
+riverificato dal vivo dopo il fix. Altre aree controllate (parser, mappatura camelCase
+Server.ps1↔GUI, XSS, bilanciamento tag nei template JS, route HTTP con input malformato) - nessun
+altro problema.
+
+**Agente "Stress-test parser con formati reali"** — COMPLETATO. **2 bug reali trovati e
+corretti** in `Private/Get-M365OpsMessageHeaderAnalysis.ps1`, su varianti del formato "Received:"
+mai testate nella prima versione (solo M365-a-M365 e un NDR erano stati verificati prima):
+1. Date con un commento di fuso orario in coda tipo Gmail (`Mon, 24 Aug 2026 01:23:39 -0700
+   (PDT)`) - ne' `DateTimeOffset.Parse` ne' il cast lo accettavano, quindi `Time` restava il
+   testo grezzo e `DelaySec` non veniva mai calcolato per quell'hop, in silenzio. Corretto
+   rimuovendo il commento tra parentesi prima di interpretare la data.
+2. Intestazioni "Received:" senza il giorno della settimana (facoltativo per RFC 5322, omesso
+   da gateway come Cisco IronPort/ESA, es. `24 Aug 2026 10:00:00 +0200`) facevano fallire
+   l'INTERO hop (non solo la data), buttando via anche mittente/destinatario gia' estratti
+   correttamente. Corretto rendendo il giorno della settimana facoltativo nella regex.
+   Generalizzato nello stesso giro il riconoscimento del mittente per due varianti reali in piu':
+   consegna locale Sendmail/Postfix (`(from user@localhost)`) e hop interni Gmail senza alcun
+   mittente esplicito - corretto anche un effetto collaterale del secondo fix (il testo grezzo
+   finiva comunque in `From` per un hop Gmail correttamente privo di mittente).
+Verificato con 12+ casi costruiti (Postfix/Sendmail/IronPort/Gmail/gateway di terze parti in
+stile Mimecast/Proofpoint/Barracuda, intestazioni senza `Received:`, NDR con sotto-campi
+mancanti, catena di 25 hop) piu' i due casi gia' verificati in v0.9.90 (nessuna regressione).
+
+**Pulsante combinato copia+apri**, richiesta diretta dell'utente: verificato PRIMA di costruire
+che `mha.azurewebsites.net` non supporta (nessuna documentazione/evidenza trovata) la
+pre-compilazione via URL/query string - un link "auto-fill" sarebbe stato disonesto (aprirebbe il
+tool vuoto). Implementato invece un pulsante unico che copia i dati grezzi negli appunti E apre il
+tool in un click solo (nessun tasto Copia separato, come richiesto esplicitamente), con un
+messaggio di stato onesto in caso l'API Clipboard fallisca (richiede un contesto sicuro + focus
+del documento - verificato dal vivo che il percorso di fallback funziona correttamente).
+
+Tutti e 3 i fix riverificati dal vivo end-to-end, incluso un test completo nella GUI reale nel
+browser dopo ogni correzione. Spedito in v0.9.91.
