@@ -44,6 +44,31 @@ function Format-M365OpsOverview {
 function Get-M365OpsCommandCatalog {
     @(
         [pscustomobject]@{
+            # Reindirizzamento alla tab dedicata (25/08/2026, bug reale segnalato dal vivo
+            # dall'utente): incollare intestazioni email/NDR direttamente in QUESTA chat generica
+            # (invece che nella tab "Intestazioni email") fa rispondere l'AI in modo conversazionale
+            # generico - nessun link al Message Header Analyzer, nessuna tabella hop/ritardi,
+            # nessun conteggio token nella nota finale, perche' quelle sono tutte funzionalita'
+            # specifiche della tab dedicata (Get-M365OpsMessageHeaderAnalysis + /api/analyze-headers-ai,
+            # v0.9.90-94), mai collegate al loop AI generico di Invoke-M365OpsAgentTools. Non un
+            # bug di quella feature, ma un problema reale di scopribilita': e' naturalissimo
+            # aspettarsi che incollare un'intestazione "funzioni" anche qui. Questa voce (prima
+            # nel catalogo apposta, cosi' nessun altro trigger la anticipa su un testo lungo)
+            # intercetta il caso PRIMA che arrivi all'AI generica e reindirizza esplicitamente
+            # alla tab giusta, invece di dare una risposta parziale che sembra "funzionare" ma
+            # senza nessuna delle funzionalita' vere costruite per questo scopo.
+            Name         = "PastedEmailHeadersRedirect"
+            Description  = "Rileva intestazioni email RFC 5322 o un blocco NDR/message-trace incollati direttamente in chat, e reindirizza alla tab dedicata 'Intestazioni email' invece di lasciarli arrivare all'AI generica (che non ha ne' il parser locale ne' il pulsante Microsoft Message Header Analyzer)."
+            Triggers     = @('received:\s*from\s', 'recipientstatus\s*:', '\{led=')
+            CaptureRegex = $null
+            RequiresAI   = $false
+            Handler      = { @{} }
+            Formatter    = {
+                param($r)
+                "Sembra che tu abbia incollato delle intestazioni email o un blocco di diagnostica NDR - questa chat generica non li analizza (nessun link al Message Header Analyzer, nessuna tabella degli hop, nessun conteggio token). Usa il pulsante '📧 Intestazioni email' in alto (vicino a Upload) e incollali li': ottieni riepilogo, tabella degli hop di consegna con i ritardi calcolati, verifica SPF/DKIM/DMARC, decodifica del rapporto antispam (o il codice NDR scomposto con una spiegazione mirata), un pulsante che copia i dati e apre il Microsoft Message Header Analyzer in un click, e - solo li' - un pulsante separato per chiedere una spiegazione all'IA con il conteggio dei token mostrato."
+            }
+        }
+        [pscustomobject]@{
             Name         = "EmailLastReport"
             Description  = "Invia per email l'ultimo report generato in questa sessione. Uso: 'invialo per email a nome@dominio.it'"
             Triggers     = @('invia\w*.{0,20}(email|mail)', 'manda\w*.{0,20}(email|mail)', 'spedisci\w*.{0,20}(email|mail)')

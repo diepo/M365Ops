@@ -93,6 +93,17 @@ function Invoke-M365OpsAgentTools {
     # triage errori via AI in Gui/Server.ps1), un solo posto da mantenere per la mappa nomi.
     $aiProviderLabel = Get-M365OpsAiProviderLabel -Provider $Provider
 
+    # Totali token accumulati su TUTTI i round di questa risposta (25/08/2026, richiesto
+    # esplicitamente dall'utente per la chat generale, non solo per l'analizzatore intestazioni
+    # dove era stato implementato per primo - "il conteggio token deve stare nella risposta chat
+    # in basso nella sezione dove cita le fonti"). Una singola risposta puo' attraversare piu'
+    # round (ogni chiamata a uno strumento richiede un nuovo giro di andata/ritorno con l'IA) -
+    # sommati qui round per round subito dopo ciascuna chiamata riuscita, cosi' la nota finale
+    # riflette il costo REALE dell'intera risposta, non solo dell'ultimo round.
+    $totalInputTokens = 0
+    $totalOutputTokens = 0
+    $totalCachedTokens = 0
+
     # CLI Microsoft 365 come sostituto PROATTIVO di Graph quando la sessione Graph delegata
     # generica non e' attiva (23/08/2026, richiesto esplicitamente dal vivo dall'utente dopo il
     # bug del fallback reattivo v0.9.68 - "senza graph attivo bisogna usare il cli per ogni cosa
@@ -1182,6 +1193,12 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                 $cachePct = [math]::Round(100 * $cachedTok / $promptTok, 1)
                 Write-M365OpsLog "Azure OpenAI cache: $cachedTok/$promptTok token dalla cache ($cachePct%)"
             }
+            # Accumulo token di questo round (25/08/2026, vedi $totalInputTokens sopra per il
+            # motivo) - $promptTok/$cachedTok gia' estratti qui sopra per il log cache, riusati
+            # anche per il totale invece di rileggerli due volte dalla stessa risposta.
+            $totalInputTokens += $promptTok
+            $totalOutputTokens += $response.usage.completion_tokens
+            $totalCachedTokens += $cachedTok
 
             if ($response.choices[0].finish_reason -ne "tool_calls" -or -not $response.choices[0].message.tool_calls) {
                 $azureFinalText = $response.choices[0].message.content
@@ -1200,10 +1217,16 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                 # La nota sul MOTORE IA (24/08/2026, vedi $aiProviderLabel sopra) compare invece
                 # SEMPRE - anche su una risposta puramente conversazionale l'IA e' comunque stata
                 # usata per scriverla, anche se nessun dato del tenant e' stato consultato.
+                # Conteggio token (25/08/2026, richiesto esplicitamente dall'utente anche per la
+                # chat generale, non solo per l'analizzatore intestazioni - vedi $totalInputTokens
+                # sopra per l'accumulo round per round) - stessa formula gia' usata e verificata
+                # in Gui/Server.ps1 per /api/analyze-headers-ai.
+                $tokenNote = "$totalInputTokens token inviati, $totalOutputTokens ricevuti"
+                if ($totalCachedTokens -gt 0) { $tokenNote += ", di cui $totalCachedTokens dalla cache" }
                 $azureFinalText += if ($sourceLabelsUsed.Count -gt 0) {
-                    "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', '). Elaborata da IA: $aiProviderLabel._"
+                    "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', '). Elaborata da IA: $aiProviderLabel ($tokenNote)._"
                 } else {
-                    "`n`n_Risposta generata da IA ($aiProviderLabel) senza consultare dati del tenant._"
+                    "`n`n_Risposta generata da IA ($aiProviderLabel, $tokenNote) senza consultare dati del tenant._"
                 }
                 return [pscustomobject]@{ Text = $azureFinalText; PendingWrite = $pendingWrite; Attachments = $reportAttachments }
             }
@@ -1242,6 +1265,10 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                 "Content-Type"      = "application/json"
             } -Body $body
             $script:M365OpsAiCallCount.Claude++
+            # Accumulo token di questo round (25/08/2026, vedi $totalInputTokens sopra).
+            $totalInputTokens += $response.usage.input_tokens
+            $totalOutputTokens += $response.usage.output_tokens
+            $totalCachedTokens += $response.usage.cache_read_input_tokens
 
             if ($response.stop_reason -ne "tool_use") {
                 $textBlock = $response.content | Where-Object { $_.type -eq "text" } | Select-Object -First 1
@@ -1253,11 +1280,14 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                     $claudeFinalText = "Il modello non ha prodotto una risposta (motivo interno: $($response.stop_reason)) - prova a riformulare in modo piu' semplice o a spezzarla in piu' passaggi."
                 }
                 # Stessa logica del ramo Azure sopra: dettaglio dati SOLO se almeno un tool e'
-                # stato chiamato, nota sul motore IA SEMPRE presente.
+                # stato chiamato, nota sul motore IA SEMPRE presente. Conteggio token: stessa
+                # formula del ramo Azure sopra (vedi commento li').
+                $tokenNote = "$totalInputTokens token inviati, $totalOutputTokens ricevuti"
+                if ($totalCachedTokens -gt 0) { $tokenNote += ", di cui $totalCachedTokens dalla cache" }
                 $claudeFinalText += if ($sourceLabelsUsed.Count -gt 0) {
-                    "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', '). Elaborata da IA: $aiProviderLabel._"
+                    "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', '). Elaborata da IA: $aiProviderLabel ($tokenNote)._"
                 } else {
-                    "`n`n_Risposta generata da IA ($aiProviderLabel) senza consultare dati del tenant._"
+                    "`n`n_Risposta generata da IA ($aiProviderLabel, $tokenNote) senza consultare dati del tenant._"
                 }
                 return [pscustomobject]@{ Text = $claudeFinalText; PendingWrite = $pendingWrite; Attachments = $reportAttachments }
             }
@@ -1949,11 +1979,14 @@ $attemptSummary
 Motivo piu' probabile: la domanda richiede dati che Microsoft Graph non espone direttamente (es. permessi di mailbox, altri dati Exchange-specifici), oppure serve iterare su troppi elementi per il numero di passaggi disponibili. Se riguarda mailbox condivise o permessi di posta, servirebbe collegare Exchange Online PowerShell (non ancora disponibile in questo sistema).
 "@
     # Stessa nota sul motore IA degli altri due punti di uscita sopra - anche un tentativo
-    # non concluso ha comunque impegnato l'IA per tutti i round provati.
+    # non concluso ha comunque impegnato l'IA per tutti i round provati. Conteggio token:
+    # stessa formula, $totalInputTokens/... hanno gia' accumulato tutti i round tentati.
+    $tokenNote = "$totalInputTokens token inviati, $totalOutputTokens ricevuti"
+    if ($totalCachedTokens -gt 0) { $tokenNote += ", di cui $totalCachedTokens dalla cache" }
     $maxRoundsText += if ($sourceLabelsUsed.Count -gt 0) {
-        "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', '). Elaborata da IA: $aiProviderLabel._"
+        "`n`n_Fonte dati: $(($sourceLabelsUsed | Select-Object -Unique) -join ', '). Elaborata da IA: $aiProviderLabel ($tokenNote)._"
     } else {
-        "`n`n_Risposta generata da IA ($aiProviderLabel) senza consultare dati del tenant._"
+        "`n`n_Risposta generata da IA ($aiProviderLabel, $tokenNote) senza consultare dati del tenant._"
     }
     return [pscustomobject]@{
         Text         = $maxRoundsText

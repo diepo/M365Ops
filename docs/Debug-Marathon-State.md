@@ -968,3 +968,94 @@ caratteri salvata per intero, turno successivo funzionante, toggle testato nel b
 entrambe le direzioni dopo il fix. Nota di trasparenza: il test dal vivo ha aggiunto 2 turni di
 chat innocui alla cronologia reale di "vnsys-test" (lasciati apposta, ripulirli avrebbe rischiato
 di cancellare cronologia vera dell'utente nello stesso file).
+
+## Seguito: 3 correzioni dal vivo sull'analizzatore intestazioni + conteggio token esteso alla chat generale (v0.9.95)
+
+Tre segnalazioni dal vivo dell'utente dopo aver provato la funzionalita' spedita in v0.9.90-92 nel
+proprio ambiente (non nel server di test sandboxato di questa sessione).
+
+**1) "cmq ho incollaltpo oral 'header mica miha dato link verso analyzer dimsft . inoltree dice
+Risposta generata da IA (Azure OpenAI) senza consultare dati del tenant ma m,ica mi ha detto il
+numero dei token"** — l'utente aveva incollato delle intestazioni nella CHAT GENERALE, non nel
+pannello dedicato (che a quel tempo viveva dentro "⚙ Impostazioni tenant" → tab "Intestazioni
+email", poco scopribile). La chat generale non ha mai avuto ne' il link a Microsoft Message
+Header Analyzer ne' la tabella hop - solo l'IA generica che risponde a un blocco di testo che non
+sa scomporre. Fonte di confusione reale, non un bug del parser.
+
+**2) "e cmq porco dio il conteggio token ti ho gia dettodeve stare nella risposta chat i basso
+nella sezione dove cita le fonti"** — correzione esplicita di uno scoping deliberatamente troppo
+stretto: il conteggio token (v0.9.92) era stato implementato SOLO per `/api/analyze-headers-ai`,
+documentando a quel tempo "scope deliberatamente limitato alla sola route richiesta
+dall'utente". L'utente intendeva invece "a partire da questo caso", non "solo questo caso" -
+lezione per il futuro: per una richiesta di trasparenza sui costi ampiamente utile (non legata a
+un dettaglio tecnico specifico di una sola route), preferire lo scope PIU' ampio per default.
+
+**3) "Una volta aggiornata: ... nn va un cazzo bene.-.. altoglielo da li, la limite metti u tab
+intesaaioni email vicino ai tasti in alto dove c' upload"** — correzione esplicita sul
+posizionamento GUI: il pannello era stato messo dentro le Impostazioni (una tab tra tante) senza
+chiedere, l'utente lo voleva invece come pulsante di primo livello sempre visibile nella barra
+strumenti, accanto a Upload - lezione per il futuro: per una funzionalita' pensata per l'uso
+estemporaneo/reattivo (non di configurazione), non dare per scontato che vada dentro una struttura
+esistente di tab/impostazioni; default alla posizione piu' accessibile o chiedere prima.
+
+**Implementato**:
+- `Gui/index.html`: pannello analizzatore intestazioni spostato da `#settings-panel` (tab
+  "headers") a un nuovo pannello di primo livello `#headers-panel`, sibling di `#upload-panel`,
+  con pulsante dedicato `#headers-toggle-btn` ("📧 Intestazioni email") nella barra strumenti
+  principale accanto a Upload - stesso pattern toggle/`.open`/`.active` gia' in uso per il
+  pannello di caricamento file. Nessuna funzionalita' esistente toccata nello spostamento
+  (`headers-input`, `headers-analyze-btn`, `headers-clear-btn`, `headers-ai-btn`,
+  `headers-open-mha-btn`, rendering hop/auth/antispam) - solo posizione DOM e CSS.
+- `Gui/CommandCatalog.ps1`: nuova voce `PastedEmailHeadersRedirect` (controllata PER PRIMA
+  nell'array), stessa euristica di autorilevamento del parser (`Received:\s*from`,
+  `RecipientStatus\s*:`, `\{LED=`) - se un utente incolla intestazioni/NDR nella chat generica,
+  reindirizza al pulsante dedicato invece di sprecare una chiamata IA generica inadeguata.
+  `RequiresAI = $false`, gestito interamente in locale.
+- `Public/Invoke-M365OpsAgentTools.ps1`: nuovi accumulatori `$totalInputTokens`/
+  `$totalOutputTokens`/`$totalCachedTokens` (dichiarati dopo `$aiProviderLabel`, sommati round per
+  round subito dopo ogni chiamata riuscita sia nel ramo Azure sia nel ramo Claude, PRIMA del
+  controllo di uscita dal round) - una singola risposta puo' attraversare piu' round (un round per
+  ogni chiamata a uno strumento), la nota finale deve riflettere il costo REALE dell'intera
+  risposta, non solo dell'ultimo round. Le 3 coppie di note finali (Azure con/senza dati, Claude
+  con/senza dati, fallback MaxRounds esaurito) ora includono `$tokenNote` con la stessa formula
+  gia' collaudata in v0.9.92 ("N token inviati, M ricevuti[, di cui K dalla cache]").
+
+**Verificato dal vivo (server di test sandboxato, restart applicato)**:
+- Sintassi: `Invoke-M365OpsAgentTools.ps1` (singolo file) e l'intero repository (387 file `.ps1`)
+  puliti via `[System.Management.Automation.Language.Parser]::ParseFile`, 0 errori.
+  `Gui/index.html`: bilanciamento tag invariato (div 114/114, button 53/53, span 37/37) e i 2
+  blocchi `<script>` inline sintatticamente validi (`new Function()`).
+- Conteggio token, caso senza strumenti ("ciao, come stai?"): nota mostra "31254 token inviati, 21
+  ricevuti, di cui 3328 dalla cache" - confrontato riga per riga col log server
+  (`Azure OpenAI cache: 3328/31254 token dalla cache`), coincide esattamente in un solo round.
+- Conteggio token, caso multi-round ("quanti utenti ci sono nel tenant?"): 3 round reali nel log
+  server (prompt tokens 30514 + 30738 + 32675 = 93927; cache 23808 + 29952 + 29952 = 83712) - la
+  nota finale riporta "93927 token inviati ... di cui 83712 dalla cache", la SOMMA esatta dei 3
+  round, non l'ultimo soltanto. Verifica matematica indipendente dal codice (confronto diretto coi
+  log), non solo lettura del sorgente.
+- Pannello riposizionato: pulsante toolbar presente e funzionante (apre/chiude `#headers-panel`,
+  classe `.active` sincronizzata), vecchia tab "Intestazioni email" nelle Impostazioni confermata
+  rimossa. Flusso Analizza testato con un'intestazione realistica (5 header, un varco temporale
+  multi-hop) - riepilogo, tabella hop, badge SPF/DKIM/DMARC, pulsante copia+apri MHA tutti presenti
+  e renderizzati correttamente dopo il trasloco DOM. Flusso "Chiedi all'IA" testato di seguito -
+  nota con conteggio token presente nel risultato.
+- Redirect: testato positivo (blocco intestazioni incollato in chat generale → messaggio di
+  reindirizzamento, `"Fonte: comando locale 'PastedEmailHeadersRedirect', nessuna IA usata."`,
+  zero chiamate IA) e negativo (domanda normale che nomina "email" e un mittente → risposta IA
+  regolare con `graph_api_call`, nessun falso positivo).
+
+Spedito in v0.9.95. Su richiesta esplicita dell'utente ("dopo che fai tuytto spinna lgli angernti
+debug spero sia la volta definitiva"), agente/i di regressione da avviare subito dopo questa
+dichiarazione - vedi sotto.
+
+**Agente "Regression review v0.9.95 (panel relocation + redirect + token totals)"**
+(general-purpose, background) — AVVIATO 25/08/2026. Scope: SOLO le modifiche di questo commit -
+(a) `Gui/index.html`: qualunque riferimento residuo al vecchio ID/percorso del pannello dentro le
+Impostazioni, comportamento del pannello su schermo piccolo/resize, interazione con altri pannelli
+toolbar (upload) aperti contemporaneamente; (b) `Gui/CommandCatalog.ps1`: rischio di falsi positivi
+della voce `PastedEmailHeadersRedirect` su messaggi legittimi che menzionano "received"/parole
+simili in italiano o in un contesto non tecnico, corretta priorita' rispetto alle altre voci del
+catalogo su un messaggio che matcha piu' trigger; (c) `Invoke-M365OpsAgentTools.ps1`: correttezza
+dell'accumulo token su un numero di round diverso da quelli gia' testati a mano (1 e 3), gestione
+`$null`/campi mancanti nella risposta usage, nessuna regressione alla nota "Fonte dati"/etichetta
+motore IA gia' verificata nelle maratone precedenti (v0.9.86/87/88). — IN CORSO.

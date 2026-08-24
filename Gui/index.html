@@ -110,6 +110,16 @@
   .upload-row-item { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-muted); }
   .upload-row-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+  /* Pannello "Intestazioni email" (25/08/2026, spostato fuori dal pannello impostazioni su
+     richiesta esplicita dell'utente - "non va bene li', mettilo vicino ai tasti in alto dove
+     c'e' upload": prima raggiungibile solo dentro "Impostazioni tenant", ora un pulsante diretto
+     nella toolbar principale, stesso pattern di toggle gia' in uso per #upload-panel. */
+  #headers-panel {
+    display: none; background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 16px 18px; flex-shrink: 0;
+  }
+  #headers-panel.open { display: block; }
+
   #settings-panel {
     display: none; background: var(--surface); border-bottom: 1px solid var(--border);
     padding: 16px 18px; flex-shrink: 0;
@@ -222,6 +232,7 @@
     <span id="ai-badge">Chiamata AI in corso</span>
     <button id="theme-toggle-btn" class="header-btn" title="Cambia tema chiaro/scuro">🌙</button>
     <button id="upload-toggle-btn" class="header-btn" title="Carica un file da pacchettizzare, un'icona o un CSV di migrazione">📎 Upload</button>
+    <button id="headers-toggle-btn" class="header-btn" title="Analizza intestazioni email o un blocco di diagnostica NDR">📧 Intestazioni email</button>
     <button id="permissions-check-btn" class="header-btn" title="Verifica quali permessi ha davvero l'app registrata su questo tenant">🔐 Stato permessi</button>
     <button id="settings-btn" class="header-btn">⚙ Impostazioni tenant</button>
   </div>
@@ -245,6 +256,18 @@
   </div>
 </div>
 
+<div id="headers-panel">
+  <h2 style="margin-top:0;">Analizza intestazioni email</h2>
+  <p class="hint">Incolla le intestazioni complete di un'email (da "Visualizza origine messaggio"/"Visualizza dettagli messaggio Internet" in Outlook) oppure un blocco di diagnostica NDR/message-trace di Exchange (es. l'output di <code>Get-MessageTrace</code>, o un rimbalzo incollato da un'email di errore) - il formato viene riconosciuto automaticamente. L'analisi avviene interamente in locale, nessun dato lascia questo PC finche' non premi esplicitamente "Chiedi all'IA".</p>
+  <textarea id="headers-input" rows="10" style="width:100%; font-family:'IBM Plex Mono', ui-monospace, monospace; font-size:12px; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); resize:vertical;" placeholder="Incolla qui le intestazioni email o il blocco NDR..."></textarea>
+  <div class="actions" style="margin-top:10px;">
+    <button id="headers-analyze-btn">Analizza</button>
+    <button id="headers-clear-btn" style="background:var(--surface-alt);">Pulisci</button>
+    <span id="headers-status-msg"></span>
+  </div>
+  <div id="headers-result" style="margin-top:16px;"></div>
+</div>
+
 <div id="update-banner" style="display:none; margin:10px 16px 0; padding:8px 14px; background:var(--warn-soft); border:1px solid var(--warn); border-radius:var(--radius-sm); font-size:12.5px; align-items:center; gap:10px; justify-content:space-between;">
   <span id="update-banner-text"></span>
   <button id="update-banner-btn" style="flex-shrink:0;">Vedi in Manutenzione</button>
@@ -258,7 +281,6 @@
     <button class="tab-btn" data-tab="ai">Motore AI</button>
     <button class="tab-btn" data-tab="mcp">MCP / Connettori</button>
     <button class="tab-btn" data-tab="email">Email</button>
-    <button class="tab-btn" data-tab="headers">Intestazioni email</button>
     <button class="tab-btn" data-tab="maint">Manutenzione</button>
   </div>
 
@@ -512,17 +534,6 @@
     <p class="hint" style="margin-top:14px;">Dopo aver generato un report (CSV/Excel/PDF) in chat, scrivi "invialo per email a indirizzo@dominio.it" per spedirlo come allegato.</p>
   </div>
 
-  <div class="tab-panel" id="tab-headers" style="display:none;">
-    <h2>Analizza intestazioni email</h2>
-    <p class="hint">Incolla le intestazioni complete di un'email (da "Visualizza origine messaggio"/"Visualizza dettagli messaggio Internet" in Outlook) oppure un blocco di diagnostica NDR/message-trace di Exchange (es. l'output di <code>Get-MessageTrace</code>, o un rimbalzo incollato da un'email di errore) - il formato viene riconosciuto automaticamente. L'analisi avviene interamente in locale, nessun dato lascia questo PC finche' non premi esplicitamente "Chiedi all'IA".</p>
-    <textarea id="headers-input" rows="10" style="width:100%; font-family:'IBM Plex Mono', ui-monospace, monospace; font-size:12px; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); resize:vertical;" placeholder="Incolla qui le intestazioni email o il blocco NDR..."></textarea>
-    <div class="actions" style="margin-top:10px;">
-      <button id="headers-analyze-btn">Analizza</button>
-      <button id="headers-clear-btn" style="background:var(--surface-alt);">Pulisci</button>
-      <span id="headers-status-msg"></span>
-    </div>
-    <div id="headers-result" style="margin-top:16px;"></div>
-  </div>
 
   <div class="tab-panel" id="tab-maint" style="display:none;">
     <h2>Manutenzione</h2>
@@ -2649,6 +2660,16 @@
   uploadToggleBtn.addEventListener('click', () => {
     const isOpen = uploadPanel.classList.toggle('open');
     uploadToggleBtn.classList.toggle('active', isOpen);
+  });
+
+  // Pannello "Intestazioni email" (25/08/2026) - stesso pattern di toggle di #upload-panel,
+  // spostato fuori dal pannello impostazioni su richiesta esplicita dell'utente per essere
+  // raggiungibile con un click solo dalla toolbar principale.
+  const headersToggleBtn = document.getElementById('headers-toggle-btn');
+  const headersPanel = document.getElementById('headers-panel');
+  headersToggleBtn.addEventListener('click', () => {
+    const isOpen = headersPanel.classList.toggle('open');
+    headersToggleBtn.classList.toggle('active', isOpen);
   });
 
   // Tema chiaro/scuro (21/08/2026, richiesto esplicitamente dall'utente) - la scelta e' SOLO
