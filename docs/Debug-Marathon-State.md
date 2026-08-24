@@ -889,3 +889,11 @@ di cui K dalla cache])". Verificato dal vivo con una chiamata reale (1095 inviat
 Spedito in v0.9.92. Scope deliberatamente limitato alla sola route richiesta dall'utente
 ("in questo caso dell'analisi") - estendere la nota token alle altre interazioni IA (loop
 tool-calling generale, triage errori, ecc.) resta un lavoro futuro se richiesto.
+
+**Agente "Regression review token-count feature"** (general-purpose, background) — AVVIATO
+25/08/2026, su richiesta esplicita dell'utente ("dopo implementazione spinna agente per
+verifica bug"). Scope: SOLO il commit `ef3abd1` - in particolare che nessuno degli altri ~5
+chiamanti di `Invoke-M365OpsAgent` sia stato toccato/rotto dal nuovo parametro `-ReturnUsage`
+(default `$false`), che i nomi dei campi `usage.*` letti dalle due API siano corretti, e la
+null-safety del nuovo codice in caso di un campo `usage` mancante/diverso dall'atteso. Esito non
+ancora noto al momento di questa dichiarazione.
