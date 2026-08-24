@@ -697,5 +697,14 @@ funzione. Verificato dal vivo entrambe le varianti su "vnsys-test". Commit `9390
 richiesta esplicita dell'utente ("spinna agente di debug per verificare assenza di regressioni").
 Scope: SOLO il commit `93909d2` (`git diff 86339fb..93909d2`) - il pattern `+= if(){} else{}`
 usato ai tre punti di uscita, lo scope di `$Provider`/`$aiProviderLabel`, eventuale interferenza
-con `PendingWrite`/`Attachments` o con un parsing lato GUI del testo "Fonte dati:". Esito non
-ancora noto al momento di questa dichiarazione.
+con `PendingWrite`/`Attachments` o con un parsing lato GUI del testo "Fonte dati:". — COMPLETATO.
+**Nessuna regressione trovata**, nessuna modifica necessaria. Verificato: il pattern `+= if(){}
+else{}` produce una stringa normale (confermato in pwsh diretto, nessuno spacchettamento array);
+`$Provider` mai riassegnato in nessun punto della funzione, nessuno shadowing; nessuna
+interferenza con `PendingWrite`/`Attachments` (testato dal vivo un caso con `propose_graph_write`
+attivo insieme alla nota); nessun parser lato `Gui/Server.ps1`/`index.html` tratta il testo
+"Fonte dati:"/"Elaborata da IA:" in modo speciale (unico altro match e' un trailer non correlato
+in `Complete-M365OpsWriteResponse`). **4 scenari live verificati** (Claude+tool, Claude+nessun
+tool, Azure+tool, Azure+nessun tool su "vnsys-test") - tutti corretti, etichetta giusta per
+provider, nessuna duplicazione. Percorso MaxRounds-esaurito verificato solo per ispezione (stesso
+pattern gia' confermato sicuro altrove, non forzato dal vivo per non sprecare round a vuoto).
