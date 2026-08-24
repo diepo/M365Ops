@@ -560,8 +560,25 @@ richiesta esplicita dell'utente ("doipo fai girare agente esteno per debug"). Sc
 commit `517e7f9` - in particolare se il pattern generico di append della nota funziona per TUTTE
 le ~20 voci del catalogo (non solo le 2 gia' testate), eventuale collisione con
 `$script:LastReportPath`/`$attachments` o con parser lato GUI, e raggiungibilita' reale di
-`Get-M365OpsAiProviderLabel` da `Gui/Server.ps1`. Esito non ancora noto al momento di questa
-dichiarazione.
+`Get-M365OpsAiProviderLabel` da `Gui/Server.ps1`. — COMPLETATO.
+
+**1 regressione reale trovata e corretta, verificata dal vivo - v0.9.88**: il ramo di successo del
+dispatch catalogo distingue correttamente "nessuna IA usata" da "con analisi IA" in base a
+`$entry.RequiresAI` - il blocco `catch` aggiunto dallo stesso commit no, diceva SEMPRE "nessuna IA
+usata (fallito prima di completare)", anche per le voci `RequiresAI=$true`
+(`CompliancePatterns`/`ExportCompliancePatterns`) dove l'IA e' esattamente cio' che puo' aver
+fallito - contraddicendo lo scopo stesso della trasparenza appena introdotta. Riprodotto dal vivo
+forzando un errore di validazione dentro `Get-M365OpsCompliancePatterns`. Corretto branchando il
+`catch` sullo stesso `$entry.RequiresAI` del ramo di successo, riverificato dal vivo entrambi i
+casi (AI e non-AI).
+
+**Altre aree controllate, nessun problema trovato**: tutti i ~19 Formatter del catalogo
+restituiscono sempre una stringa semplice (mai `$null`/array/hashtable), nessuna interferenza con
+`$script:LastReportPath`/allegati, nessuna collisione con parser lato GUI (la chat renderizza il
+testo come nodo di testo puro, nessuna interpretazione markdown/HTML), `Get-M365OpsAiProviderLabel`
+confermata raggiungibile da una sessione reale. Verificate dal vivo 7 voci del catalogo oltre alle
+2 gia' testate (`ListDevices`, `ExportDevices` con allegato, `GroupOverview`, piu' due casi
+sintetici di fallimento) - tutte corrette.
 
 Marathon Report (artifact) aggiornato in parallelo con una nuova sezione 12 dedicata a questo
 lavoro - vedi `https://claude.ai/code/artifact/201ca6a9-4334-492c-af59-b6e5c5118be2`.

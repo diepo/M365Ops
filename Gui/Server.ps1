@@ -856,7 +856,21 @@ function Handle-ChatMessage {
             return @{ role = $role; text = $text; attachments = $attachments }
         }
         catch {
-            return @{ role = 'error'; text = "Errore in '$($entry.Name)': $($_.Exception.Message)`n`n_Fonte: comando locale '$($entry.Name)', nessuna IA usata (fallito prima di completare)._" }
+            # Bug reale trovato dal vivo il 24/08/2026 (agente di autoreview dedicato a questo
+            # commit, v0.9.87): la nota d'errore diceva SEMPRE "nessuna IA usata", anche per le
+            # voci RequiresAI=$true (CompliancePatterns/ExportCompliancePatterns), dove l'IA e'
+            # esattamente quello che puo' aver fallito (chiave API mancante, rete, risposta
+            # vuota...) - a differenza del ramo di successo qui sopra, che gia' distingue
+            # correttamente le due etichette. Riprodotto forzando un errore di validazione dentro
+            # Get-M365OpsCompliancePatterns (Provider non valido): l'errore reale mostrava "nessuna
+            # IA usata (fallito prima di completare)" nonostante la voce chiami davvero l'IA.
+            # Corretto branchando sullo stesso $entry.RequiresAI del ramo di successo.
+            $failNote = if ($entry.RequiresAI) {
+                "_Fonte: comando locale '$($entry.Name)' con analisi IA, fallito prima di completare (Elaborata da IA: $(Get-M365OpsAiProviderLabel -Provider $script:ActiveAIProvider))._"
+            } else {
+                "_Fonte: comando locale '$($entry.Name)', nessuna IA usata (fallito prima di completare)._"
+            }
+            return @{ role = 'error'; text = "Errore in '$($entry.Name)': $($_.Exception.Message)`n`n$failNote" }
         }
     }
 
