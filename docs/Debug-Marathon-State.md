@@ -743,3 +743,25 @@ in `Complete-M365OpsWriteResponse`). **4 scenari live verificati** (Claude+tool,
 tool, Azure+tool, Azure+nessun tool su "vnsys-test") - tutti corretti, etichetta giusta per
 provider, nessuna duplicazione. Percorso MaxRounds-esaurito verificato solo per ispezione (stesso
 pattern gia' confermato sicuro altrove, non forzato dal vivo per non sprecare round a vuoto).
+
+## Fuori maratona: elenco strumenti reso identico su ogni round per il prompt caching
+
+Richiesta diretta dell'utente (24/08/2026), seguito dell'indagine sui token: `graphOverlapToolNames`
+(6 strumenti: list_devices, list_noncompliant_devices, get_device_compliance_reasons,
+get_user_overview, get_group_overview, get_user_mfa_status) venivano esclusi SOLO dal round 0 per
+forzare `graph_api_call` come primo tentativo (fix storico) - questo rendeva l'elenco tool DIVERSO
+tra round 0 e round 1+, rompendo il prefisso comune richiesto dal prompt caching (sia Claude
+`cache_control`, mai usato finora, sia il caching automatico di Azure). Confermato dal vivo su
+"vnsys-test": cache-hit sul round 1 passato da **12,9% (baseline) a ~99%** dopo il fix. Corretto
+rendendo l'elenco tool IDENTICO su ogni round, spostando la preferenza per `graph_api_call` in una
+frase esplicita nel system prompt (round-invariante, non rompe mai la cache).
+
+**Regressione controllata dal vivo, 3 scenari, nessun problema**: "panoramica utente",
+"dispositivi non conformi", "dettaglio MFA" - in tutti e tre il modello ha usato esclusivamente
+`graph_api_call`, mai le 6 scorciatoie escluse in precedenza. Comportamento preservato.
+
+**Agente "Regression review token-caching fix"** (general-purpose, background) — AVVIATO
+24/08/2026, per coprire scenari aggiuntivi oltre ai 3 gia' testati da me e verificare eventuali
+dettagli tecnici (ordine di valutazione delle variabili nel system prompt heredoc, parita' tra
+provider Claude/Azure, riferimenti residui al vecchio nome `roundOneShortcutNames`). Esito non
+ancora noto al momento di questa dichiarazione.
