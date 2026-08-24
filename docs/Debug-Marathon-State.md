@@ -892,8 +892,22 @@ tool-calling generale, triage errori, ecc.) resta un lavoro futuro se richiesto.
 
 **Agente "Regression review token-count feature"** (general-purpose, background) — AVVIATO
 25/08/2026, su richiesta esplicita dell'utente ("dopo implementazione spinna agente per
-verifica bug"). Scope: SOLO il commit `ef3abd1` - in particolare che nessuno degli altri ~5
+verifica bug"). Scope: SOLO il commit `ef3abd1` - in particolare che nessuno degli altri
 chiamanti di `Invoke-M365OpsAgent` sia stato toccato/rotto dal nuovo parametro `-ReturnUsage`
 (default `$false`), che i nomi dei campi `usage.*` letti dalle due API siano corretti, e la
-null-safety del nuovo codice in caso di un campo `usage` mancante/diverso dall'atteso. Esito non
-ancora noto al momento di questa dichiarazione.
+null-safety del nuovo codice in caso di un campo `usage` mancante/diverso dall'atteso. —
+COMPLETATO. **Nessuna regressione trovata**, nessuna modifica necessaria.
+
+Inventario completo dei chiamanti (10, non ~5 come stimato nel commit): confermato che NESSUNO
+passa `-ReturnUsage` e tutti trattano il risultato come stringa semplice esattamente come prima
+(regex, `ConvertFrom-Json`, `.Trim()`, interpolazione diretta). Nomi dei campi Azure OpenAI
+(`usage.prompt_tokens`/`completion_tokens`/`prompt_tokens_details.cached_tokens`) confermati
+identici a quelli gia' letti altrove nel progetto (v0.9.89, caching). Campi Claude
+(`usage.input_tokens`/`output_tokens`/`cache_read_input_tokens`) verificati dal vivo con valori
+reali non nulli. Null-safety confermata (`$null -gt 0` = `False`, interpolazione di `$null`
+degrada a stringa vuota, mai un'eccezione). **Verificato dal vivo su entrambi i provider**
+(Claude e Azure OpenAI, con e senza `-ReturnUsage`) e **end-to-end sul server reale** (nota
+corretta "506 token inviati, 488 ricevuti", clausola cache correttamente omessa quando 0).
+Confermato anche che `cache_read_input_tokens` per Claude sara' sempre 0 in pratica (nessun
+`cache_control` mai inviato in questo progetto, solo un commento storico) - gestito
+correttamente dalla guardia `-gt 0`.
