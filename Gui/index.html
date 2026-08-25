@@ -131,9 +131,22 @@
     padding: 16px 18px; flex-shrink: 0;
   }
   #infra-panel.open { display: block; }
+  /* Layout a due colonne (26/08/2026, richiesto esplicitamente dall'utente: "in uno schermo
+     portatile l'editing appare complicato dovendo scorrere su e giu'") - prima il pannello
+     proprieta' appariva SOTTO il canvas, spingendo il resto della pagina in basso ogni volta che
+     si selezionava un nodo (seleziona -> scorri giu' per modificare -> scorri su per tornare al
+     disegno). Ora canvas e proprieta' stanno fianco a fianco quando c'e' spazio orizzontale
+     (>900px), tornano impilati verticalmente sotto quella soglia (schermo stretto/mobile, dove
+     una colonna e' comunque piu' leggibile di due compresse). */
+  #infra-workspace { display: flex; gap: 14px; align-items: flex-start; }
   #infra-canvas-wrap {
     border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg);
-    overflow: auto; height: 420px; position: relative;
+    overflow: auto; height: min(420px, 55vh); position: relative;
+    flex: 1; min-width: 0; width: 100%; max-width: 100%;
+  }
+  @media (max-width: 900px) {
+    #infra-workspace { flex-direction: column; }
+    #infra-props-panel { flex: none !important; width: 100%; }
   }
   #infra-canvas { display: block; }
   #infra-empty-hint {
@@ -164,10 +177,11 @@
   body.infra-connecting, body.infra-connecting * { cursor: crosshair !important; }
 
   #infra-props-panel {
-    margin-top: 12px; padding: 12px 14px; background: var(--surface-alt); border-radius: var(--radius-sm);
-    display: none;
+    padding: 12px 14px; background: var(--surface-alt); border-radius: var(--radius-sm);
+    display: none; flex: 0 0 280px;
+    max-height: min(420px, 55vh); overflow-y: auto;
   }
-  #infra-props-panel.open { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #infra-props-panel.open { display: grid; grid-template-columns: 1fr; gap: 8px; }
   #infra-props-panel label { font-size: 11px; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 2px; }
   #infra-props-panel input, #infra-props-panel select, #infra-props-panel textarea {
     width: 100%; padding: 6px 8px; font-size: 12.5px; border: 1px solid var(--border);
@@ -327,7 +341,7 @@
 
 <div id="infra-panel">
   <h2 style="margin-top:0;">Infrastruttura tenant</h2>
-  <p class="hint">Disegna l'infrastruttura di questo tenant - solo on-prem, ibrida, solo cloud o multi-cloud (Azure/AWS/GCP): domain controller, Entra Connect, sedi, reti, gateway, database, container, qualunque componente. "+ Nodo" per aggiungere, trascina per posizionare, trascina dal pallino sul bordo di un nodo verso un altro per collegarli. Salvato solo per questo tenant - l'IA lo legge su richiesta quando la domanda riguarda l'infrastruttura (basta chiedere in chat, nessun pulsante dedicato per l'IA qui).</p>
+  <p class="hint">On-prem, ibrida, solo cloud o multi-cloud: domain controller, reti, gateway, database, qualunque componente. "+ Nodo" per aggiungere, trascina per posizionare, trascina dal pallino sul bordo di un nodo per collegarlo a un altro. Salvato per questo tenant - l'IA lo legge su richiesta (basta chiedere in chat).</p>
   <div class="actions" style="margin-bottom:10px;">
     <button id="infra-add-node-btn">+ Nodo</button>
     <button id="infra-save-btn">Salva</button>
@@ -337,21 +351,23 @@
     <input type="file" id="infra-import-input" accept=".json,.m365ops-infra" style="display:none">
     <span id="infra-status-msg"></span>
   </div>
-  <div id="infra-canvas-wrap">
-    <svg id="infra-canvas" width="1800" height="1000" xmlns="http://www.w3.org/2000/svg"></svg>
-    <div id="infra-empty-hint">Nessun nodo ancora - premi "+ Nodo" per iniziare a disegnare.</div>
-  </div>
-  <div id="infra-props-panel">
-    <div class="full infra-field-node"><label>Tipo</label><select id="infra-prop-type"></select></div>
-    <div class="infra-field-node"><label>Nome</label><input id="infra-prop-name" placeholder="es. DC01, vnet-prod, s3-backup..."></div>
-    <div class="infra-field-node"><label>Ruolo</label><input id="infra-prop-role" placeholder="es. PDC Emulator, Load Balancer pubblico..."></div>
-    <div class="infra-field-node"><label>Indirizzo IP / classe</label><input id="infra-prop-ip" placeholder="es. 10.0.0.10, 10.0.0.0/8, 0.0.0.0/0..."></div>
-    <div class="infra-field-node"><label>Dominio / regione / account</label><input id="infra-prop-domain" placeholder="es. contoso.local, eu-west-1, sub-prod..."></div>
-    <div class="full infra-field-node"><label>Note</label><textarea id="infra-prop-notes" rows="2"></textarea></div>
-    <div class="full infra-field-edge"><label>Etichetta collegamento</label><input id="infra-prop-label" placeholder="es. sync ogni 30 min, VPN site-to-site, peering..."></div>
-    <div class="full" style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
-      <span id="infra-prop-hint" class="hint" style="margin:0;"></span>
-      <button id="infra-delete-btn">Elimina</button>
+  <div id="infra-workspace">
+    <div id="infra-canvas-wrap">
+      <svg id="infra-canvas" width="1800" height="1000" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="infra-empty-hint">Nessun nodo ancora - premi "+ Nodo" per iniziare a disegnare.</div>
+    </div>
+    <div id="infra-props-panel">
+      <div class="full infra-field-node"><label>Tipo</label><select id="infra-prop-type"></select></div>
+      <div class="infra-field-node"><label>Nome</label><input id="infra-prop-name" placeholder="es. DC01, vnet-prod, s3-backup..."></div>
+      <div class="infra-field-node"><label>Ruolo</label><input id="infra-prop-role" placeholder="es. PDC Emulator, Load Balancer pubblico..."></div>
+      <div class="infra-field-node"><label>Indirizzo IP / classe</label><input id="infra-prop-ip" placeholder="es. 10.0.0.10, 10.0.0.0/8, 0.0.0.0/0..."></div>
+      <div class="infra-field-node"><label>Dominio / regione / account</label><input id="infra-prop-domain" placeholder="es. contoso.local, eu-west-1, sub-prod..."></div>
+      <div class="full infra-field-node"><label>Note</label><textarea id="infra-prop-notes" rows="2"></textarea></div>
+      <div class="full infra-field-edge"><label>Etichetta collegamento</label><input id="infra-prop-label" placeholder="es. sync ogni 30 min, VPN site-to-site, peering..."></div>
+      <div class="full" style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+        <span id="infra-prop-hint" class="hint" style="margin:0;"></span>
+        <button id="infra-delete-btn">Elimina</button>
+      </div>
     </div>
   </div>
 </div>

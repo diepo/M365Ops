@@ -1291,7 +1291,10 @@ GIA' esistente - pannelli upload/intestazioni/impostazioni, tab Documentazione/K
 layout della toolbar a piu' pulsanti, isolamento del blocco INFRASTRUTTURA nel prompt di sistema
 rispetto ai blocchi KB gia' collaudati, round-invarianza dell'elenco strumenti (cache-hit ancora
 ~99%, v0.9.89), isolamento cross-tenant del diagramma (creato su un tenant, mai visibile su un
-altro, sia lato IA sia lato GUI dopo uno switch). — IN CORSO.
+altro, sia lato IA sia lato GUI dopo uno switch). — COMPLETATO, nessun problema trovato: tutti
+i pannelli esistenti confermati funzionanti dopo l'aggiunta del nuovo pulsante/pannello, isolamento
+cross-tenant del diagramma confermato sia lato IA sia lato GUI, round-invarianza dell'elenco
+strumenti intatta, nessuna modifica necessaria.
 
 **Agente "Stress-test editor Infrastruttura (GUI)"** (general-purpose, background) — AVVIATO
 25/08/2026. Scope: interazione pesante con l'editor stesso - molti nodi (50+), nomi/note con
@@ -1469,7 +1472,12 @@ SOLO verificare che il commit 6d2704f non abbia rotto nulla di gia' esistente - 
 rimozione documenti KB dalla GUI (tab Documentazione), storico chat (deliberatamente NON toccato
 da questo commit, deve restare per-profilo), le funzionalita' gia' collaudate dell'editor
 Infrastruttura (v0.9.98/99: drag nodi, collegamenti, tema chiaro/scuro), round-invarianza
-dell'elenco strumenti IA (cache-hit), pannelli GUI esistenti. — IN CORSO.
+dell'elenco strumenti IA (cache-hit), pannelli GUI esistenti. — COMPLETATO (dopo un'interruzione
+di connessione a meta' lavoro, ripreso dallo stesso punto), nessuna regressione trovata: upload/
+rimozione documenti KB via GUI reale confermati funzionanti col nuovo box di rimando, storico chat
+confermato rimasto per-profilo (non toccato dal commit), editor Infrastruttura funzionante dopo il
+cambio di chiave di storage, cache-hit al round 2 confermata al 94,8% (in linea con l'obiettivo
+~90%+ del v0.9.89), 396 file `.ps1` sintatticamente puliti.
 
 **Agente "Stress-test migrazione/isolamento Tenant ID"** (general-purpose, background) — AVVIATO
 25/08/2026. Scope: casi limite della risoluzione/migrazione - profilo senza campo TenantId,
@@ -1563,3 +1571,52 @@ round-trip export/import completo.
 
 Spedito in v0.10.2. Nessuna osservazione discrezionale oltre alle 100.000 iterazioni PBKDF2 gia'
 citata (non un difetto, solo una nota per un eventuale rialzo futuro dello standard).
+
+## Seguito: editor Infrastruttura meno scomodo su schermo portatile (v0.10.3)
+
+Segnalato dal vivo dall'utente: "in uno schermo portatile l'editing della infrastruttura appare un
+po' complicato dovendo scorrere su e giu'. e' possibile fare qualcosa?" - domanda esplorativa,
+risposto con una raccomandazione concisa (pannello proprieta' a fianco invece che sotto il canvas,
+altezza del canvas responsive, testo esplicativo piu' corto) e chiesta conferma prima di
+implementare, coerentemente con le altre volte in questa sessione in cui l'utente ha corretto
+scelte di design GUI fatte senza chiedere prima (v0.9.95, posizione del pannello intestazioni).
+Confermato ("va bene"), implementato.
+
+**Causa**: il pannello proprieta' (`#infra-props-panel`) appariva SOTTO il canvas - selezionare un
+nodo lo faceva comparire in fondo, spingendo il resto della pagina piu' in basso (seleziona ->
+scorri giu' per modificare -> scorri su per tornare a disegnare). Il canvas aveva inoltre
+un'altezza FISSA di 420px indipendente dallo spazio realmente disponibile in verticale.
+
+**Corretto**: nuovo contenitore `#infra-workspace` (flexbox) che affianca canvas e pannello
+proprieta' quando c'e' spazio orizzontale (oltre 900px, media query), tornano impilati sotto quella
+soglia. Altezza del canvas cambiata da fissa a `min(420px, 55vh)`. Testo esplicativo sopra la
+toolbar accorciato da un paragrafo lungo a una frase.
+
+**Bug reale trovato durante la verifica dal vivo dello stesso cambiamento (non pre-esistente,
+introdotto da questa stessa modifica), corretto nello stesso giro**: nel layout impilato (schermo
+stretto), `#infra-canvas-wrap` non rispettava la larghezza del viewport - `flex: 1` su un elemento
+dentro un contenitore `flex-direction: column` regola l'asse PRINCIPALE (verticale in quel layout),
+non la larghezza; senza un vincolo esplicito sulla larghezza, il contenitore restava largo quanto
+il suo contenuto (l'SVG interno e' largo 1800px) invece di restringersi al contenitore. Riprodotto
+dal vivo: a 800px di larghezza il contenitore del canvas restava largo 1802px, causando uno
+scorrimento ORIZZONTALE indesiderato dell'intera pagina (non solo del canvas, che ha gia' il
+proprio scroll interno voluto). Corretto aggiungendo `width: 100%; max-width: 100%;` esplicito -
+riverificato che il layout a due colonne (largo) non ne risente, dove `flex:1` si applica davvero
+all'asse orizzontale e domina comunque su `width:100%` nell'algoritmo flessibile.
+
+**Verificato dal vivo a tre larghezze** (non solo lettura del codice): 1366×768 (laptop tipico) -
+due colonne fianco a fianco confermate (`flexDirection: row`, canvas 1036px + proprieta' 280px),
+nessuno scorrimento di pagina. 1366×650 (laptop con finestra piu' bassa) - canvas ridotto a 358px,
+esattamente il 55% di 650 (formula CSS confermata corretta via `getBoundingClientRect`), scorrimento
+di pagina ridotto (54px residui, dovuti all'intestazione/toolbar sopra, non al canvas) invece che
+il pieno overflow di prima. 800×700 (schermo stretto) - layout correttamente impilato in colonna
+(`flexDirection: column`), nessuno scorrimento orizzontale dopo il fix del bug sopra. Riverificate
+anche le funzionalita' esistenti con il nuovo layout: trascinamento reale di un nodo (sequenza
+`PointerEvent` autentica: pointerdown -> pointermove -> pointerup, non solo lettura del codice)
+sposta correttamente le coordinate salvate in `infraNodes`; tema chiaro/scuro applicato
+correttamente (colore della casella nodo confermato mai nero in nessuno dei due temi, stesso
+controllo del fix v0.9.99). 396 file `.ps1` sintatticamente puliti, tag HTML bilanciati (div/
+button/span), 2 blocchi `<script>` inline sintatticamente validi.
+
+Spedito in v0.10.3. Su richiesta esplicita dell'utente ("poi fai un giro di stresstest gui e codice
+e bug fix"), agenti da avviare subito dopo questa dichiarazione - vedi sotto.
