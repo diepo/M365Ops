@@ -1692,3 +1692,80 @@ con `new Function`), tag `div`/`button`/`span` bilanciati in `Gui/index.html` (0
 spaiate).
 
 Spedito in v0.10.4.
+
+**Esito agente "Stress-test generale GUI/codice, ricerca bug nuovi"** (general-purpose, background)
+— giro ampio non legato a una singola feature recente, deliberatamente non sovrapposto al secondo
+agente in parallelo (solo layout Infrastruttura v0.10.3/v0.10.4). Skimmata la cronologia di questo
+file per evitare di ri-verificare cio' gia' collaudato ripetutamente (isolamento Knowledge Base,
+migrazione Tenant ID, round-invarianza cache, crypto export/import, meccaniche nodi/edge
+dell'editor Infrastruttura) e concentrarsi su superficie NON ancora toccata.
+
+**Verificato senza trovare problemi**: 396 file `.ps1` sintatticamente puliti (`ParseFile`), i 2
+blocchi `<script>` inline di `Gui/index.html` validi come JS (`node --check`), tag `div`/`button`/
+`span` bilanciati (129/61/40 rispettivamente, diff zero su tutti); coesistenza reale dei quattro
+pannelli toolbar (Upload, Intestazioni email, Infrastruttura, Impostazioni) aperti tutti insieme -
+sono `<div>` fratelli in flusso normale (mai posizionati in modo assoluto), quindi si limitano a
+impilarsi verticalmente senza mai sovrapporsi - nessuna collisione visiva/di z-index, nessuno stato
+incrociato tra un toggle e l'altro (verificato dal vivo via `PointerEvent`/click reali in browser,
+non solo lettura del codice - un primo test aveva mostrato il pannello Infrastruttura sparire dopo
+l'apertura in sequenza di tutti e quattro, ma si e' rivelato un artefatto di un'altra tab del
+browser condivisa con l'agente parallelo che ha rubato il focus di `javascript_exec`, non un bug
+reale - non riproducibile isolando esplicitamente il tabId proprio); due richieste concorrenti
+reali a `/api/chat` (fetch in parallelo, non simulate) servite correttamente in sequenza dal server
+single-threaded, nessuna risposta incrociata, storico chat coerente in ordine cronologico; percorsi
+di errore su piu' route (`/api/chat` con JSON malformato o corpo vuoto, `/api/tenants/activate` su
+un profilo inesistente, `/api/reports/download` con un tentativo di path traversal - bloccato
+correttamente con 400 "Nome file non valido" sia con `../` sia con `..\`, `/api/kb/upload` con
+base64 non valido o `filename` mancante, `/api/ai-status/test` con un provider fuori dal
+`ValidateSet`) tutti degradati con un messaggio chiaro e mai un crash del server o uno stato GUI a
+meta'; flusso end-to-end completo di una proposta di scrittura reale (`propose_new_custom_script`,
+scelto perche' non richiede una sessione tenant attiva) sia in conferma - script salvato, riavvio
+automatico del server verificato (il server torna a rispondere entro pochi secondi), il nuovo
+strumento `Get-M365OpsStressTestPing` immediatamente richiamabile dall'IA subito dopo il riavvio -
+sia in annullamento - nessun file creato, `pending` ripulito lato server; script/dati di test
+(incluso lo script temporaneo sopra) rimossi al termine, nessun artefatto lasciato oltre a qualche
+messaggio di prova nello storico chat del tenant isolato "AlePiras" (storico comunque a finestra
+limitata, non persistente indefinitamente).
+
+**1 bug reale trovato e corretto (v0.10.5)**: `Gui\CommandCatalog.ps1` ha gia', dal 19/08/2026, un
+pattern consolidato per cui le voci `ExportDevices`/`ExportMailboxUsageReport`/
+`ExportSharedMailboxReport`/`ExportAllMailboxesReport`/`ExportMailFlowReport`/
+`ExportForwardingReport`/`ExportInboxRulesReport`/`CompliancePatterns` si fanno da parte (passano
+all'IA) quando il messaggio contiene un verbo di invio ('invia'/'manda'/'spedisci') insieme a un
+indirizzo email - cosi' una richiesta composta ("...e mandalo a X") viene gestita per intero
+dall'IA invece che a meta' dal solo export locale. Questo pattern non era pero' mai stato propagato
+a quattro voci gemelle - `ListNonCompliant`, `MfaStatus`, `UserOverview`, `GroupOverview` -
+individuate testando in massa (script offline, replica esatta della logica trigger/DeferWords di
+`Gui/Server.ps1` senza chiamare l'AI) una quarantina di formulazioni italiane plausibilmente
+ambigue tra piu' voci del catalogo. Messaggi come "invia il report dei dispositivi non conformi a
+mario@contoso.com" o "manda la panoramica utente di X al mio collega Y@dominio.it" continuavano a
+essere intercettati localmente, rispondendo SOLO con il dato richiesto (lista dispositivi, stato
+MFA, panoramica) e ignorando in silenzio "invia/manda a" - nessun errore, nessuna proposta di
+invio, l'utente senza modo di accorgersi che meta' della richiesta era sparita. Riprodotto dal vivo
+su tutti e quattro i casi PRIMA del fix (risposta con "_Fonte: comando locale 'ListNonCompliant'_"
+ecc., mai "Elaborata da IA").
+
+Corretto aggiungendo lo stesso segnale di invio ai `DeferWords` delle quattro voci, con un
+accorgimento in piu' su `MfaStatus`/`UserOverview`: a differenza delle voci `Export*` (dove un
+indirizzo email nel messaggio e' gia' un segnale forte di invio), queste due richiedono SEMPRE un
+indirizzo email come soggetto della richiesta stessa (l'UPN dell'utente) - un semplice `@\S+\.\S+`
+come DeferWord avrebbe fatto deviare all'IA anche l'uso normale ("stato mfa di mario@contoso.com"),
+aumentando inutilmente il costo AI. Usato invece `(invia|manda|spedisci)\w*.*@\S+\.\S+` - verbo di
+invio SEGUITO da un indirizzo piu' avanti nella frase, sicuro perche' l'uso normale non contiene
+mai un verbo di invio prima dell'indirizzo. Su `GroupOverview` (nessuna email nell'uso normale, il
+soggetto e' un nome di gruppo) lo stesso pattern basta da solo, con un vantaggio aggiuntivo: evita
+anche che il vecchio `CaptureRegex` non-greedy catturi "IT e mandala a capo@contoso.com" come nome
+di gruppo letterale (nessuno dei suoi verbi di continuazione noti include "mandala"), che avrebbe
+altrimenti fallito con "nessun gruppo trovato" invece di deviare correttamente.
+
+Riverificato dal vivo dopo il fix (server riavviato, non solo lettura del codice): tutti e quattro
+i casi ora rispondono tramite l'IA - risposta reale osservata per `ListNonCompliant`: "Non posso
+generare e quindi inviare il report: la sessione Graph delegata non e' attiva... Non e' stata
+inviata alcuna email a mario@contoso.com" (riconosce l'intento composto E riporta lo stato reale,
+invece di ignorarlo in silenzio); uso normale (senza invio) di tutte e quattro le voci riverificato
+invariato, ancora gestito localmente a costo zero IA. Rieseguita l'intera batteria di ~40 casi
+ambigui gia' collaudati nei giri precedenti (17-23/08/2026) contro il catalogo corretto: nessuna
+variazione di comportamento su nessuno di essi, zero regressioni. 396 file `.ps1` sintatticamente
+puliti dopo la modifica.
+
+Spedito in v0.10.5.

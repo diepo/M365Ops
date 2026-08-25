@@ -446,7 +446,19 @@ function Get-M365OpsCommandCatalog {
             # motivo di MfaStatus: "i dispositivi non conformi dovrebbero essere rimossi dal
             # gruppo Intune, puoi farlo?" e' un intento di SCRITTURA che questa voce (sola
             # lettura) ignorava silenziosamente.
-            DeferWords   = @('piano', 'remediation', 'consigl', 'roadmap', 'perch', 'causa', 'mail', 'email', 'e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'pattern', 'correlazion', 'rimuov\w*', 'rimoss\w*', 'elimin\w*')
+            #
+            # BUG reale trovato dal vivo il 26/08/2026 durante un giro di stress-test generale:
+            # 'mail'/'email' sopra coprono SOLO il caso in cui l'utente scrive letteralmente
+            # quella parola ("invia VIA MAIL...") - "invia il report dei dispositivi non
+            # conformi a mario@contoso.com" (verbo "invia" + indirizzo email letterale, MAI la
+            # parola "mail"/"email") continuava a essere gestito qui, elencando i dispositivi e
+            # ignorando in silenzio la richiesta di invio - lo stesso identico schema di bug gia'
+            # corretto su TUTTE le voci ExportXxx gemelle (che hanno gia' 'invia'/'manda'/
+            # 'spedisci'/'@\S+\.\S+' nei DeferWords, vedi es. ExportDevices) e su
+            # CompliancePatterns, ma mai propagato qui. Riprodotto dal vivo (risposta con
+            # "Fonte: comando locale 'ListNonCompliant'", nessuna IA usata, nessun invio
+            # proposto). Aggiunti gli stessi quattro segnali gia' in uso altrove.
+            DeferWords   = @('piano', 'remediation', 'consigl', 'roadmap', 'perch', 'causa', 'mail', 'email', 'e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'pattern', 'correlazion', 'rimuov\w*', 'rimoss\w*', 'elimin\w*', 'invia', 'manda', 'spedisci', '@\S+\.\S+')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { Get-M365OpsManagedDevices -NonCompliantOnly }
@@ -464,7 +476,15 @@ function Get-M365OpsCommandCatalog {
             # 'poi'/'dopo' isolate (23/08/2026, bug-hunt di 16 ore): 'e poi'/'e anche'/'quindi'
             # sono frasi LETTERALI - "panoramica utente X, poi disattivagli l'account" (virgola
             # invece di "e") non le contiene, la seconda parte spariva in silenzio.
-            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
+            #
+            # BUG reale trovato dal vivo il 26/08/2026 durante un giro di stress-test generale,
+            # stesso schema del fix appena fatto su MfaStatus: "manda la panoramica utente di
+            # mario@contoso.com al mio collega paolo@contoso.com" veniva gestito interamente qui
+            # (la panoramica mostrata e' anche corretta) ma "al mio collega paolo@contoso.com"
+            # spariva in silenzio, nessun invio mai proposto. Stesso motivo per cui un
+            # '@\S+\.\S+' semplice non basta (il messaggio contiene sempre almeno l'email del
+            # soggetto): serve un verbo di invio seguito da un indirizzo piu' avanti nella frase.
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', '(invia|manda|spedisci)\w*.*@\S+\.\S+')
             # Il dominio non termina mai con un punto letterale, cosi' un punto di fine frase
             # subito dopo l'indirizzo non finisce dentro l'email catturata (stesso bug/fix di
             # Get-M365OpsGroupPlanFromMessage in Server.ps1).
@@ -507,7 +527,20 @@ function Get-M365OpsCommandCatalog {
             # l'intero messaggio all'AI invece di eseguire alla cieca la sola lettura.
             # 'poi'/'dopo' isolate (23/08/2026, stesso bug-hunt): "stato mfa di X, poi
             # disattivagli l'account" (virgola invece di "e poi") non veniva deviato.
-            DeferWords   = @('report', 'tutti', 'tenant', 'conditional', 'access', 'zone', 'policy', 'criteri', 'e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'reset\w*', 'rimuov\w*', 'cancell\w*', 'elimin\w*', 'disattiv\w*', 'sblocc\w*')
+            #
+            # BUG reale trovato dal vivo il 26/08/2026 durante un giro di stress-test generale,
+            # stesso identico schema gia' corretto su ExportXxx/CompliancePatterns ma mai
+            # propagato qui: "invia lo stato mfa di mario@contoso.com a capo@contoso.com" veniva
+            # gestito interamente da questa voce (CaptureRegex cattura correttamente il PRIMO
+            # indirizzo come UPN del soggetto, la risposta sullo stato MFA e' anche corretta) ma
+            # ignorava in silenzio "a capo@contoso.com" - nessun invio proposto, nessun errore,
+            # l'utente non aveva modo di sapere che quella parte della richiesta era stata
+            # scartata. Riprodotto dal vivo prima del fix. 'invia'/'manda'/'spedisci' o
+            # '@\S+\.\S+' da soli non bastano come DeferWord qui (il messaggio CONTIENE sempre
+            # almeno un indirizzo email, quello del soggetto - farebbe scattare il defer anche
+            # sull'uso normale) - serve invece un verbo di invio SEGUITO da un indirizzo email
+            # piu' avanti nella frase: '(invia|manda|spedisci)\w*.*@\S+\.\S+'.
+            DeferWords   = @('report', 'tutti', 'tenant', 'conditional', 'access', 'zone', 'policy', 'criteri', 'e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'reset\w*', 'rimuov\w*', 'cancell\w*', 'elimin\w*', 'disattiv\w*', 'sblocc\w*', '(invia|manda|spedisci)\w*.*@\S+\.\S+')
             CaptureRegex = '([\w\.\-]+@[\w\-]+(?:\.[\w\-]+)+)'
             RequiresAI   = $false
             Handler      = {
@@ -539,7 +572,18 @@ function Get-M365OpsCommandCatalog {
             # a nessuna delle due richieste reali.
             # 'poi'/'dopo' isolate (23/08/2026, stesso bug-hunt): "panoramica gruppo X, poi
             # rimuovi Mario dai membri" (virgola invece di "e poi") non veniva deviato.
-            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
+            #
+            # BUG reale trovato dal vivo il 26/08/2026 durante un giro di stress-test generale,
+            # stesso schema del fix appena fatto su MfaStatus/UserOverview: "panoramica gruppo IT
+            # e mandala a capo@contoso.com" veniva gestito qui, ignorando in silenzio l'invio -
+            # con l'aggravante che il vecchio CaptureRegex (vedi sotto) avrebbe pure catturato
+            # "IT e mandala a capo@contoso.com" come nome gruppo letterale ("mandala" non e' tra i
+            # verbi di continuazione che fermano la cattura), fallendo con "nessun gruppo trovato"
+            # invece di deviare all'AI. A differenza di MfaStatus/UserOverview un '@\S+\.\S+'
+            # semplice e' gia' sicuro qui (un nome di gruppo reale non contiene mai una @), ma il
+            # verbo di invio resta comunque richiesto per non deviare inutilmente un nome di
+            # gruppo che contenesse per caso un indirizzo email nel proprio testo.
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', '(invia|manda|spedisci)\w*.*@\S+\.\S+')
             # Secondo bug reale, stesso schema, trovato dal vivo il 23/08/2026 (bug-hunt di 16
             # ore): DeferWords sopra intercetta solo le tre frasi di continuazione LETTERALI
             # ("e poi"/"e anche"/"quindi") - una richiesta altrettanto naturale ma diversamente
