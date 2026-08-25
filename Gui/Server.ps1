@@ -2166,10 +2166,17 @@ try {
                         }
                         $currentKey = Get-M365OpsTenantStorageKey -TenantName $script:ActiveTenantProfile
                         $sameTenant = [bool]($envelope.tenantId -and ($envelope.tenantId -eq $currentKey))
+                        # "| Where-Object { $_ }" invece di un semplice "@(...)" (26/08/2026, bug reale
+                        # trovato durante la review sicurezza): un envelope non cifrato SENZA il campo
+                        # "diagram" (mancante/manomesso) rende $diagram $null - "@($null)" in PowerShell
+                        # non produce un array VUOTO ma un array con UN elemento $null dentro, che
+                        # arrivava cosi' com'era al canvas GUI (renderInfraCanvas legge n.id su ogni
+                        # nodo, un nodo $null vi manda un'eccezione JS non gestita). Filtrare i null
+                        # qui degrada correttamente a un diagramma vuoto invece di rompere il canvas.
                         $json = (@{
                             ok            = $true
-                            nodes         = @($diagram.nodes)
-                            edges         = @($diagram.edges)
+                            nodes         = @($diagram.nodes | Where-Object { $_ })
+                            edges         = @($diagram.edges | Where-Object { $_ })
                             sourceProfile = $envelope.sourceProfile
                             exportedAt    = $envelope.exportedAt
                             sameTenant    = $sameTenant

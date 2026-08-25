@@ -25,7 +25,28 @@ function Unprotect-M365OpsInfraExport {
     $iv = [Convert]::FromBase64String($Envelope.iv)
     $cipherBytes = [Convert]::FromBase64String($Envelope.ciphertext)
     $expectedTag = [Convert]::FromBase64String($Envelope.hmac)
-    $iterations = if ($Envelope.iterations) { [int]$Envelope.iterations } else { 100000 }
+
+    # Tetto sul numero di iterazioni PBKDF2 letto dall'envelope (26/08/2026, bug reale trovato
+    # durante la review sicurezza: un envelope malevolo/corrotto con un valore assurdo qui, es.
+    # 2 miliardi, mandava Rfc2898DeriveBytes a macinare per un tempo indefinito - confermato dal
+    # vivo che questo blocca l'INTERO processo Server.ps1, single-threaded, negando il servizio a
+    # QUALUNQUE richiesta successiva finche' il calcolo non termina da solo, anche a
+    # /api/restart stesso, servito dallo stesso processo bloccato - richiesto un kill manuale del
+    # processo per riprendersi). Un valore mancante resta sul default 100.000 (retrocompatibile
+    # con un envelope che non porta questo campo); un valore presente ma fuori da un intervallo
+    # ragionevole (1..2.000.000, ~20x il default, abbondante per un eventuale rialzo futuro dello
+    # standard) viene trattato come QUALUNQUE altra manomissione del pacchetto - stesso errore
+    # generico usato per l'HMAC che non torna, mai un dettaglio su quale campo specifico non va -
+    # rifiutato PRIMA di qualunque lavoro costoso, non dopo.
+    $iterations = 100000
+    if ($Envelope.iterations) {
+        $parsedIterations = 0
+        $iterationsOk = [int]::TryParse([string]$Envelope.iterations, [ref]$parsedIterations)
+        if (-not $iterationsOk -or $parsedIterations -lt 1 -or $parsedIterations -gt 2000000) {
+            throw "Passphrase errata o file di export danneggiato/manomesso."
+        }
+        $iterations = $parsedIterations
+    }
 
     $kdf = New-Object System.Security.Cryptography.Rfc2898DeriveBytes($Passphrase, $salt, $iterations, [System.Security.Cryptography.HashAlgorithmName]::SHA256)
     $keyMaterial = $kdf.GetBytes(64)

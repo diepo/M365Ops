@@ -1512,8 +1512,54 @@ indietro copiato con successo, catalogo legacy finalmente rinominato `.migrated-
 senza errori. Profili/dati temporanei di stress-test (`zzstress-*`) rimossi al termine del giro; i
 profili reali (`vnsys-test`, "vnsys delegata", `AlePiras`) e i loro dati non sono mai stati toccati.
 
-**Agente "Review sicurezza crypto + edge case export/import"** (general-purpose, background) —
-AVVIATO 25/08/2026. Scope: revisione della cifratura (Protect-/Unprotect-M365OpsInfraExport.ps1) -
-riuso di IV/salt, robustezza del confronto a tempo costante scritto a mano, adeguatezza di 100.000
-iterazioni PBKDF2, comportamento su un envelope malformato/con campi mancanti/versione sconosciuta,
-export/import ai tetti dimensionali (500 nodi/1000 collegamenti). — IN CORSO.
+**Esito agente "Review sicurezza crypto + edge case export/import" (v0.10.2)**: crypto isolata
+verificata dal vivo, non solo letta - salt (16 byte) e IV freschi ad ogni chiamata (due export
+consecutivi dello stesso diagramma: salt/IV/ciphertext tutti e tre diversi), chiavi AES/HMAC meta'
+distinte dei 64 byte PBKDF2 mai riusate, HMAC verificato SEMPRE prima di decifrare (letto nel
+codice: il `throw` sul confronto precede `CreateDecryptor()`), confronto a tempo costante scritto
+a mano corretto (itera l'intera lunghezza a prescindere da dove cade la prima differenza; il
+controllo di lunghezza diversa short-circuita prima del loop - accademico in un tool locale, non
+un problema pratico), 100.000 iterazioni PBKDF2-SHA256 ragionevole per un export locale facoltativo
+(nota per il futuro, non un difetto). Passphrase errata, ciphertext manomesso (1 byte) e HMAC
+manomesso (1 byte) producono dal vivo il MEDESIMO errore generico, nessun dettaglio interno,
+nessuno stack trace verso il client.
+
+**2 bug reali trovati e corretti**, entrambi nella gestione di un envelope di import non fidato
+(mai nella crypto isolata in se'). **(1) Blocco totale del server, il piu' serio**:
+`Unprotect-M365OpsInfraExport.ps1` leggeva `iterations` dall'envelope importato senza alcun
+limite - un envelope con `iterations: 2000000000` mandava `Rfc2898DeriveBytes` a macinare per un
+tempo indefinito, e siccome `Gui/Server.ps1` e' un processo unico single-threaded questo bloccava
+l'INTERO server per QUALUNQUE richiesta successiva, persino `/api/restart` stesso (servito dallo
+stesso processo bloccato) - riprodotto dal vivo: una richiesta parallela e' andata in timeout dopo
+10s, persino la chiamata di restart e' rimasta senza risposta, servito un kill manuale del
+processo (`Stop-Process -Force` + rilancio identico) per riprendersi - collateral reale sull'altro
+agente parallelo "Stress-test migrazione/isolamento Tenant ID", che in quella finestra stava
+attivamente lavorando sullo stesso server condiviso (confermato dal log: le sue richieste hanno
+ripreso a comparire solo dopo il kill/rilancio). Corretto validando `iterations` PRIMA di
+qualunque lavoro costoso: assente → default 100.000 (retrocompatibile), presente ma fuori
+dall'intervallo 1..2.000.000 → rifiutato immediatamente con lo stesso errore generico gia' usato
+per l'HMAC che non torna. Riverificato dal vivo: la stessa richiesta ora risponde in ~150ms invece
+di bloccare tutto; negative e non-numeriche rifiutate allo stesso modo; iterazioni legittime
+(100.000) restano intatte, round-trip a 7 nodi confermato invariato. **(2) Canvas rotto su un
+import senza il campo `diagram`**: un envelope non cifrato con `diagram` mancante/manomesso
+produceva lato server `nodes:[null]` invece di un array vuoto (`@($null)` in PowerShell produce un
+array con UN elemento `null` dentro, non un array vuoto) - quel `null` sarebbe arrivato cosi'
+com'era al canvas GUI, dove `renderInfraCanvas` legge `n.id` su ogni nodo e avrebbe lanciato
+un'eccezione JavaScript non gestita (verificato leggendo `Gui/index.html`, non solo ipotizzato).
+Corretto filtrando i null lato server (`Where-Object { $_ }`) prima di rispondere - riverificato
+dal vivo, lo stesso import ora degrada correttamente a un diagramma vuoto.
+
+**Edge case delle route verificati dal vivo senza problemi**: envelope vuoto/`{}`/senza il
+marcatore `m365opsExport`/con versione sconosciuta → errore chiaro uniforme, mai un crash;
+`encrypted: true` senza passphrase (sia omessa che stringa vuota esplicita) → messaggio dedicato
+"serve la passphrase"; tetto dimensionale (500 nodi/1000 collegamenti) confermato non aggirabile
+dall'import - l'import non salva mai nulla da solo (restituisce solo nodi/collegamenti per il
+canvas), il tetto vive nel percorso di salvataggio condiviso `Set-M365OpsInfraDiagram.ps1` e si
+applica comunque a "Salva", confermato salvando in isolamento (tenant temporaneo dedicato,
+rimosso subito dopo, mai toccato lo storage condiviso reale) 600 nodi/1200 collegamenti sintetici
+→ troncati correttamente a 500/998; passphrase con caratteri unicode accentati, emoji, e fino a
+2000 caratteri, e passphrase vuota esplicita vs. omessa → tutte gestite correttamente in un
+round-trip export/import completo.
+
+Spedito in v0.10.2. Nessuna osservazione discrezionale oltre alle 100.000 iterazioni PBKDF2 gia'
+citata (non un difetto, solo una nota per un eventuale rialzo futuro dello standard).
