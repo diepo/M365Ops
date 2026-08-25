@@ -1165,8 +1165,18 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
             # uno schema JSON invalido che Azure rifiuta in blocco. Riprodotto e verificato
             # localmente prima di alzare il limite: con -Depth 12 il bug si riproduce sempre,
             # con -Depth 20 mai. Vale anche per il ramo Claude sotto, stesso motivo.
+            # -TimeoutSec 120 (25/08/2026, bug reale trovato da un agente di regression-review
+            # della maratona - vedi il commento esteso in Invoke-M365OpsAgent.ps1, stessa
+            # causa): il server GUI e' un HttpListener sincrono a thread singolo
+            # (Gui/Server.ps1) - senza limite qui una chiamata IA appesa a monte blocca
+            # l'INTERO server per chiunque altro. Riprodotto dal vivo con una chiamata rimasta
+            # bloccata oltre 3 minuti su /api/analyze-headers-ai. 120s per round e' abbondante
+            # (ogni round del ciclo tool-calling qui sotto ha il proprio budget separato, non
+            # condiviso con gli altri round della stessa conversazione) - un timeout finisce
+            # nel blocco catch gia' esistente qui sotto, o in quello di Gui/Server.ps1 (fallback
+            # su Invoke-M365OpsAgent poi messaggio d'errore pulito), nessuna gestione nuova.
             try {
-                $response = Invoke-RestMethod -Method POST -Uri $azureUri -Headers $azureHeaders -Body ($azureBodyObj | ConvertTo-Json -Depth 20) -ErrorAction Stop
+                $response = Invoke-RestMethod -Method POST -Uri $azureUri -TimeoutSec 120 -Headers $azureHeaders -Body ($azureBodyObj | ConvertTo-Json -Depth 20) -ErrorAction Stop
             }
             catch {
                 $azureErrDetail = $_.ErrorDetails.Message
@@ -1174,7 +1184,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                     $azureUseMaxCompletionTokens = $true
                     $azureBodyObj.Remove('max_tokens')
                     $azureBodyObj.max_completion_tokens = 4000
-                    $response = Invoke-RestMethod -Method POST -Uri $azureUri -Headers $azureHeaders -Body ($azureBodyObj | ConvertTo-Json -Depth 20) -ErrorAction Stop
+                    $response = Invoke-RestMethod -Method POST -Uri $azureUri -TimeoutSec 120 -Headers $azureHeaders -Body ($azureBodyObj | ConvertTo-Json -Depth 20) -ErrorAction Stop
                 } else {
                     throw "Azure OpenAI: richiesta fallita: $($_.Exception.Message)`n$azureErrDetail"
                 }
@@ -1259,7 +1269,9 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                 messages   = $sanitizedMessages
             } | ConvertTo-Json -Depth 20
 
-            $response = Invoke-RestMethod -Method POST -Uri "https://api.anthropic.com/v1/messages" -Headers @{
+            # -TimeoutSec 120: vedi il commento esteso sulla chiamata Azure sopra - stesso
+            # motivo (server GUI a thread singolo, mai bloccarlo a tempo indeterminato).
+            $response = Invoke-RestMethod -Method POST -Uri "https://api.anthropic.com/v1/messages" -TimeoutSec 120 -Headers @{
                 "x-api-key"         = $apiKey
                 "anthropic-version" = "2023-06-01"
                 "Content-Type"      = "application/json"

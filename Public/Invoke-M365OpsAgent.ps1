@@ -48,7 +48,22 @@ function Invoke-M365OpsAgent {
                 messages   = @(@{ role = "user"; content = $fullPrompt })
             } | ConvertTo-Json -Depth 8
 
-            $response = Invoke-RestMethod -Method POST -Uri "https://api.anthropic.com/v1/messages" -Headers @{
+            # -TimeoutSec 120 (25/08/2026, bug reale trovato da un agente di regression-review
+            # della maratona): il server GUI accetta le richieste HTTP con un unico
+            # HttpListener sincrono a thread singolo (Gui/Server.ps1) - senza un limite qui,
+            # una chiamata IA rimasta bloccata a monte (rete lenta, provider in difficolta')
+            # blocca l'INTERO server per chiunque altro, non solo per questa richiesta.
+            # Riprodotto dal vivo: una chiamata a /api/analyze-headers-ai e' rimasta appesa
+            # oltre 3 minuti (senza questo limite avrebbe potuto restare cosi' a tempo
+            # indeterminato, dato che Invoke-RestMethod senza -TimeoutSec non ne applica
+            # nessuno di suo) rendendo il server irraggiungibile per ogni altra richiesta nel
+            # frattempo. 120s e' abbondante per una singola chiamata completions anche su un
+            # modello reasoning con contesto ampio (i round multipli del tool-calling in
+            # Invoke-M365OpsAgentTools.ps1 hanno ciascuno il proprio budget separato, non
+            # condiviso) - un timeout qui finisce nello stesso try/catch gia' esistente
+            # (Gui/Server.ps1, fallback su Invoke-M365OpsAgent poi messaggio d'errore pulito),
+            # nessuna gestione nuova necessaria.
+            $response = Invoke-RestMethod -Method POST -Uri "https://api.anthropic.com/v1/messages" -TimeoutSec 120 -Headers @{
                 "x-api-key"         = $apiKey
                 "anthropic-version" = "2023-06-01"
                 "Content-Type"      = "application/json"
@@ -99,8 +114,10 @@ function Invoke-M365OpsAgent {
             # maggior parte dei modelli piu' vecchi) e, solo su quell'errore specifico, si
             # riprova UNA volta con max_completion_tokens invece di fallire e basta.
             $bodyObj = @{ messages = @(@{ role = "user"; content = $fullPrompt }); max_tokens = $MaxTokens }
+            # -TimeoutSec 120: vedi il commento esteso sulla chiamata Claude sopra - stesso
+            # motivo (server GUI a thread singolo, mai bloccarlo a tempo indeterminato).
             try {
-                $response = Invoke-RestMethod -Method POST -Uri $uri -Headers $headers -Body ($bodyObj | ConvertTo-Json -Depth 8) -ErrorAction Stop
+                $response = Invoke-RestMethod -Method POST -Uri $uri -TimeoutSec 120 -Headers $headers -Body ($bodyObj | ConvertTo-Json -Depth 8) -ErrorAction Stop
             }
             catch {
                 $detail = $_.ErrorDetails.Message
@@ -108,7 +125,7 @@ function Invoke-M365OpsAgent {
                     $bodyObj.Remove('max_tokens')
                     $bodyObj.max_completion_tokens = $MaxTokens
                     try {
-                        $response = Invoke-RestMethod -Method POST -Uri $uri -Headers $headers -Body ($bodyObj | ConvertTo-Json -Depth 8) -ErrorAction Stop
+                        $response = Invoke-RestMethod -Method POST -Uri $uri -TimeoutSec 120 -Headers $headers -Body ($bodyObj | ConvertTo-Json -Depth 8) -ErrorAction Stop
                     }
                     catch {
                         throw "Azure OpenAI: richiesta fallita anche con max_completion_tokens: $($_.Exception.Message)`n$($_.ErrorDetails.Message)"

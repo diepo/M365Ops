@@ -1124,3 +1124,63 @@ Fix verificato dal vivo, sintassi controllata (`ParseFile` nativo, 0 errori - un
 di verifica via strumento Bash aveva dato falsi errori per un problema di codifica emoji nella
 pipe di redirezione, non del file reale, confermato riparsando lo stesso identico file con
 PowerShell nativo), versione bump a 0.9.96, changelog aggiunto, PDF rigenerato. Spedito in v0.9.96.
+
+## Seguito: timeout esplicito su tutte le chiamate IA - un blocco a monte non ferma piu' l'intero server (v0.9.97)
+
+Rischio architetturale segnalato (non corretto, fuori ambito) dall'agente di regression-review del
+v0.9.96 - vedi sezione sopra. Su richiesta esplicita dell'utente di affrontarlo subito
+("correggi certo") appena riportato il risultato dell'agente.
+
+**Causa reale confermata leggendo il codice**: `Gui/Server.ps1` usa un `System.Net.HttpListener`
+con un ciclo `while ($listener.IsListening) { $context = $listener.GetContext(); ... }` -
+sincrono, a thread singolo, una richiesta HTTP alla volta (righe ~1424/1455-1456). Nessuna delle 6
+chiamate `Invoke-RestMethod` verso le API IA (`Invoke-M365OpsAgent.ps1`: 1 Claude + 2 tentativi
+Azure con retry `max_completion_tokens`; `Invoke-M365OpsAgentTools.ps1`: stessa coppia Azure + 1
+Claude) specificava `-TimeoutSec` - senza, `Invoke-RestMethod` non applica nessun limite proprio
+(attesa indefinita di default), quindi una chiamata rimasta appesa a monte blocca l'INTERO server
+per chiunque altro, non solo per chi ha fatto quella domanda - esattamente il comportamento
+riprodotto dal vivo dall'agente precedente (blocco di 3+ minuti su `/api/analyze-headers-ai`,
+server irraggiungibile fino al riavvio manuale).
+
+**Scelta architetturale deliberata, coerente con un precedente gia' in questo stesso progetto**:
+riscrivere l'HttpListener per essere davvero multi-thread e' stato scartato di proposito, per lo
+STESSO motivo gia' documentato per il login Teams asincrono (v0.9.81, sezione storica sopra): il
+rischio concreto di bug di concorrenza su stato condiviso critico per la sicurezza delle scritture
+(`$pendingWrite`, `$script:M365OpsContext`, i dizionari dei processi MCP - nessuno di questi e'
+thread-safe) sarebbe peggiore del problema che risolverebbe. Un timeout esplicito sulle chiamate IA
+e' la correzione MIRATA: non elimina il blocco (il server resta a thread singolo), ma lo rende
+LIMITATO E PREVEDIBILE (max 120s) invece che potenzialmente indefinito.
+
+**Corretto**: aggiunto `-TimeoutSec 120` a tutte e 6 le chiamate `Invoke-RestMethod` verso
+Claude/Azure OpenAI, nei due file. 120s scelto perche' abbondante per una singola risposta anche su
+un modello reasoning con contesto ampio - ogni round del ciclo tool-calling in
+`Invoke-M365OpsAgentTools.ps1` ha il proprio budget separato, non condiviso con gli altri round
+della stessa conversazione, quindi il limite per round non riduce la lunghezza massima di una
+conversazione multi-round, solo il tempo massimo di attesa per UNA chiamata HTTP.
+
+**Verificato dal vivo**:
+- Meccanismo di timeout confermato ISOLATAMENTE prima di fidarsi che funzionasse nel contesto reale:
+  `Invoke-RestMethod -Uri "https://httpbin.org/delay/5" -TimeoutSec 2 -ErrorAction Stop` lancia
+  `System.Threading.Tasks.TaskCanceledException` ("The request was canceled due to the configured
+  HttpClient.Timeout of 2 seconds elapsing"), catturabile da un normale `try/catch` - stesso
+  identico pattern gia' presente attorno a tutte e 6 le chiamate reali (nessuna gestione nuova
+  necessaria: il timeout ricade nei blocchi catch gia' esistenti, che a loro volta o ritentano con
+  `max_completion_tokens`, o rilanciano un errore chiaro che `Gui/Server.ps1` intercetta gia' per
+  ripiegare su `Invoke-M365OpsAgent` senza strumenti e infine su un messaggio d'errore pulito, o
+  (per la route `/api/analyze-headers-ai`) ricade nel suo proprio `try/catch` che restituisce gia'
+  un JSON di errore).
+- Sintassi: entrambi i file puliti (`ParseFile`), poi l'intero repository (387 file `.ps1`), 0
+  errori.
+- Comportamento normale invariato: dopo restart del server di test, una domanda senza strumenti
+  ("ciao, come stai?") continua a funzionare identica a prima (risposta corretta, nota "Elaborata
+  da IA" con conteggio token invariata) - il timeout di 120s non ha alcun impatto su chiamate che
+  rispondono in pochi secondi, come sempre osservato in questa sessione.
+
+Spedito in v0.9.97 (versione bump, changelog `docs/Guida-Configurazione.html`, PDF rigenerato,
+387 file verificati sintatticamente puliti). Nessun agente di regressione dedicato per questo giro
+- fix chirurgico di 6 righe (una keyword aggiunta a 6 chiamate gia' esistenti), stesso pattern di
+`-TimeoutSec` gia' in uso altrove nel progetto (`Invoke-M365OpsLookupMsDocs.ps1`,
+`Invoke-M365OpsMcpRequest.ps1`, `Launch-M365Ops.ps1`), rischio di regressione minimo e verificato
+direttamente. Se l'utente vuole comunque un ulteriore giro di verifica su tutta la maratona
+(richiesto in precedenza con "spero sia la volta definitiva"), va dichiarato e avviato su richiesta
+esplicita.
