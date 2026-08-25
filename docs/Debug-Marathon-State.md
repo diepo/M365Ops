@@ -1619,4 +1619,76 @@ controllo del fix v0.9.99). 396 file `.ps1` sintatticamente puliti, tag HTML bil
 button/span), 2 blocchi `<script>` inline sintatticamente validi.
 
 Spedito in v0.10.3. Su richiesta esplicita dell'utente ("poi fai un giro di stresstest gui e codice
-e bug fix"), agenti da avviare subito dopo questa dichiarazione - vedi sotto.
+e bug fix"), DUE agenti paralleli avviati subito dopo questa dichiarazione:
+
+**Agente "Stress-test approfondito layout Infrastruttura v0.10.3"** (general-purpose, background)
+— AVVIATO 26/08/2026. Scope: il layout a due colonne appena spedito, oltre le tre larghezze gia'
+verificate a mano - viewport tablet/portrait, zoom del browser, il confine esatto della soglia
+900px, interazione tra drag/collegamento e i nuovi bordi del canvas piu' stretto, molti nodi in
+entrambi i layout. — COMPLETATO, un bug reale trovato e corretto, vedi sezione dedicata sotto.
+
+**Agente "Stress-test generale GUI/codice, ricerca bug nuovi"** (general-purpose, background) —
+AVVIATO 26/08/2026. Scope: giro ampio non legato a una singola feature recente - percorsi utente
+tipici end-to-end (connessione tenant, report, proposta di scrittura con conferma, chat multi-turno),
+ricerca di bug NUOVI non gia' coperti dalle maratone precedenti, non ri-verifica di cio' che e'
+gia' stato testato a fondo in giri precedenti. — IN CORSO.
+
+## Stress-test approfondito layout Infrastruttura v0.10.3: canvas che non rispettava l'altezza sul layout impilato (v0.10.4)
+
+Agente dedicato, scope deliberatamente ristretto al layout a due colonne appena spedito in v0.10.3
+(non sovrapposto con l'agente "generale" in corso in parallelo). Oltre le tre larghezze gia'
+verificate a mano (1366×768, 1366×650, 800×700), testati: viewport tablet/portrait (768×1024 e
+1024×768), il confine esatto della soglia 900px (899/900/901px), zoom del browser (proxy: 1600×900
+e 1920×1080), drag/collegamento sul canvas ora piu' stretto, 30 nodi/15 collegamenti in entrambi i
+layout, scorrimento interno del pannello proprieta' su viewport molto bassi.
+
+**Bug reale trovato dal vivo (non riletto dal codice, riprodotto con `getBoundingClientRect`),
+stessa causa di quello gia' corretto nello stesso giro v0.10.3 ma sull'asse perpendicolare**:
+`#infra-canvas-wrap` ha `flex: 1` (scorciatoia per `flex-basis: 0%` + `flex-grow: 1`), che governa
+sempre l'asse PRINCIPALE del contenitore flessibile - orizzontale nel layout a due colonne (dove
+`height: min(420px, 55vh)` funziona correttamente, perche' li' l'altezza e' sull'asse trasversale,
+non toccato da `flex-grow`), ma VERTICALE nel layout impilato sotto i 900px, esattamente dove
+quell'altezza avrebbe dovuto contare di piu'. Risultato: sotto i 900px, `flex-grow` ignorava
+l'altezza dichiarata ed espandeva il canvas a riempire tutto lo spazio verticale libero del
+contenitore genitore. Riprodotto dal vivo a 768×1024 (tablet verticale, layout impilato): altezza
+reale del canvas 1017px invece del massimo atteso di 420px (`getComputedStyle` confermava
+`flex-basis: 0%`), pannello proprieta' spinto a `top: 1853px`, irraggiungibile senza scorrere la
+pagina - la stessa esperienza scomoda (seleziona un nodo, scorri per trovare le proprieta') che
+l'intera modifica di v0.10.3 doveva eliminare, qui reintrodotta su viewport alti e stretti invece
+che su quelli bassi e larghi.
+
+**Corretto** con lo stesso pattern gia' usato per `#infra-props-panel` nella stessa media query
+(`Gui/index.html`, dentro `@media (max-width: 900px)`): aggiunto
+`#infra-canvas-wrap { flex: none !important; height: min(420px, 55vh); }` - disattiva
+`flex-grow`/`flex-shrink` e riporta `flex-basis` ad `auto`, cosi' l'altezza dichiarata torna a
+governare davvero la dimensione. Riverificato dal vivo dopo il fix: altezza corretta a 420px (o al
+55vh quando inferiore, es. 275px a 500px di altezza viewport) sia a 768×1024 che a 800×500, pannello
+proprieta' tornato raggiungibile, nessuna regressione sul layout a due colonne (dove `flex:1` resta
+comunque quello che governa la larghezza, invariato).
+
+**Resto della checklist verificato dal vivo senza altri problemi**: soglia dei 900px collaudata a
+899/900/901px con un nodo selezionato (caso peggiore, pannello aperto) - transizione netta tra
+impilato e due colonne, nessuno stato intermedio rotto, a larghezza zero o invisibile (899px e
+900px entrambi impilati, coerente con `max-width: 900px` inclusivo; 901px passa a due colonne,
+556px canvas + 280px pannello, nessuno scorrimento orizzontale in nessuno dei tre casi); tablet
+768×1024 (verticale, impilato, dopo il fix) e 1024×768 (orizzontale, due colonne) entrambi corretti,
+nessuno scorrimento orizzontale ne' altezza fuori controllo; desktop largo 1600×900/1920×1080 - il
+canvas riempie correttamente lo spazio restante via `flex:1` orizzontale (1590px a 1920px), pannello
+proprieta' a 280px fissi rimane leggibile ma visivamente stretto su schermi molto larghi
+(osservazione estetica soggettiva, non un difetto funzionale - non modificato, per non introdurre
+una scelta di design non richiesta); trascinamento reale (sequenza `PointerEvent` autentica -
+`pointerdown`/`pointermove`/`pointerup`, non solo lettura del codice) di un nodo vicino al bordo
+destro del canvas ora piu' stretto (layout impilato, 800px) - spostamento pixel-esatto confermato
+(delta schermo 221px, delta coordinate salvate in `infraNodes` 221px, identico); creazione di un
+collegamento trascinando dal pallino di connessione di un nodo a un altro nello stesso layout
+stretto - funzionante, edge creato con `from`/`to` corretti; 30 nodi/15 collegamenti sintetici in
+entrambi i layout - nessun collasso, scorrimento interno del canvas (`scrollWidth`/`scrollHeight`
+1800×1000) ancora disponibile, nessuno scorrimento di pagina indesiderato; pannello proprieta' con
+altezza fortemente compressa (1366×500, dove 55vh=275px vince su 420px) - tutti i campi (Tipo, Nome,
+Ruolo, IP, Dominio, Note) raggiungibili tramite lo scorrimento interno gia' presente del pannello
+(`overflow-y: auto`), confermato scrollando programmaticamente fino in fondo. 396 file `.ps1`
+sintatticamente puliti (`ParseFile`), i 2 blocchi `<script>` inline sintatticamente validi (parsati
+con `new Function`), tag `div`/`button`/`span` bilanciati in `Gui/index.html` (0 aperture/chiusure
+spaiate).
+
+Spedito in v0.10.4.

@@ -147,6 +147,20 @@
   @media (max-width: 900px) {
     #infra-workspace { flex-direction: column; }
     #infra-props-panel { flex: none !important; width: 100%; }
+    /* Bug reale trovato con lo stress-test (26/08/2026), stessa causa di quello gia' corretto
+       sopra per #infra-canvas-wrap ma sull'asse perpendicolare: `flex: 1` e' scorciatoia per
+       `flex-basis: 0%`, quindi in QUESTO layout impilato (flex-direction: column) governa l'asse
+       PRINCIPALE verticale - flex-grow espande il contenitore a riempire tutto lo spazio libero
+       verticale del genitore, ignorando l'`height: min(420px, 55vh)` dichiarato sopra (che
+       funziona solo nel layout a due colonne, dove l'asse principale e' orizzontale e l'altezza
+       e' sull'asse trasversale, non toccato da flex-grow). Riprodotto dal vivo a 768x1024
+       (tablet verticale): altezza reale 1017px invece del massimo atteso di 420px, pannello
+       proprieta' spinto a top:1853px, irraggiungibile senza scorrere - la stessa esperienza che
+       l'intera modifica di questo giro doveva eliminare. Corretto con lo stesso pattern gia'
+       usato sopra per #infra-props-panel: `flex: none` disattiva flex-grow/shrink e riporta
+       flex-basis ad auto, cosi' l'`height` dichiarato su #infra-canvas-wrap torna a governare
+       davvero la dimensione. */
+    #infra-canvas-wrap { flex: none !important; height: min(420px, 55vh); }
   }
   #infra-canvas { display: block; }
   #infra-empty-hint {
