@@ -1282,5 +1282,57 @@ tag HTML bilanciati (div/button/span), 2 blocchi `<script>` inline sintatticamen
 
 Spedito in v0.9.98. Su richiesta esplicita dell'utente ("dopo spinna agenti di controllo e stress
 test di cio' appena implementato... piu' agenti che guardino... sia davvero ben integrato,
-fruibile come KB e GUI etc"), agenti di regressione/stress-test da avviare subito dopo questa
-dichiarazione - vedi sotto.
+fruibile come KB e GUI etc"), TRE agenti paralleli avviati subito dopo questa dichiarazione,
+scope deliberatamente non sovrapposto:
+
+**Agente "Regression review v0.9.98 (infra diagram vs esistente)"** (general-purpose, background)
+— AVVIATO 25/08/2026. Scope: SOLO verificare che il commit 4189d0e non abbia rotto nulla di
+GIA' esistente - pannelli upload/intestazioni/impostazioni, tab Documentazione/KB, cambio tab,
+layout della toolbar a piu' pulsanti, isolamento del blocco INFRASTRUTTURA nel prompt di sistema
+rispetto ai blocchi KB gia' collaudati, round-invarianza dell'elenco strumenti (cache-hit ancora
+~99%, v0.9.89), isolamento cross-tenant del diagramma (creato su un tenant, mai visibile su un
+altro, sia lato IA sia lato GUI dopo uno switch). — IN CORSO.
+
+**Agente "Stress-test editor Infrastruttura (GUI)"** (general-purpose, background) — AVVIATO
+25/08/2026. Scope: interazione pesante con l'editor stesso - molti nodi (50+), nomi/note con
+caratteri speciali/HTML (verifica escaping reale, non solo lettura del codice), collegamento di
+un nodo verso se stesso, doppio collegamento identico, eliminazione durante un trascinamento,
+resize finestra/tema chiaro-scuro, comportamento con diagramma vuoto, pulsante Ricarica dopo
+modifiche non salvate. — COMPLETATO, v0.9.99. Test dal vivo eseguiti su un tenant isolato
+("AlePiras", diagramma vuoto in partenza) invece che su "vnsys-test", per non interferire con i
+dati usati in parallelo dagli altri due agenti della stessa maratona sullo stesso tenant condiviso
+(collisione osservata realmente all'inizio del test: un salvataggio proprio aveva
+temporaneamente sovrascritto il diagramma di "vnsys-test" con dati di stress-test prima che
+l'agente "Verifica fruibilita' IA/KB" lo risalvasse coi propri dati - nessun danno permanente,
+ma lezione appresa e applicata per il resto del giro).
+
+**2 bug reali trovati e corretti**: (1) `.infra-node-box` non aveva ne' un attributo `fill` ne'
+una regola CSS - un `<rect>` SVG senza fill usa il nero di default per specifica, mai intonato al
+tema; invisibile/quasi illeggibile in tema chiaro (testo quasi nero su casella nera piena,
+confermato leggendo `rgb(0,0,0)` di fill contro `rgb(22,34,46)` di testo nel DOM reale). Corretto
+con `fill: var(--surface)` sulla stessa regola. (2) Se il nodo di partenza di un collegamento
+viene rimosso PRIMA che il gesto termini, il gestore `pointerup` creava comunque un collegamento
+con `from` verso un id ormai inesistente (nessun crash - il render lo salta, il server lo
+scarterebbe comunque al salvataggio - ma un oggetto fantasma restava in `infraEdges`,
+contraddicendo il commento del codice che dava per scontato un filtro client gia' presente).
+Corretto aggiungendo `infraNodes.some(n => n.id === fromId)` al controllo prima di creare
+l'edge. Entrambi riverificati dal vivo dopo il fix con la stessa identica riproduzione.
+
+**Altre 7 aree testate dal vivo, nessun problema**: 60 nodi + 55 collegamenti (rendering ~4ms,
+salvataggio/ricaricamento corretti); XSS in nome/ruolo/etichetta sempre neutralizzato da
+`escapeHtmlInfra()` (confermato sul DOM risultante, zero tag eseguibili, sia da modello diretto
+sia dai veri campi del pannello proprieta'); self-loop correttamente rifiutato in silenzio; due
+collegamenti identici coesistono senza problemi; nome vuoto -> "(senza nome)" sia client sia
+server; "Ricarica" scarta correttamente le modifiche non salvate; tema chiaro/scuro e resize a
+480px senza overflow di pagina (limite v1 di scroll-senza-pan/zoom confermato, non un difetto).
+Nota fuori ambito non corretta: nome/nota da 250+ caratteri sborda dalla casella senza
+troncamento (nessun crash, solo leggibilita' su un input estremo) - segnalato come possibile
+miglioramento futuro (ellissi sul canvas), non affrontato per restare in ambito.
+
+**Agente "Verifica fruibilita' IA/KB del diagramma infrastruttura"** (general-purpose, background)
+— AVVIATO 25/08/2026. Scope: get_tenant_infrastructure su piu' formulazioni di domanda, diagramma
+con un solo nodo, verifica che il tetto 500 nodi/1000 collegamenti in Set-M365OpsInfraDiagram.ps1
+scatti davvero, che l'etichetta "Fonte dati" corretta in Get-M365OpsToolSourceLabel.ps1 non abbia
+regredito le altre (graph_api_call/kb_query/cli_m365/ecc.), che il conteggio token (v0.9.97)
+continui ad accumulare correttamente anche in una conversazione che include una chiamata a
+get_tenant_infrastructure. — IN CORSO.

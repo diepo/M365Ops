@@ -140,7 +140,12 @@
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
     color: var(--text-faint); font-size: 13px; pointer-events: none; text-align: center;
   }
-  .infra-node-box { stroke-width: 2; cursor: grab; }
+  /* fill esplicito (bug reale trovato con lo stress-test, 25/08/2026): un <rect> SVG senza fill
+     ne' attributo ne' regola CSS usa il nero di default dello spec SVG, non il bianco che ci si
+     aspetterebbe da una casella "vuota" - invisibile in tema chiaro (testo quasi nero su sfondo
+     nero) e comunque mai intonato al tema in quello scuro. var(--surface) e' lo stesso token gia'
+     usato per le altre superfici "carta" dell'app. */
+  .infra-node-box { stroke-width: 2; cursor: grab; fill: var(--surface); }
   .infra-node-box.selected { stroke: var(--accent) !important; stroke-width: 3; }
   .infra-node-group:active .infra-node-box { cursor: grabbing; }
   .infra-node-label { font-size: 11.5px; font-family: inherit; fill: var(--text); pointer-events: none; }
@@ -3007,7 +3012,13 @@
       document.body.classList.remove('infra-connecting');
       const targetEl = document.elementFromPoint(ev.clientX, ev.clientY);
       const targetGroup = targetEl ? targetEl.closest('.infra-node-group') : null;
-      if (targetGroup && targetGroup.dataset.nodeId !== fromId) {
+      // infraNodes.some(...) sul nodo di partenza (bug reale trovato con lo stress-test,
+      // 25/08/2026): il nodo "da cui parte" il collegamento puo' essere stato rimosso nel
+      // frattempo (gesto interrotto a meta') - senza questo controllo si crea un collegamento
+      // "fantasma" verso un id ormai inesistente, che finisce in infraEdges anche se il render
+      // lo salta e il server lo scarterebbe comunque al salvataggio (doppia difesa gia' presente
+      // altrove) - meglio non crearlo affatto.
+      if (targetGroup && targetGroup.dataset.nodeId !== fromId && infraNodes.some(n => n.id === fromId)) {
         const edge = { id: infraNewEdgeId(), from: fromId, to: targetGroup.dataset.nodeId, label: '' };
         infraEdges.push(edge);
         renderInfraCanvas();
