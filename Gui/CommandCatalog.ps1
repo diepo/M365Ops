@@ -59,7 +59,20 @@ function Get-M365OpsCommandCatalog {
             # senza nessuna delle funzionalita' vere costruite per questo scopo.
             Name         = "PastedEmailHeadersRedirect"
             Description  = "Rileva intestazioni email RFC 5322 o un blocco NDR/message-trace incollati direttamente in chat, e reindirizza alla tab dedicata 'Intestazioni email' invece di lasciarli arrivare all'AI generica (che non ha ne' il parser locale ne' il pulsante Microsoft Message Header Analyzer)."
-            Triggers     = @('received:\s*from\s', 'recipientstatus\s*:', '\{led=')
+            # BUG reale trovato dal vivo il 25/08/2026 durante la review di questo stesso commit
+            # (agente di autoreview dedicato): 'received:\s*from\s' SENZA ancora di inizio riga
+            # matcha anche una normalissima frase inglese che contiene quella sottostringa a
+            # meta' frase - es. "Your payment has been received: from now on please send
+            # invoices to billing@contoso.com" (un messaggio di lavoro plausibile, nessuna
+            # intestazione email incollata) veniva intercettato QUI, con la chat che rispondeva
+            # "sembra che tu abbia incollato delle intestazioni email" invece di passare all'AI.
+            # Una vera intestazione "Received:" e' invece SEMPRE la prima cosa sulla sua riga nel
+            # testo grezzo incollato (mai a meta' di un'altra frase) - '(?m)^\s*received:\s*from\s'
+            # ancora il match all'inizio riga (o dopo spazi di indentazione, comune nelle righe di
+            # continuazione), eliminando il falso positivo senza perdere nessun caso reale: sia
+            # il campione di intestazione vera sia la frase inglese sopra sono stati verificati
+            # dal vivo con questa nuova regex prima di applicare il fix.
+            Triggers     = @('(?m)^\s*received:\s*from\s', 'recipientstatus\s*:', '\{led=')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { @{} }

@@ -1058,4 +1058,69 @@ simili in italiano o in un contesto non tecnico, corretta priorita' rispetto all
 catalogo su un messaggio che matcha piu' trigger; (c) `Invoke-M365OpsAgentTools.ps1`: correttezza
 dell'accumulo token su un numero di round diverso da quelli gia' testati a mano (1 e 3), gestione
 `$null`/campi mancanti nella risposta usage, nessuna regressione alla nota "Fonte dati"/etichetta
-motore IA gia' verificata nelle maratone precedenti (v0.9.86/87/88). — IN CORSO.
+motore IA gia' verificata nelle maratone precedenti (v0.9.86/87/88). — COMPLETATO, 1 bug reale
+trovato e corretto, vedi sotto.
+
+## Seguito: agente di regression review v0.9.95 — 1 bug reale trovato e corretto (v0.9.96)
+
+**Trovato e corretto**: falso positivo nel trigger della nuova voce `PastedEmailHeadersRedirect`
+(punto (b) sopra). `received:\s*from\s` non era ancorato a inizio riga - qualunque frase (anche
+del tutto legittima) che contenesse quella sottostringa a meta' testo faceva scattare il redirect,
+sottraendo la domanda all'IA generica senza che l'utente capisse perche'. Riprodotto dal vivo con
+un messaggio di lavoro plausibile: `"Your payment has been received: from now on please send
+invoices to billing@contoso.com"` veniva reindirizzato al pannello intestazioni invece di ricevere
+la risposta AI normale (una traduzione/spiegazione del testo). Una vera intestazione `Received:`
+e' invece sempre la prima cosa sulla propria riga nel testo grezzo incollato (mai a meta' di
+un'altra frase) - corretto ancorando il trigger a inizio riga: `(?m)^\s*received:\s*from\s`
+(spazi di indentazione opzionali per le righe di continuazione RFC 5322). Verificato dal vivo
+tramite chiamate dirette a `/api/chat` DOPO il fix: la stessa frase inglese ora riceve la risposta
+AI corretta (nessun redirect), mentre un vero blocco intestazioni multi-riga e un vero blocco NDR
+(`RecipientStatus:`) continuano a scatenare il redirect come previsto - confermato anche nella
+cronologia chat persistita su disco, con l'occorrenza pre-fix (redirect errato, 01:48) e quella
+post-fix (risposta corretta, 01:51) sullo stesso identico messaggio in sequenza, uno dopo l'altro.
+
+**Altre aree del punto (b), nessun problema oltre al bug sopra**: `recipientstatus\s*:` e `\{led=`
+non hanno lo stesso rischio (sottostringhe troppo specifiche per comparire in una frase normale,
+verificato con piu' messaggi avversariali in italiano e inglese); nessuna voce del catalogo ha un
+trigger che l'ordinamento PRIMO di `PastedEmailHeadersRedirect` avrebbe rubato in modo scorretto
+(le altre ~19 voci hanno trigger completamente disgiunti da "received:"/"recipientstatus"/"{led=");
+la voce non ha `DeferWords` ma il ciclo di dispatch in `Gui/Server.ps1` gestisce correttamente la
+loro assenza (`if ($entry.DeferWords)`), nessun errore.
+
+**Punto (a), nessun problema trovato**: nessun riferimento residuo a `tab-headers`/vecchia
+posizione in nessuna parte di `Gui/index.html`; `#headers-panel` e `#upload-panel` possono restare
+aperti insieme senza rompersi (si impilano in verticale nel normale flusso di layout, zero
+sovrapposizione, le classi `.active` dei due pulsanti restano indipendenti) - verificato via DOM
+sia a 1280px sia a 375px (nessun overflow orizzontale a viewport stretto). Tutte le funzionalita'
+pre-esistenti del pannello (Analizza, Pulisci, pulsante IA, pulsante combinato copia+apri MHA)
+riverificate funzionanti dopo il trasloco nel DOM.
+
+**Punto (c), nessun problema trovato**: `$totalInputTokens += $response.usage.input_tokens` e
+affini restano sicuri anche con `$response.usage` assente/`$null` (l'accesso a proprieta' su
+`$null` in PowerShell restituisce `$null`, sommato come zero, nessuna eccezione - verificato con
+un test isolato sia su Windows PowerShell 5.1 sia su PowerShell 7). L'accumulo su un numero di
+round diverso da quelli gia' testati (1 e 3) riverificato dal vivo su una NUOVA domanda a 3 round
+("quanti utenti ci sono nel tenant?", round diversi da quelli del v0.9.95): log per-round
+25401+25624+27561=78586 token in ingresso e 0+24832+24832=49664 dalla cache, entrambi coincidenti
+ESATTAMENTE con quanto mostrato nella nota finale in chat - non l'ultimo round soltanto, prova
+matematica indipendente dal codice. Formati "Fonte dati: X. Elaborata da IA: Y (...)." e "Risposta
+generata da IA (Y, ...) senza consultare dati del tenant." confermati invariati nella struttura,
+solo con il conteggio token aggiunto in coda come atteso dal v0.9.95.
+
+**Nota fuori ambito, non corretta in questo giro** (pre-esistente da v0.9.90, non introdotta da
+v0.9.95): durante il test e' stata osservata una chiamata a `/api/analyze-headers-ai` rimasta
+bloccata oltre 3 minuti senza mai rispondere - e poiche' il listener HTTP del server e' sincrono a
+thread singolo, quella singola chiamata bloccata ha reso l'INTERO server (comprese richieste
+completamente scollegate, es. `/api/status`) irraggiungibile finche' il processo non e' stato
+terminato e riavviato manualmente. Non riprodotto in modo sistematico (potrebbe essere un blocco
+temporaneo lato rete/provider IA in questo ambiente sandbox, non necessariamente nell'ambiente
+reale dell'utente), ma il rischio architetturale e' reale e indipendente dall'ambiente: qualunque
+chiamata IA senza timeout esplicito puo' bloccare l'intero server per tutti gli utenti finche' non
+risponde o non viene riavviato a mano. Segnalato per un giro dedicato separato (servirebbe un
+timeout esplicito su `Invoke-RestMethod` verso i provider IA, con gestione dell'errore risultante),
+non affrontato qui per restare nell'ambito della sola review del v0.9.95.
+
+Fix verificato dal vivo, sintassi controllata (`ParseFile` nativo, 0 errori - un primo tentativo
+di verifica via strumento Bash aveva dato falsi errori per un problema di codifica emoji nella
+pipe di redirezione, non del file reale, confermato riparsando lo stesso identico file con
+PowerShell nativo), versione bump a 0.9.96, changelog aggiunto, PDF rigenerato. Spedito in v0.9.96.
