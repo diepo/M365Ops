@@ -29,6 +29,14 @@ function Get-M365OpsToolSourceLabel {
             return 'Lokka (MCP)'
         }
         '^cli_m365_|^propose_cli_m365_command$' { return 'CLI Microsoft 365 (MCP)' }
+        # kb_query e get_tenant_infrastructure (25/08/2026, aggiunto insieme al diagramma
+        # infrastruttura - vedi Set-M365OpsInfraDiagram.ps1) non interrogano MAI dati live del
+        # tenant: leggono testo/JSON caricato o disegnato a mano dall'operatore in GUI. Prima di
+        # questo caso dedicato ricadevano nel default sotto ("moduli PowerShell interni di
+        # M365Ops"), fuorviante - farebbe pensare a una chiamata Exchange/SharePoint/Intune reale
+        # invece di un dato dichiarato, non verificato contro lo stato vero del tenant.
+        '^kb_query$' { return 'Knowledge Base (documentazione caricata dall''operatore)' }
+        '^get_tenant_infrastructure$' { return 'diagramma infrastruttura (disegnato dall''operatore, non verificato dal vivo)' }
         default { return 'moduli PowerShell interni di M365Ops' }
     }
 }

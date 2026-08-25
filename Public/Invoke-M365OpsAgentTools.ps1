@@ -227,6 +227,25 @@ REGOLA su colonne aggiunte di tua iniziativa (bug reale osservato il 18/08/2026:
         $systemPrompt += "`n`nKNOWLEDGE BASE GLOBALE (documentazione sull'APP M365Ops stessa - come configurarla, come funziona, non su un cliente/tenant specifico): disponibile SEMPRE, indipendentemente da quale tenant e' attivo. Se l'utente chiede come configurare/usare l'app, come funziona una sua parte, o un problema di setup non legato ai dati di un tenant specifico, usa kb_query con il FileName ESATTO per leggerne il testo completo - stesso principio del blocco sopra, non basarti mai sul solo riassunto per una risposta operativa precisa.`n" + ($kbGlobalLines -join "`n")
     }
 
+    # Diagramma infrastruttura per tenant (25/08/2026, richiesto esplicitamente dall'utente:
+    # "sezione a parte in GUI... visualizzazione grafica che pero' poi entra nella KB fruibile
+    # dalla nostra app e dalla IA"): stesso principio dei due blocchi KB sopra - SOLO un riassunto
+    # leggero (conteggio nodi per tipo, mai i dettagli) va sempre nel prompt, il testo completo
+    # (nomi macchina/ruoli/IP/domini/collegamenti) si legge on-demand con get_tenant_infrastructure
+    # solo se la domanda riguarda davvero l'infrastruttura. Il diagramma e' disegnato a mano
+    # dall'operatore in GUI (nodi tipizzati: Domain Controller, Entra Connect, Sede, Firewall,
+    # ecc. - vedi Set-M365OpsInfraDiagram), non dati letti da Graph/EXO - un dato dichiarato
+    # dall'operatore, non verificato in automatico contro l'infrastruttura reale.
+    if ($script:M365OpsContext -and $script:M365OpsContext.Name) {
+        try {
+            $infraDiagram = Get-M365OpsInfraDiagram -TenantName $script:M365OpsContext.Name
+            $infraNarrative = Get-M365OpsInfraDiagramNarrative -Diagram $infraDiagram
+            if ($infraNarrative.Summary) {
+                $systemPrompt += "`n`nINFRASTRUTTURA DI QUESTO TENANT (diagramma disegnato dall'operatore in GUI - Domain Controller, Entra Connect, sedi, rete, eventualmente ibrida on-prem/cloud): $($infraNarrative.Summary) Usa get_tenant_infrastructure per leggere il dettaglio completo (nomi macchina, ruoli, IP, domini, collegamenti) quando la domanda riguarda l'infrastruttura di questo tenant - questo e' un dato dichiarato manualmente dall'operatore, non verificato contro lo stato reale, dillo se rilevante."
+            }
+        } catch { }
+    }
+
     # I tool "nostri" (fallback) non sono nemmeno offerti al primo giro di ragionamento:
     # cosi' Lokka viene DAVVERO provato per primo, non solo "preferito" via prompt (che da
     # solo si e' rivelato insufficiente in un test reale - il modello ha comunque scelto
@@ -603,6 +622,14 @@ IMPORTANTE (18/08/2026): Connect-IPPSSession espone SOLO i cmdlet coperti dai ru
                     fileName = @{ type = "string"; description = "Nome esatto del file, come compare nell'elenco KNOWLEDGE BASE DI QUESTO TENANT" }
                 }
                 required   = @("fileName")
+            }
+        }
+        @{
+            name = "get_tenant_infrastructure"
+            description = "Legge il dettaglio completo del diagramma di infrastruttura del tenant attivo (vedi riassunto gia' nel prompt di sistema, sezione INFRASTRUTTURA DI QUESTO TENANT, se presente) - nomi macchina, ruoli, IP, domini di ciascun nodo (Domain Controller, Entra Connect, sedi, firewall, ecc.) e i collegamenti disegnati tra loro. Disegnato manualmente dall'operatore in GUI (pulsante 'Infrastruttura' nella toolbar principale), NON verificato automaticamente contro lo stato reale del tenant - un dato dichiarato, non osservato. Nessun parametro: il tenant e' sempre quello attivo in questo momento, non e' possibile leggere l'infrastruttura di un altro tenant da qui."
+            input_schema = @{
+                type       = "object"
+                properties = @{}
             }
         }
         @{
@@ -1701,6 +1728,21 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             "Nessun tenant attivo e nessun documento globale trovato con questo nome - impossibile leggere la Knowledge Base."
                         } else {
                             "Lettura Knowledge Base fallita: $($kbErrors -join ' / ')"
+                        }
+                    }
+                    "get_tenant_infrastructure" {
+                        # Stesso principio di isolamento di kb_query sopra: TenantName SEMPRE da
+                        # $script:M365OpsContext.Name, mai da un valore passato dall'AI (lo schema
+                        # del tool non espone nemmeno un parametro tenant).
+                        if ($script:M365OpsContext -and $script:M365OpsContext.Name) {
+                            try {
+                                $infraDiagramForTool = Get-M365OpsInfraDiagram -TenantName $script:M365OpsContext.Name
+                                (Get-M365OpsInfraDiagramNarrative -Diagram $infraDiagramForTool).FullText
+                            } catch {
+                                "Lettura diagramma infrastruttura fallita: $($_.Exception.Message)"
+                            }
+                        } else {
+                            "Nessun tenant attivo - impossibile leggere il diagramma di infrastruttura."
                         }
                     }
                     "compliance_query" {

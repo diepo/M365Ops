@@ -2085,6 +2085,29 @@ try {
                     }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
+                "GET /api/infra-diagram" {
+                    # Diagramma infrastruttura (25/08/2026, richiesto esplicitamente dall'utente:
+                    # sezione a parte in GUI per disegnare l'infrastruttura del proprio tenant -
+                    # macchine, ruoli, IP, domain controller, Entra Connect, eventualmente ibrida
+                    # - che entri anche nella KB fruibile dall'IA, vedi Invoke-M365OpsAgentTools.ps1
+                    # per il tool get_tenant_infrastructure). Stesso schema per-tenant di
+                    # GET /api/chat/history sopra - nessuna guardia esplicita su tenant non
+                    # attivo, stesso comportamento gia' consolidato in quella route.
+                    $diagram = Get-M365OpsInfraDiagram -TenantName $script:ActiveTenantProfile
+                    $json = ConvertTo-Json -InputObject @{ nodes = @($diagram.Nodes); edges = @($diagram.Edges); updatedAt = $diagram.UpdatedAt } -Depth 8 -Compress
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/infra-diagram" {
+                    $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                    $body = $reader.ReadToEnd() | ConvertFrom-Json
+                    try {
+                        Set-M365OpsInfraDiagram -TenantName $script:ActiveTenantProfile -Nodes @($body.nodes) -Edges @($body.edges) | Out-Null
+                        $json = (@{ ok = $true } | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ ok = $false; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
                 "POST /api/tenants/activate" {
                     $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
                     $body = $reader.ReadToEnd() | ConvertFrom-Json

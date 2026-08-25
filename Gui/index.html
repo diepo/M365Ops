@@ -120,6 +120,57 @@
   }
   #headers-panel.open { display: block; }
 
+  /* Pannello "Infrastruttura tenant" (25/08/2026, richiesto esplicitamente dall'utente: editor
+     grafico per disegnare l'infrastruttura del tenant - anche ibrida on-prem/cloud, Domain
+     Controller/Entra Connect/sedi/firewall con nome macchina/ruolo/IP/dominio - salvato per
+     tenant e leggibile dall'IA su richiesta, vedi get_tenant_infrastructure in
+     Invoke-M365OpsAgentTools.ps1). Stesso pattern di toggle di #headers-panel, ma piu' alto per
+     dare spazio al canvas di disegno. */
+  #infra-panel {
+    display: none; background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 16px 18px; flex-shrink: 0;
+  }
+  #infra-panel.open { display: block; }
+  #infra-canvas-wrap {
+    border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg);
+    overflow: auto; height: 420px; position: relative;
+  }
+  #infra-canvas { display: block; }
+  #infra-empty-hint {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: var(--text-faint); font-size: 13px; pointer-events: none; text-align: center;
+  }
+  .infra-node-box { stroke-width: 2; cursor: grab; }
+  .infra-node-box.selected { stroke: var(--accent) !important; stroke-width: 3; }
+  .infra-node-group:active .infra-node-box { cursor: grabbing; }
+  .infra-node-label { font-size: 11.5px; font-family: inherit; fill: var(--text); pointer-events: none; }
+  .infra-node-type-icon { font-size: 16px; pointer-events: none; }
+  .infra-edge-line { stroke: var(--text-faint); stroke-width: 1.6; fill: none; }
+  .infra-edge-line.selected { stroke: var(--accent); stroke-width: 2.6; }
+  .infra-edge-hit { stroke: transparent; stroke-width: 12; fill: none; cursor: pointer; }
+  .infra-edge-label-bg { fill: var(--bg); opacity: 0.85; }
+  .infra-edge-label { font-size: 10.5px; fill: var(--text-muted); font-family: inherit; }
+  .infra-connect-handle { fill: var(--accent); opacity: 0; cursor: crosshair; }
+  .infra-node-group:hover .infra-connect-handle { opacity: 0.9; }
+  .infra-temp-edge { stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 4 3; fill: none; pointer-events: none; }
+  /* Applicata a <body> mentre si trascina dal pallino di collegamento di un nodo verso un
+     altro (25/08/2026) - unico feedback visivo del "sto collegando" in questa v1 (niente linea
+     temporanea che segue il cursore, rimandato a un giro futuro se servisse). */
+  body.infra-connecting, body.infra-connecting * { cursor: crosshair !important; }
+
+  #infra-props-panel {
+    margin-top: 12px; padding: 12px 14px; background: var(--surface-alt); border-radius: var(--radius-sm);
+    display: none;
+  }
+  #infra-props-panel.open { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #infra-props-panel label { font-size: 11px; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 2px; }
+  #infra-props-panel input, #infra-props-panel select, #infra-props-panel textarea {
+    width: 100%; padding: 6px 8px; font-size: 12.5px; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-family: inherit;
+  }
+  #infra-props-panel .full { grid-column: 1 / -1; }
+  #infra-delete-btn { background: var(--critical-soft); color: var(--critical); border: 1px solid var(--critical); }
+
   #settings-panel {
     display: none; background: var(--surface); border-bottom: 1px solid var(--border);
     padding: 16px 18px; flex-shrink: 0;
@@ -233,6 +284,7 @@
     <button id="theme-toggle-btn" class="header-btn" title="Cambia tema chiaro/scuro">🌙</button>
     <button id="upload-toggle-btn" class="header-btn" title="Carica un file da pacchettizzare, un'icona o un CSV di migrazione">📎 Upload</button>
     <button id="headers-toggle-btn" class="header-btn" title="Analizza intestazioni email o un blocco di diagnostica NDR">📧 Intestazioni email</button>
+    <button id="infra-toggle-btn" class="header-btn" title="Disegna l'infrastruttura di questo tenant - on-prem, ibrida o multi-cloud">🗺️ Infrastruttura</button>
     <button id="permissions-check-btn" class="header-btn" title="Verifica quali permessi ha davvero l'app registrata su questo tenant">🔐 Stato permessi</button>
     <button id="settings-btn" class="header-btn">⚙ Impostazioni tenant</button>
   </div>
@@ -266,6 +318,34 @@
     <span id="headers-status-msg"></span>
   </div>
   <div id="headers-result" style="margin-top:16px;"></div>
+</div>
+
+<div id="infra-panel">
+  <h2 style="margin-top:0;">Infrastruttura tenant</h2>
+  <p class="hint">Disegna l'infrastruttura di questo tenant - solo on-prem, ibrida, solo cloud o multi-cloud (Azure/AWS/GCP): domain controller, Entra Connect, sedi, reti, gateway, database, container, qualunque componente. "+ Nodo" per aggiungere, trascina per posizionare, trascina dal pallino sul bordo di un nodo verso un altro per collegarli. Salvato solo per questo tenant - l'IA lo legge su richiesta quando la domanda riguarda l'infrastruttura (basta chiedere in chat, nessun pulsante dedicato per l'IA qui).</p>
+  <div class="actions" style="margin-bottom:10px;">
+    <button id="infra-add-node-btn">+ Nodo</button>
+    <button id="infra-save-btn">Salva</button>
+    <button id="infra-reload-btn" style="background:var(--surface-alt);">Ricarica</button>
+    <span id="infra-status-msg"></span>
+  </div>
+  <div id="infra-canvas-wrap">
+    <svg id="infra-canvas" width="1800" height="1000" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="infra-empty-hint">Nessun nodo ancora - premi "+ Nodo" per iniziare a disegnare.</div>
+  </div>
+  <div id="infra-props-panel">
+    <div class="full infra-field-node"><label>Tipo</label><select id="infra-prop-type"></select></div>
+    <div class="infra-field-node"><label>Nome</label><input id="infra-prop-name" placeholder="es. DC01, vnet-prod, s3-backup..."></div>
+    <div class="infra-field-node"><label>Ruolo</label><input id="infra-prop-role" placeholder="es. PDC Emulator, Load Balancer pubblico..."></div>
+    <div class="infra-field-node"><label>Indirizzo IP</label><input id="infra-prop-ip" placeholder="es. 10.0.0.10"></div>
+    <div class="infra-field-node"><label>Dominio / regione / account</label><input id="infra-prop-domain" placeholder="es. contoso.local, eu-west-1, sub-prod..."></div>
+    <div class="full infra-field-node"><label>Note</label><textarea id="infra-prop-notes" rows="2"></textarea></div>
+    <div class="full infra-field-edge"><label>Etichetta collegamento</label><input id="infra-prop-label" placeholder="es. sync ogni 30 min, VPN site-to-site, peering..."></div>
+    <div class="full" style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+      <span id="infra-prop-hint" class="hint" style="margin:0;"></span>
+      <button id="infra-delete-btn">Elimina</button>
+    </div>
+  </div>
 </div>
 
 <div id="update-banner" style="display:none; margin:10px 16px 0; padding:8px 14px; background:var(--warn-soft); border:1px solid var(--warn); border-radius:var(--radius-sm); font-size:12.5px; align-items:center; gap:10px; justify-content:space-between;">
@@ -1531,6 +1611,12 @@
         // istante, se il tab e' aperto in questo momento - stesso principio di isolamento
         // gia' applicato allo storico chat qui sopra.
         if (document.getElementById('tab-kb').style.display !== 'none') { loadKnowledgeBase(); }
+        // Stesso principio per il diagramma infrastruttura (25/08/2026): mai lasciare visibile
+        // quello del tenant precedente se il pannello e' aperto in questo momento. getElementById
+        // diretto invece di una costante gia' in scope qui (come sopra per '#tab-kb'): questa
+        // funzione e' definita PRIMA, nel file, del blocco che dichiara la costante infraPanel -
+        // usarla qui creerebbe una dipendenza dall'ordine di esecuzione dello script.
+        if (document.getElementById('infra-panel').classList.contains('open')) { loadInfraDiagram(); }
       } else {
         settingsStatus.textContent = 'Errore: ' + (data.text || 'sconosciuto');
       }
@@ -2653,6 +2739,318 @@
 
   permissionsCheckBtn.addEventListener('click', () => sendMessage('verifica permessi app'));
 
+  // ============================================================
+  // Editor "Infrastruttura tenant" (25/08/2026, richiesto esplicitamente dall'utente: sezione
+  // GUI per disegnare l'infrastruttura del proprio tenant - non solo ibrida: "il disegno deve
+  // riguardare anche solo architetture solo online, magari multi-cloud... mettici dentro tutto"
+  // - salvata per tenant e leggibile dall'IA su richiesta tramite get_tenant_infrastructure, vedi
+  // Invoke-M365OpsAgentTools.ps1). Editor SVG scritto a mano, nessuna libreria esterna (coerente
+  // col resto dell'app): nodi tipizzati trascinabili, collegamenti disegnati trascinando dal
+  // pallino sul bordo di un nodo verso un altro. V1 volutamente senza pan/zoom (canvas fisso
+  // 1800x1000 dentro un contenitore con scroll) - sufficiente per l'infrastruttura di un singolo
+  // cliente, rimandabile a un giro futuro se servisse per diagrammi molto piu' grandi.
+  //
+  // Scelta deliberata su drag/connessione: lo stato "sto trascinando il nodo X" / "sto
+  // collegando dal nodo X" vive in variabili globali, MAI in un pointer-capture legato a un
+  // elemento SVG specifico - ogni renderInfraCanvas() rigenera l'intero contenuto via innerHTML,
+  // quindi un listener/capture legato al vecchio elemento smetterebbe di ricevere eventi a meta'
+  // gesto nel momento in cui quell'elemento viene sostituito. I listener pointermove/pointerup
+  // sono percio' sul document (attaccati UNA volta sola, mai dentro il render), pointerdown resta
+  // per-elemento (va bene riattaccarlo ad ogni render: un pointerdown parte sempre su qualunque
+  // elemento esiste in quel momento).
+  // ============================================================
+  let infraLoadedOnce = false;
+  let infraNodes = [];
+  let infraEdges = [];
+  let infraSelectedId = null;
+  let infraSelectedKind = null; // 'node' | 'edge'
+  let infraDragNodeId = null;
+  let infraDragOffsetX = 0;
+  let infraDragOffsetY = 0;
+  let infraDragMoved = false;
+  let infraConnectingFromId = null;
+  let infraNodeSeq = 0;
+  let infraEdgeSeq = 0;
+
+  const INFRA_TYPES = {
+    DomainController: { icon: '🖥️', color: '#3b82f6', label: 'Domain Controller (AD on-prem)' },
+    EntraConnect:     { icon: '🔄', color: '#8b5cf6', label: 'Entra Connect / Sync' },
+    Tenant:           { icon: '☁️', color: '#0ea5e9', label: 'Tenant M365 / Entra ID' },
+    IdentityProvider: { icon: '🪪', color: '#a855f7', label: 'Identity Provider (Okta, ADFS...)' },
+    Site:             { icon: '🏢', color: '#14b8a6', label: 'Sede fisica' },
+    Firewall:         { icon: '🛡️', color: '#ef4444', label: 'Firewall' },
+    Gateway:          { icon: '🔀', color: '#f97316', label: 'Gateway VPN / ExpressRoute' },
+    LoadBalancer:     { icon: '⚖️', color: '#eab308', label: 'Load Balancer' },
+    VNet:             { icon: '🕸️', color: '#22c55e', label: 'Rete virtuale (VNet / VPC)' },
+    Server:           { icon: '🖧', color: '#6b7280', label: 'Server / VM' },
+    Workstation:      { icon: '💻', color: '#6b7280', label: 'Workstation' },
+    Container:        { icon: '📦', color: '#06b6d4', label: 'Container / Kubernetes' },
+    Database:         { icon: '🗄️', color: '#d946ef', label: 'Database' },
+    Storage:          { icon: '💾', color: '#0891b2', label: 'Storage / Bucket' },
+    CloudProvider:    { icon: '🏭', color: '#4b5563', label: 'Cloud provider (account/subscription)' },
+    CloudService:     { icon: '⛅', color: '#38bdf8', label: 'Servizio cloud (PaaS/SaaS)' },
+    Other:            { icon: '⚪', color: '#9ca3af', label: 'Altro' }
+  };
+  function infraTypeInfo(t) { return INFRA_TYPES[t] || INFRA_TYPES.Other; }
+  function escapeHtmlInfra(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  async function loadInfraDiagram() {
+    const status = document.getElementById('infra-status-msg');
+    status.textContent = 'caricamento...';
+    try {
+      const res = await fetch('/api/infra-diagram');
+      const data = await res.json();
+      infraNodes = Array.isArray(data.nodes) ? data.nodes : [];
+      infraEdges = Array.isArray(data.edges) ? data.edges : [];
+      infraSelectedId = null; infraSelectedKind = null;
+      status.textContent = data.updatedAt ? ('ultimo salvataggio: ' + new Date(data.updatedAt).toLocaleString('it-IT')) : '';
+      infraCloseProps();
+      renderInfraCanvas();
+    } catch (e) {
+      status.textContent = 'Errore nel caricare il diagramma: ' + e.message;
+    }
+  }
+
+  async function saveInfraDiagram() {
+    const btn = document.getElementById('infra-save-btn');
+    const status = document.getElementById('infra-status-msg');
+    btn.disabled = true;
+    status.textContent = 'salvataggio...';
+    try {
+      const res = await fetch('/api/infra-diagram', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodes: infraNodes, edges: infraEdges })
+      });
+      const data = await res.json();
+      status.textContent = data.ok ? ('salvato - ' + new Date().toLocaleTimeString('it-IT')) : ('Errore: ' + (data.text || 'sconosciuto'));
+    } catch (e) {
+      status.textContent = 'Errore di comunicazione: ' + e.message;
+    }
+    btn.disabled = false;
+  }
+
+  function infraNewNodeId() { infraNodeSeq++; return 'n' + Date.now() + '_' + infraNodeSeq; }
+  function infraNewEdgeId() { infraEdgeSeq++; return 'e' + Date.now() + '_' + infraEdgeSeq; }
+
+  function addInfraNode() {
+    const wrap = document.getElementById('infra-canvas-wrap');
+    // Posizionato dentro l'area attualmente visibile dello scroll (non sempre a (0,0)) -
+    // altrimenti su un diagramma gia' popolato il nuovo nodo nascerebbe fuori vista.
+    const x = Math.round(wrap.scrollLeft + 80 + (infraNodes.length % 6) * 24);
+    const y = Math.round(wrap.scrollTop + 60 + (infraNodes.length % 6) * 24);
+    const node = { id: infraNewNodeId(), type: 'Server', name: 'Nuovo nodo', role: '', ip: '', domain: '', notes: '', x, y };
+    infraNodes.push(node);
+    renderInfraCanvas();
+    selectInfraNode(node.id);
+    const nameInput = document.getElementById('infra-prop-name');
+    nameInput.focus();
+    nameInput.select();
+  }
+
+  function deleteSelectedInfra() {
+    if (infraSelectedKind === 'node') {
+      infraNodes = infraNodes.filter(n => n.id !== infraSelectedId);
+      infraEdges = infraEdges.filter(e => e.from !== infraSelectedId && e.to !== infraSelectedId);
+    } else if (infraSelectedKind === 'edge') {
+      infraEdges = infraEdges.filter(e => e.id !== infraSelectedId);
+    }
+    infraSelectedId = null; infraSelectedKind = null;
+    infraCloseProps();
+    renderInfraCanvas();
+  }
+
+  function infraCloseProps() {
+    document.getElementById('infra-props-panel').classList.remove('open');
+  }
+
+  function selectInfraNode(id) {
+    const n = infraNodes.find(x => x.id === id);
+    if (!n) return;
+    infraSelectedId = id; infraSelectedKind = 'node';
+    const panel = document.getElementById('infra-props-panel');
+    panel.classList.add('open');
+    panel.querySelectorAll('.infra-field-node').forEach(el => el.style.display = '');
+    panel.querySelectorAll('.infra-field-edge').forEach(el => el.style.display = 'none');
+    document.getElementById('infra-prop-type').value = n.type || 'Other';
+    document.getElementById('infra-prop-name').value = n.name || '';
+    document.getElementById('infra-prop-role').value = n.role || '';
+    document.getElementById('infra-prop-ip').value = n.ip || '';
+    document.getElementById('infra-prop-domain').value = n.domain || '';
+    document.getElementById('infra-prop-notes').value = n.notes || '';
+    document.getElementById('infra-prop-hint').textContent = 'Nodo selezionato';
+    renderInfraCanvas();
+  }
+
+  function selectInfraEdge(id) {
+    const e = infraEdges.find(x => x.id === id);
+    if (!e) return;
+    infraSelectedId = id; infraSelectedKind = 'edge';
+    const panel = document.getElementById('infra-props-panel');
+    panel.classList.add('open');
+    panel.querySelectorAll('.infra-field-node').forEach(el => el.style.display = 'none');
+    panel.querySelectorAll('.infra-field-edge').forEach(el => el.style.display = '');
+    document.getElementById('infra-prop-label').value = e.label || '';
+    document.getElementById('infra-prop-hint').textContent = 'Collegamento selezionato';
+    renderInfraCanvas();
+  }
+
+  function renderInfraCanvas() {
+    const svg = document.getElementById('infra-canvas');
+    document.getElementById('infra-empty-hint').style.display = infraNodes.length === 0 ? 'block' : 'none';
+
+    const nodeById = {};
+    infraNodes.forEach(n => { nodeById[n.id] = n; });
+
+    let edgesSvg = '';
+    infraEdges.forEach(e => {
+      const from = nodeById[e.from], to = nodeById[e.to];
+      if (!from || !to) return;
+      const x1 = from.x + 60, y1 = from.y + 24, x2 = to.x + 60, y2 = to.y + 24;
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      const selClass = (infraSelectedKind === 'edge' && infraSelectedId === e.id) ? ' selected' : '';
+      const labelW = e.label ? Math.max(20, e.label.length * 6.4) : 0;
+      edgesSvg += '<g class="infra-edge-group" data-edge-id="' + e.id + '">'
+        + '<line class="infra-edge-line' + selClass + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"></line>'
+        + '<line class="infra-edge-hit" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"></line>'
+        + (e.label ? ('<rect class="infra-edge-label-bg" x="' + (mx - labelW / 2) + '" y="' + (my - 9) + '" width="' + labelW + '" height="14" rx="3"></rect>'
+          + '<text class="infra-edge-label" x="' + mx + '" y="' + (my + 2) + '" text-anchor="middle">' + escapeHtmlInfra(e.label) + '</text>') : '')
+        + '</g>';
+    });
+
+    let nodesSvg = '';
+    infraNodes.forEach(n => {
+      const info = infraTypeInfo(n.type);
+      const selClass = (infraSelectedKind === 'node' && infraSelectedId === n.id) ? ' selected' : '';
+      nodesSvg += '<g class="infra-node-group" data-node-id="' + n.id + '" transform="translate(' + n.x + ',' + n.y + ')">'
+        + '<rect class="infra-node-box' + selClass + '" width="120" height="48" rx="8" stroke="' + info.color + '"></rect>'
+        + '<text class="infra-node-type-icon" x="10" y="23">' + info.icon + '</text>'
+        + '<text class="infra-node-label" x="32" y="20">' + escapeHtmlInfra(n.name || '(senza nome)') + '</text>'
+        + '<text class="infra-node-label" x="32" y="35" style="fill:var(--text-faint); font-size:10px;">' + escapeHtmlInfra(n.role || info.label) + '</text>'
+        + '<circle class="infra-connect-handle" cx="120" cy="24" r="6"></circle>'
+        + '</g>';
+    });
+
+    svg.innerHTML = edgesSvg + nodesSvg;
+    infraAttachCanvasHandlers();
+  }
+
+  function infraAttachCanvasHandlers() {
+    const svg = document.getElementById('infra-canvas');
+
+    svg.querySelectorAll('.infra-edge-group').forEach(g => {
+      g.addEventListener('pointerdown', (ev) => {
+        ev.stopPropagation();
+        selectInfraEdge(g.dataset.edgeId);
+      });
+    });
+
+    svg.querySelectorAll('.infra-node-group').forEach(g => {
+      const nodeId = g.dataset.nodeId;
+      const handle = g.querySelector('.infra-connect-handle');
+
+      handle.addEventListener('pointerdown', (ev) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+        infraConnectingFromId = nodeId;
+        document.body.classList.add('infra-connecting');
+      });
+
+      g.addEventListener('pointerdown', (ev) => {
+        ev.stopPropagation();
+        const wrap = document.getElementById('infra-canvas-wrap');
+        const rect = wrap.getBoundingClientRect();
+        const node = infraNodes.find(n => n.id === nodeId);
+        if (!node) return;
+        infraDragNodeId = nodeId;
+        infraDragMoved = false;
+        infraDragOffsetX = ev.clientX - rect.left + wrap.scrollLeft - node.x;
+        infraDragOffsetY = ev.clientY - rect.top + wrap.scrollTop - node.y;
+      });
+    });
+
+    svg.addEventListener('pointerdown', (ev) => {
+      if (ev.target === svg) {
+        infraSelectedId = null; infraSelectedKind = null;
+        infraCloseProps();
+        renderInfraCanvas();
+      }
+    });
+  }
+
+  // Listener globali per trascinamento/collegamento, attaccati UNA sola volta (vedi commento
+  // esteso in cima a questo blocco sul perche' non vivono dentro infraAttachCanvasHandlers).
+  document.addEventListener('pointermove', (ev) => {
+    if (infraDragNodeId) {
+      const wrap = document.getElementById('infra-canvas-wrap');
+      const rect = wrap.getBoundingClientRect();
+      const node = infraNodes.find(n => n.id === infraDragNodeId);
+      if (!node) { infraDragNodeId = null; return; }
+      infraDragMoved = true;
+      node.x = Math.max(0, Math.round(ev.clientX - rect.left + wrap.scrollLeft - infraDragOffsetX));
+      node.y = Math.max(0, Math.round(ev.clientY - rect.top + wrap.scrollTop - infraDragOffsetY));
+      renderInfraCanvas();
+    }
+  });
+  document.addEventListener('pointerup', (ev) => {
+    if (infraDragNodeId) {
+      const draggedId = infraDragNodeId;
+      const moved = infraDragMoved;
+      infraDragNodeId = null;
+      infraDragMoved = false;
+      if (!moved) { selectInfraNode(draggedId); }
+    }
+    if (infraConnectingFromId) {
+      const fromId = infraConnectingFromId;
+      infraConnectingFromId = null;
+      document.body.classList.remove('infra-connecting');
+      const targetEl = document.elementFromPoint(ev.clientX, ev.clientY);
+      const targetGroup = targetEl ? targetEl.closest('.infra-node-group') : null;
+      if (targetGroup && targetGroup.dataset.nodeId !== fromId) {
+        const edge = { id: infraNewEdgeId(), from: fromId, to: targetGroup.dataset.nodeId, label: '' };
+        infraEdges.push(edge);
+        renderInfraCanvas();
+        selectInfraEdge(edge.id);
+      }
+    }
+  });
+
+  // Popolamento select tipo nodo + collegamento campi proprieta' -> modello in memoria (mai
+  // salvato sul server finche' non si preme esplicitamente "Salva", stesso principio di ogni
+  // altro editor di questa app - nessun autosave a sorpresa).
+  document.getElementById('infra-prop-type').innerHTML = Object.keys(INFRA_TYPES)
+    .map(t => '<option value="' + t + '">' + INFRA_TYPES[t].icon + ' ' + escapeHtmlInfra(INFRA_TYPES[t].label) + '</option>').join('');
+
+  ['name', 'role', 'ip', 'domain', 'notes'].forEach(field => {
+    document.getElementById('infra-prop-' + field).addEventListener('input', () => {
+      if (infraSelectedKind !== 'node') return;
+      const n = infraNodes.find(x => x.id === infraSelectedId);
+      if (!n) return;
+      n[field] = document.getElementById('infra-prop-' + field).value;
+      renderInfraCanvas();
+    });
+  });
+  document.getElementById('infra-prop-type').addEventListener('change', () => {
+    if (infraSelectedKind !== 'node') return;
+    const n = infraNodes.find(x => x.id === infraSelectedId);
+    if (!n) return;
+    n.type = document.getElementById('infra-prop-type').value;
+    renderInfraCanvas();
+  });
+  document.getElementById('infra-prop-label').addEventListener('input', () => {
+    if (infraSelectedKind !== 'edge') return;
+    const e = infraEdges.find(x => x.id === infraSelectedId);
+    if (!e) return;
+    e.label = document.getElementById('infra-prop-label').value;
+    renderInfraCanvas();
+  });
+
+  document.getElementById('infra-add-node-btn').addEventListener('click', addInfraNode);
+  document.getElementById('infra-save-btn').addEventListener('click', saveInfraDiagram);
+  document.getElementById('infra-reload-btn').addEventListener('click', loadInfraDiagram);
+  document.getElementById('infra-delete-btn').addEventListener('click', deleteSelectedInfra);
+
   // Pannello upload a scomparsa (21/08/2026, richiesto esplicitamente dall'utente: prima erano
   // 3 pulsanti sempre visibili sopra la casella di testo, "possiamo renderla piu' ordinata
   // facendo una roba magari a scomparsa con scritto upload?") - stesso pattern toggle gia' usato
@@ -2670,6 +3068,19 @@
   headersToggleBtn.addEventListener('click', () => {
     const isOpen = headersPanel.classList.toggle('open');
     headersToggleBtn.classList.toggle('active', isOpen);
+  });
+
+  // Pannello "Infrastruttura tenant" (25/08/2026, richiesto esplicitamente dall'utente) - stesso
+  // pattern di toggle di #headers-panel/#upload-panel. Il diagramma viene caricato dal server
+  // solo la PRIMA volta che il pannello si apre (non ad ogni apertura/chiusura): resta comunque
+  // sempre aggiornato dopo un cambio tenant grazie al reload esplicito in activateTenant() sotto,
+  // stesso principio gia' in uso per la Knowledge Base.
+  const infraToggleBtn = document.getElementById('infra-toggle-btn');
+  const infraPanel = document.getElementById('infra-panel');
+  infraToggleBtn.addEventListener('click', () => {
+    const isOpen = infraPanel.classList.toggle('open');
+    infraToggleBtn.classList.toggle('active', isOpen);
+    if (isOpen && !infraLoadedOnce) { infraLoadedOnce = true; loadInfraDiagram(); }
   });
 
   // Tema chiaro/scuro (21/08/2026, richiesto esplicitamente dall'utente) - la scelta e' SOLO

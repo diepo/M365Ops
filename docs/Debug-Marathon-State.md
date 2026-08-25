@@ -1184,3 +1184,103 @@ Spedito in v0.9.97 (versione bump, changelog `docs/Guida-Configurazione.html`, P
 direttamente. Se l'utente vuole comunque un ulteriore giro di verifica su tutta la maratona
 (richiesto in precedenza con "spero sia la volta definitiva"), va dichiarato e avviato su richiesta
 esplicita.
+
+## Nuova funzionalita': editor "Infrastruttura tenant" - diagramma on-prem/ibrido/multi-cloud, leggibile dall'IA (v0.9.98)
+
+Richiesta esplicita dell'utente, dopo una discussione esplorativa su possibili nuove feature
+(brainstorm partito dall'analizzatore intestazioni, poi allargato su richiesta esplicita
+dell'utente stesso - "nuove proposte anche oltre questa cosa dell'header, non focalizzarti solo
+su quello"): una sezione GUI a parte, raggiungibile con un pulsante, per disegnare
+l'infrastruttura del proprio tenant (nomi macchina, ruoli, IP, domain controller, Entra Connect,
+ecc.) con una visualizzazione grafica che entri anche nella Knowledge Base fruibile dall'IA.
+Portata poi esplicitamente estesa dall'utente OLTRE l'ibrido, a meta' implementazione: "il
+disegno deve riguardare anche solo architetture solo online, magari multi-cloud. non fermarti
+solo all'ibrido. mettici dentro tutto" - il set di tipi di nodo e' stato ampliato di conseguenza
+DURANTE la costruzione (non dopo), da un elenco iniziale di 9 tipi orientati al solo
+hybrid-M365 a 17 tipi che coprono anche reti virtuali/VPC, gateway, load balancer, container/
+Kubernetes, database, storage, e un nodo esplicito "Cloud provider (account/subscription)" per
+rappresentare i confini di sottoscrizione/account AWS/Azure/GCP in un diagramma multi-cloud.
+
+**Decisione di design chiave, prima di scrivere codice**: diagramma STRUTTURATO (nodi tipizzati
+con proprieta', collegamenti etichettati - dati JSON, non un disegno a mano libera) invece di una
+lavagna a tratto libero. Motivo: un disegno a tratto libero sarebbe piu' naturale da usare ma
+richiederebbe interpretazione a immagine (OCR/vision) per essere letto dall'IA - inaffidabile su
+un diagramma tecnico con etichette/IP. Un diagramma strutturato resta comunque un disegno vero
+(reso su SVG, trascinabile, collegabile visivamente) ma sotto e' dato interrogabile per davvero,
+non un'immagine da indovinare.
+
+**Architettura scelta - riuso deliberato del pattern gia' collaudato per la Knowledge Base**
+(v0.9.86 e successivi: catalogo leggero SEMPRE nel prompt di sistema, testo completo on-demand
+via `kb_query`) invece di inventare un meccanismo parallelo:
+- Storage dedicato, NON dentro la Knowledge Base esistente: `Config\InfraDiagram-<tenant>.json`
+  (nuovo `Public\Get-M365OpsInfraDiagram.ps1`/`Set-M365OpsInfraDiagram.ps1`, stesso schema di
+  isolamento per-tenant di `Get-M365OpsChatHistory`). Deliberatamente SEPARATO dai documenti KB
+  caricati dall'utente (`KnowledgeBase-<tenant>.json`) invece di rappresentare il diagramma come
+  un "documento KB" travestito: quella lista e' gia' renderizzata in GUI con un pulsante Rimuovi
+  per ogni voce (tab Documentazione, `#kb-doc-list`) - mescolarci il diagramma lo avrebbe reso
+  eliminabile per errore insieme ai documenti caricati, e visivamente confuso in una lista pensata
+  per file veri. Zero righe toccate in quel percorso gia' collaudato: rischio di regressione nullo
+  sulla Knowledge Base esistente.
+- Stesso principio "riassunto sempre, dettaglio on-demand" replicato pero' con la propria coppia
+  simmetrica: un blocco nel prompt di sistema di `Invoke-M365OpsAgentTools.ps1` (SOLO se il
+  diagramma ha almeno un nodo - silenzioso altrimenti, nessun costo su un tenant senza diagramma)
+  + nuovo tool `get_tenant_infrastructure` (zero parametri, stesso isolamento per-tenant
+  strutturale di `kb_query` - lo schema del tool non espone nemmeno un parametro tenant, quindi
+  non e' possibile per costruzione chiedere l'infrastruttura di un tenant diverso da quello
+  attivo). Nuovo `Private\Get-M365OpsInfraDiagramNarrative.ps1` trasforma nodi/collegamenti in
+  entrambi i testi (riassunto breve + dettaglio completo).
+- **Bug reale trovato durante il test dal vivo, corretto nello stesso giro**: la nota "Fonte dati"
+  mostrata in chat etichettava sia `kb_query` sia il nuovo `get_tenant_infrastructure` come
+  "moduli PowerShell interni di M365Ops" (il caso di default di `Get-M365OpsToolSourceLabel.ps1`,
+  Private) - fuorviante per un dato dichiarato dall'operatore e mai verificato contro
+  l'infrastruttura reale, ben diverso da una chiamata Graph/EXO vera. Corretto aggiungendo due
+  case dedicati alla stessa funzione (regex switch gia' esistente) - `kb_query` -> "Knowledge
+  Base (documentazione caricata dall'operatore)", `get_tenant_infrastructure` -> "diagramma
+  infrastruttura (disegnato dall'operatore, non verificato dal vivo)". Riverificato dal vivo
+  dopo il fix: la nota finale ora dice correttamente "_Fonte dati: diagramma infrastruttura
+  (disegnato dall'operatore, non verificato dal vivo)._".
+
+**GUI - editor SVG scritto a mano, zero librerie esterne** (coerente col resto dell'app):
+`#infra-panel`, pulsante toolbar "🗺️ Infrastruttura" accanto a Upload/Intestazioni email (stesso
+pattern toggle gia' consolidato, imparato dalla correzione di posizionamento del v0.9.95 - questa
+volta il pulsante e' stato messo SUBITO nella toolbar, non nascosto nelle Impostazioni). Nodi
+trascinabili (drag), collegamenti creati trascinando dal pallino sul bordo di un nodo verso un
+altro, pannello proprieta' che cambia campi in base a cosa e' selezionato (nodo vs collegamento).
+
+**Scelta tecnica non ovvia, documentata in un commento esteso nel codice**: lo stato di
+trascinamento/collegamento vive in variabili JS globali, MAI in un pointer-capture legato a un
+elemento SVG specifico. Motivo: ogni `renderInfraCanvas()` rigenera l'intero contenuto del
+canvas via `innerHTML` (per semplicita' - un solo percorso di rendering, niente sincronizzazione
+manuale DOM/modello) - un listener o una `setPointerCapture` legati al vecchio elemento
+smetterebbero di ricevere eventi a meta' gesto nell'istante in cui quell'elemento viene sostituito
+durante un re-render intermedio. I listener `pointermove`/`pointerup` sono quindi sul `document`,
+attaccati UNA sola volta all'avvio, mai dentro la funzione di render - `pointerdown` invece resta
+per-elemento e viene riattaccato ad ogni render (sempre sicuro: un pointerdown parte sempre su
+qualunque elemento esiste in quel momento, non deve sopravvivere a un re-render).
+
+**Validazione lato server, non stretta** (`Set-M365OpsInfraDiagram.ps1`): tetto di 500 nodi/1000
+collegamenti (protezione contro un payload anomalo che gonfierebbe senza controllo il testo
+passato poi all'IA ad ogni domanda, non contro contenuti malevoli - editor pensato per un singolo
+operatore che disegna la propria infrastruttura, non input non fidato da un modulo esterno), scarto
+silenzioso di collegamenti verso nodi rimossi (caso normale quando si elimina un nodo con un
+collegamento ancora attivo, gia' filtrato lato client ma difeso una seconda volta lato server).
+
+**Verificato dal vivo end-to-end** (non solo lettura del codice): sequenza REALE di eventi
+puntatore (`PointerEvent` dispatchati via `javascript_tool`, non solo chiamate dirette alle
+funzioni) per creare due nodi (Domain Controller "DC01" con IP/ruolo/dominio, Tenant
+"contoso.onmicrosoft.com") e un collegamento etichettato ("sync ogni 30 min") trascinando dal
+pallino di un nodo all'altro - confermato che l'edge si crea, si auto-seleziona, e il pannello
+proprieta' passa correttamente ai soli campi del collegamento. Salvataggio confermato leggendo
+`Config\InfraDiagram-vnsys-test.json` direttamente su disco (non solo la risposta HTTP). Riavvio
+del server + ricaricamento del pannello: stato persistito identico. Eliminazione di un nodo
+confermata rimuovere a cascata anche il collegamento associato. Una domanda IA reale in chat
+("quale domain controller ha questo tenant e come e' sincronizzato con il cloud?") ha davvero
+chiamato `get_tenant_infrastructure` (non un tool diverso, non una risposta indovinata) e
+risposto con i dati esatti del diagramma, incluso l'avviso esplicito che si tratta di un dato
+dichiarato e non di una verifica live. 390 file `.ps1` (387 + 3 nuovi) sintatticamente puliti,
+tag HTML bilanciati (div/button/span), 2 blocchi `<script>` inline sintatticamente validi.
+
+Spedito in v0.9.98. Su richiesta esplicita dell'utente ("dopo spinna agenti di controllo e stress
+test di cio' appena implementato... piu' agenti che guardino... sia davvero ben integrato,
+fruibile come KB e GUI etc"), agenti di regressione/stress-test da avviare subito dopo questa
+dichiarazione - vedi sotto.
