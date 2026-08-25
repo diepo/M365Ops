@@ -1460,3 +1460,60 @@ dedicato per questo giro specifico: cambiamento verificato a fondo direttamente,
 prima di considerarlo chiuso (crypto isolata, migrazione sui dati reali del repository di test,
 isolamento cross-tenant, integrazione IA, GUI export/import) - se l'utente vuole comunque un altro
 giro di agenti dedicati, va richiesto esplicitamente come nei giri precedenti.
+
+Richiesto esplicitamente subito dopo ("fai un giro") - TRE agenti paralleli avviati, scope non
+sovrapposto:
+
+**Agente "Regression review v0.10.0"** (general-purpose, background) — AVVIATO 25/08/2026. Scope:
+SOLO verificare che il commit 6d2704f non abbia rotto nulla di gia' esistente - flusso upload/
+rimozione documenti KB dalla GUI (tab Documentazione), storico chat (deliberatamente NON toccato
+da questo commit, deve restare per-profilo), le funzionalita' gia' collaudate dell'editor
+Infrastruttura (v0.9.98/99: drag nodi, collegamenti, tema chiaro/scuro), round-invarianza
+dell'elenco strumenti IA (cache-hit), pannelli GUI esistenti. — IN CORSO.
+
+**Agente "Stress-test migrazione/isolamento Tenant ID"** (general-purpose, background) — AVVIATO
+25/08/2026. Scope: casi limite della risoluzione/migrazione - profilo senza campo TenantId,
+TenantId non risolvibile (dominio inesistente), Config\tenants.json assente, file legacy con JSON
+corrotto, collisione di id tra nodi/documenti durante un merge, copia effettiva dei FILE caricati
+(non solo il catalogo JSON) durante la migrazione Knowledge Base. — COMPLETATO, 1 bug reale
+trovato e corretto (v0.10.1).
+
+**Esito agente "Stress-test migrazione/isolamento Tenant ID" (v0.10.1)**: 5 dei 6 casi limite
+testati dal vivo senza problemi (profilo senza `TenantId` → fallback silenzioso al nome profilo;
+dominio non risolvibile → fallback al valore grezzo, `Warn` confermato in log;
+`Config\tenants.json` assente → fallback al nome profilo, ripristinato subito e verificato
+bit-per-bit; JSON legacy corrotto → `catch` gestito, nessun crash, nessun file canonico fantasma,
+il legacy corrotto viene comunque rinominato `.migrated-*` - non peggiora nulla, era gia'
+irrecuperabile; collisione di `id` tra due sorgenti legacy con lo stesso Tenant ID risolto →
+`Sort-Object -Unique` scarta deterministicamente e silenziosamente il duplicato piu' recente,
+nessuna corruzione - comportamento accettato, id reali timestamp+sequenza).
+
+**1 bug reale trovato e corretto** in `Private\Get-M365OpsKnowledgeBasePaths.ps1` (piu' serio del
+caso JSON-corrotto sopra, specifico alla Knowledge Base perche' - a differenza del diagramma
+infrastruttura, puro JSON - la sua migrazione copia anche i FILE caricati fisicamente): il ciclo
+`Get-ChildItem ... | ForEach-Object { Copy-Item ... }` non aveva un `try/catch` proprio - un solo
+file bloccato (lock esclusivo, permessi, qualunque causa transitoria) interrompeva l'INTERO ciclo
+(zero file copiati, non solo quello bloccato, riprodotto dal vivo tenendo un file legacy aperto in
+esclusiva durante la migrazione), mentre il catalogo unito (scritto PRIMA della copia) e il
+rinominare-come-migrato del catalogo legacy (eseguito INCONDIZIONATAMENTE subito dopo, anche a
+copia fallita) procedevano comunque - catalogo canonico con voci "fantasma" puntate a documenti
+mai arrivati a destinazione, nessun modo automatico di ritentare dato che il catalogo legacy (unico
+segnale che fa scattare la migrazione) risultava gia' rinominato via. Corretto con due modifiche
+mirate: (1) ogni singola `Copy-Item` ha ora il proprio `try/catch` (un file bloccato non blocca piu'
+gli altri file dello stesso batch); (2) il rinominare-come-migrato del catalogo legacy scatta ora
+SOLO se nessuna copia e' fallita in quel passaggio - altrimenti il catalogo legacy resta
+deliberatamente al suo posto, cosi' il prossimo accesso ritenta automaticamente la copia dei soli
+file ancora mancanti (retry economico e idempotente, i file gia' arrivati vengono saltati).
+Riverificato dal vivo con lo stesso scenario esatto: primo tentativo (file ancora bloccato) - altri
+file del batch copiati correttamente, catalogo legacy correttamente NON rinominato; rilasciato il
+lock, secondo tentativo (nessuna azione manuale oltre un nuovo accesso al profilo) - file rimasto
+indietro copiato con successo, catalogo legacy finalmente rinominato `.migrated-*`,
+`Get-M365OpsKnowledgeDocumentText` ha letto il testo completo del documento in precedenza bloccato
+senza errori. Profili/dati temporanei di stress-test (`zzstress-*`) rimossi al termine del giro; i
+profili reali (`vnsys-test`, "vnsys delegata", `AlePiras`) e i loro dati non sono mai stati toccati.
+
+**Agente "Review sicurezza crypto + edge case export/import"** (general-purpose, background) —
+AVVIATO 25/08/2026. Scope: revisione della cifratura (Protect-/Unprotect-M365OpsInfraExport.ps1) -
+riuso di IV/salt, robustezza del confronto a tempo costante scritto a mano, adeguatezza di 100.000
+iterazioni PBKDF2, comportamento su un envelope malformato/con campi mancanti/versione sconosciuta,
+export/import ai tetti dimensionali (500 nodi/1000 collegamenti). — IN CORSO.

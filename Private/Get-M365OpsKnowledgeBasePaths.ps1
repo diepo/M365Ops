@@ -29,6 +29,7 @@ function Get-M365OpsKnowledgeBasePaths {
     if ($legacyKey -ne $newKey) {
         $legacyCatalogPath = Join-Path $configDir "KnowledgeBase-$legacyKey.json"
         if (Test-Path $legacyCatalogPath) {
+            $copyFailures = @()
             try {
                 $legacyCatalog = @(Get-Content -Path $legacyCatalogPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop | Where-Object { $_.FileName })
                 if ($legacyCatalog.Count -gt 0) {
@@ -50,7 +51,30 @@ function Get-M365OpsKnowledgeBasePaths {
                         New-Item -ItemType Directory -Force -Path $newKbDir | Out-Null
                         Get-ChildItem -Path $legacyKbDir -File | ForEach-Object {
                             $dest = Join-Path $newKbDir $_.Name
-                            if (-not (Test-Path $dest)) { Copy-Item -Path $_.FullName -Destination $dest -Force }
+                            if (-not (Test-Path $dest)) {
+                                try {
+                                    Copy-Item -Path $_.FullName -Destination $dest -Force -ErrorAction Stop
+                                }
+                                catch {
+                                    # Un singolo file bloccato/non copiabile (lock esclusivo,
+                                    # permessi, ecc.) NON deve interrompere la copia degli altri
+                                    # file del batch, ne' far scattare comunque il "rinominato
+                                    # come migrato" piu' sotto (che disabiliterebbe per sempre il
+                                    # retry) - bug trovato dal vivo 25/08/2026 durante lo
+                                    # stress-test della migrazione: prima di questa correzione un
+                                    # solo file bloccato interrompeva l'INTERO ciclo (zero file
+                                    # copiati, non solo quello bloccato, perche' l'eccezione
+                                    # scappava fuori dal ForEach-Object) e il catalogo legacy
+                                    # veniva comunque rinominato via subito dopo, lasciando il
+                                    # catalogo canonico con voci "fantasma" che puntano a file mai
+                                    # arrivati a destinazione, senza alcun modo automatico di
+                                    # riprovare (Get-M365OpsKnowledgeDocumentText avrebbe fallito
+                                    # per sempre su quel documento, anche una volta rilasciato il
+                                    # lock).
+                                    $copyFailures += $_.Name
+                                    Write-M365OpsLog "Migrazione Knowledge Base: copia del file legacy '$($_.Name)' fallita per il profilo '$TenantName' (verra' ritentata al prossimo accesso): $($_.Exception.Message)" -Level Warn
+                                }
+                            }
                         }
                     }
                     Write-M365OpsLog "Migrazione Knowledge Base: unito il catalogo legacy del profilo '$TenantName' nella chiave per tenant '$newKey' ($($toAdd.Count) documenti aggiunti, $($legacyCatalog.Count - $toAdd.Count) gia' presenti)."
@@ -59,10 +83,17 @@ function Get-M365OpsKnowledgeBasePaths {
             catch {
                 Write-M365OpsLog "Migrazione Knowledge Base fallita per il profilo '$TenantName': $($_.Exception.Message)" -Level Warn
             }
-            # Stesso principio di Get-M365OpsInfraDiagramPath: rinominato, mai eliminato.
-            $backupName = "KnowledgeBase-$legacyKey.json.migrated-$(Get-Date -Format 'yyyyMMdd')"
-            if (-not (Test-Path (Join-Path $configDir $backupName))) {
-                Rename-Item -Path $legacyCatalogPath -NewName $backupName -ErrorAction SilentlyContinue
+            # Stesso principio di Get-M365OpsInfraDiagramPath: rinominato, mai eliminato - MA
+            # solo se TUTTI i file da copiare ce l'hanno fatta. Se $copyFailures non e' vuoto, il
+            # catalogo legacy resta deliberatamente al suo posto: il prossimo accesso ritenta la
+            # copia dei soli file ancora mancanti (quelli gia' arrivati a destinazione vengono
+            # saltati dal Test-Path $dest sopra, quindi il retry e' economico e idempotente)
+            # invece di perdere per sempre la possibilita' di completare la migrazione.
+            if ($copyFailures.Count -eq 0) {
+                $backupName = "KnowledgeBase-$legacyKey.json.migrated-$(Get-Date -Format 'yyyyMMdd')"
+                if (-not (Test-Path (Join-Path $configDir $backupName))) {
+                    Rename-Item -Path $legacyCatalogPath -NewName $backupName -ErrorAction SilentlyContinue
+                }
             }
         }
     }
