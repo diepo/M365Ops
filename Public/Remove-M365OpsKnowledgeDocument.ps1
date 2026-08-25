@@ -12,9 +12,9 @@ function Remove-M365OpsKnowledgeDocument {
     )
 
     $requestedName = Split-Path -Leaf $FileName
-    $safeName = $TenantName -replace '[^\w\-]', '_'
-    $kbDir = Join-Path $script:M365OpsModuleRoot "Uploads\kb\$safeName"
-    $catalogPath = Join-Path $script:M365OpsModuleRoot "Config\KnowledgeBase-$safeName.json"
+    $paths = Get-M365OpsKnowledgeBasePaths -TenantName $TenantName
+    $kbDir = $paths.KbDir
+    $catalogPath = $paths.CatalogPath
 
     $catalog = @()
     if (Test-Path $catalogPath) {

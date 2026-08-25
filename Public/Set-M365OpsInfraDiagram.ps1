@@ -2,8 +2,9 @@ function Set-M365OpsInfraDiagram {
     <#
     .SYNOPSIS
         Salva il diagramma di infrastruttura (nodi/collegamenti) per il tenant indicato in
-        Config\InfraDiagram-<TenantName>.json - stesso schema di isolamento per-tenant di
-        Add-M365OpsChatHistoryTurn.
+        Config\InfraDiagram-<chiave tenant>.json - chiave risolta per TENANT REALE (vedi
+        Get-M365OpsInfraDiagramPath/Get-M365OpsTenantStorageKey), non per profilo: due profili
+        sullo stesso tenant condividono lo stesso file, coerentemente con Get-M365OpsInfraDiagram.
     .PARAMETER Nodes
         Array di oggetti { id, type, name, role, ip, domain, notes, x, y } - cosi' come arrivano
         gia' pronti dall'editor GUI (Gui/index.html), nessuna conversione di case necessaria
@@ -26,10 +27,7 @@ function Set-M365OpsInfraDiagram {
         [Parameter(Mandatory)] [AllowEmptyCollection()] [array]$Edges
     )
 
-    $safeName = $TenantName -replace '[^\w\-]', '_'
-    $configDir = Join-Path $script:M365OpsModuleRoot 'Config'
-    New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-    $path = Join-Path $configDir "InfraDiagram-$safeName.json"
+    $path = Get-M365OpsInfraDiagramPath -TenantName $TenantName
 
     # Tetto dimensionale (vedi .NOTES) - un editor GUI a mano non produrra' mai realisticamente
     # migliaia di nodi, ma senza un limite un payload anomalo finirebbe comunque, per intero, nel

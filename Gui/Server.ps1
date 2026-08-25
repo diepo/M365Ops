@@ -2108,6 +2108,77 @@ try {
                     }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
+                "POST /api/infra-diagram/export" {
+                    # Export/import (25/08/2026, richiesto esplicitamente dall'utente: poter
+                    # condividere un diagramma tra installazioni diverse dell'app). La passphrase
+                    # e' facoltativa (stringa vuota o assente = export in chiaro) - MAI salvata,
+                    # esiste solo per la durata di questa chiamata. tenantId nel pacchetto e' la
+                    # STESSA chiave risolta gia' usata per salvare/leggere il diagramma (vedi
+                    # Get-M365OpsTenantStorageKey) - lato import serve a confrontare "questo
+                    # export appartiene al tenant attivo adesso, o a uno diverso?" senza dover
+                    # ridigitare/indovinare nulla.
+                    $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                    $body = $reader.ReadToEnd() | ConvertFrom-Json
+                    try {
+                        $diagram = Get-M365OpsInfraDiagram -TenantName $script:ActiveTenantProfile
+                        $payload = [ordered]@{ nodes = @($diagram.Nodes); edges = @($diagram.Edges) }
+                        $envelope = [ordered]@{
+                            m365opsExport = 'infra-diagram-v1'
+                            tenantId      = Get-M365OpsTenantStorageKey -TenantName $script:ActiveTenantProfile
+                            sourceProfile = $script:ActiveTenantProfile
+                            exportedAt    = (Get-Date -Format 'o')
+                            encrypted     = [bool]$body.passphrase
+                        }
+                        if ($body.passphrase) {
+                            $enc = Protect-M365OpsInfraExport -Payload $payload -Passphrase $body.passphrase
+                            $envelope.kdf = $enc.kdf
+                            $envelope.iterations = $enc.iterations
+                            $envelope.salt = $enc.salt
+                            $envelope.iv = $enc.iv
+                            $envelope.hmac = $enc.hmac
+                            $envelope.ciphertext = $enc.ciphertext
+                        } else {
+                            $envelope.diagram = $payload
+                        }
+                        $json = (@{ ok = $true; envelope = $envelope } | ConvertTo-Json -Depth 10 -Compress)
+                    } catch {
+                        $json = (@{ ok = $false; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/infra-diagram/import" {
+                    # Non salva mai da solo (coerente col principio "nessun autosave" gia' in
+                    # uso per l'intero editor) - restituisce solo nodi/collegamenti pronti per il
+                    # canvas, l'utente deve comunque premere "Salva" esplicitamente per persisterli
+                    # su QUESTA installazione/tenant.
+                    $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                    $body = $reader.ReadToEnd() | ConvertFrom-Json
+                    try {
+                        $envelope = $body.envelope
+                        if (-not $envelope -or $envelope.m365opsExport -ne 'infra-diagram-v1') {
+                            throw "File non riconosciuto come export di un diagramma infrastruttura M365Ops."
+                        }
+                        $diagram = if ($envelope.encrypted) {
+                            if (-not $body.passphrase) { throw "Questo export e' cifrato - serve la passphrase usata al momento dell'esportazione." }
+                            Unprotect-M365OpsInfraExport -Envelope $envelope -Passphrase $body.passphrase
+                        } else {
+                            $envelope.diagram
+                        }
+                        $currentKey = Get-M365OpsTenantStorageKey -TenantName $script:ActiveTenantProfile
+                        $sameTenant = [bool]($envelope.tenantId -and ($envelope.tenantId -eq $currentKey))
+                        $json = (@{
+                            ok            = $true
+                            nodes         = @($diagram.nodes)
+                            edges         = @($diagram.edges)
+                            sourceProfile = $envelope.sourceProfile
+                            exportedAt    = $envelope.exportedAt
+                            sameTenant    = $sameTenant
+                        } | ConvertTo-Json -Depth 10 -Compress)
+                    } catch {
+                        $json = (@{ ok = $false; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
                 "POST /api/tenants/activate" {
                     $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
                     $body = $reader.ReadToEnd() | ConvertFrom-Json

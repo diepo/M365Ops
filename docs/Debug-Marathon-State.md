@@ -1335,4 +1335,128 @@ con un solo nodo, verifica che il tetto 500 nodi/1000 collegamenti in Set-M365Op
 scatti davvero, che l'etichetta "Fonte dati" corretta in Get-M365OpsToolSourceLabel.ps1 non abbia
 regredito le altre (graph_api_call/kb_query/cli_m365/ecc.), che il conteggio token (v0.9.97)
 continui ad accumulare correttamente anche in una conversazione che include una chiamata a
-get_tenant_infrastructure. — IN CORSO.
+get_tenant_infrastructure. — COMPLETATO, nessun problema trovato: 5 formulazioni diverse di
+domande sull'infrastruttura tutte risposte correttamente (mai inventate) con la nota "Fonte dati"
+corretta; diagramma a 1 nodo gestito senza crash (unico nit cosmetico e invisibile all'utente:
+"1 nodi" invece di "1 nodo" nel riassunto grezzo per l'IA, mai mostrato all'utente cosi' com'e' -
+non corretto); tetto 500 nodi verificato scattare davvero (550 inviati, 500 salvati); tetto 1000
+collegamenti verificato scattare davvero (1050 inviati con 2 riferimenti a nodi inesistenti, 1000
+salvati, zero riferimenti orfani); kb_query/graph_api_call/cli_m365_* tutti confermati con
+l'etichetta "Fonte dati" corretta, nessuna regressione dai due nuovi case aggiunti allo stesso
+switch; conteggio token riverificato matematicamente contro i log server, somma esatta anche con
+get_tenant_infrastructure nel mix; iniezione nel prompt di sistema confermata sempre condizionata
+a `Get-M365OpsInfraDiagramNarrative.Summary -ne $null`, nessun percorso di codice la aggira.
+
+## Seguito: documentazione/diagramma condivisi per TENANT REALE, tipi Internet/Intranet, export/import cifrato (v0.10.0)
+
+Quattro richieste esplicite dell'utente, arrivate in sequenza in un'unica conversazione dopo aver
+notato un problema architetturale reale sul proprio ambiente.
+
+**Osservazione iniziale dell'utente**: "mi confermi che l'infra che disegni dentro il tenant in
+cui sei connesso resti per quel tenant specifico? potremmo forse metterla sotto documentazione?
+siccome ogni tenant puo' avere accesso ibrido e app ma e' pur sempre lo stesso tenant come
+consigli di fare si che la documentazione + disegno infra ci sia una sola volta per entrambi?" -
+confermato l'isolamento (corretto), ma verificato concretamente in `Config\tenants.json` che
+"vnsys-test" (AppOnly) e "vnsys delegata" (Delegato) hanno lo STESSO `TenantId`
+("vnsysit.onmicrosoft.com") - stesso tenant fisico, due profili, quindi oggi due Knowledge
+Base/diagrammi separati e vuoti invece di uno condiviso. Proposto di ri-chiavare lo storage per
+Tenant ID risolto invece che per nome profilo - approvato dall'utente ("procedi con entrambe le
+cose"), con una precisazione tecnica importante aggiunta subito dopo: "prevedi che il tenant id
+sia numerico e testuale... prendi vnsysit.onmicrosoft.com e il suo riferimento numerico come
+stessa cosa" - un tenant Microsoft ha sempre sia una forma dominio (es.
+"vnsysit.onmicrosoft.com") sia una forma GUID, e due profili potrebbero avere il TenantId scritto
+in forme diverse pur riferendosi allo stesso tenant.
+
+**1) Risoluzione Tenant ID e ri-chiavatura storage**: nuovo `Private\Resolve-M365OpsTenantGuid.ps1`
+- risolve QUALUNQUE forma (dominio o GUID) al GUID canonico interrogando l'endpoint pubblico di
+discovery OIDC di Microsoft (`login.microsoftonline.com/<id>/v2.0/.well-known/openid-configuration`,
+nessuna autenticazione richiesta, il campo `issuer` della risposta contiene sempre il GUID
+canonico) - idempotente (risolvere un GUID gia' canonico restituisce se stesso), cache in-memory
+per processo (una sola chiamata di rete per valore grezzo distinto), fallback SEMPRE al valore
+grezzo se la rete non risponde (mai un'eccezione che romperebbe la lettura di Documentazione/
+Diagramma - nel caso peggiore la condivisione semplicemente non scatta finche' la rete non torna).
+Nuovo `Private\Get-M365OpsTenantStorageKey.ps1` (nome profilo -> chiave risolta, pass-through
+invariato per un nome che non e' un profilo reale, es. il bucket KB globale `_global`).
+
+**Migrazione automatica pigra**: nuovi `Private\Get-M365OpsInfraDiagramPath.ps1` e
+`Private\Get-M365OpsKnowledgeBasePaths.ps1` - al primo accesso di un profilo, se esiste ancora un
+file sotto il vecchio schema per NOME PROFILO, i suoi dati vengono UNITI (mai sovrascritti) nel
+nuovo file per chiave risolta (gia' esistente o creato al volo), poi il file legacy viene
+rinominato con un suffisso `.migrated-<data>` (mai eliminato - recuperabile). Idempotente: al
+prossimo accesso non c'e' piu' nulla da migrare, un solo `Test-Path` economico. Gestisce
+correttamente il caso con PIU' profili sullo stesso tenant reale che avevano gia' dati legacy
+separati: qualunque profilo venga acceduto per primo crea/popola il file canonico, il successivo
+unisce additivamente i propri dati in quello gia' esistente. Aggiornati per usare la nuova chiave:
+`Get-/Set-M365OpsInfraDiagram.ps1`, `Get-M365OpsKnowledgeCatalog.ps1`,
+`Get-M365OpsKnowledgeDocumentText.ps1`, `Add-/Remove-M365OpsKnowledgeDocument.ps1`. Uno storico
+chat (`Get-M365OpsChatHistory`) resta DELIBERATAMENTE per profilo, non toccato - una conversazione
+e' legata alla sessione/modalita' di lavoro attiva, non al tenant in astratto.
+
+**2) Rimando dalla tab "Documentazione"**: box con pulsante "🗺️ Apri Infrastruttura" nella tab
+Documentazione (`Gui/index.html`) - chiude le Impostazioni e apre `#infra-panel` al suo posto
+(riusa il toggle di `settingsBtn` gia' esistente, che gestisce gia' correttamente mostrare/
+nascondere chat e footer). L'editor resta un pannello dedicato in toolbar, non spostato dentro la
+tab (un canvas grande starebbe stretto in una tab di impostazioni) - deciso insieme all'utente
+prima di implementare, non assunto.
+
+**3) Tipi di nodo Internet/Intranet**: richiesto esplicitamente a meta' di un turno successivo
+("il disegno deve riguardare anche solo architetture solo online, magari multi-cloud, non
+fermarti solo all'ibrido, mettici dentro tutto") - due nuovi tipi (🌐 Internet, 🔒 Intranet),
+totale 19 tipi di nodo. Il campo IP esistente gia' accetta liberamente una classe di indirizzi
+(placeholder aggiornato con un esempio CIDR), nessun campo nuovo necessario.
+
+**4) Export/import cifrato**: richiesto esplicitamente ("verifica se e' possibile fare export +
+import del file salvato per condividere tra app le infrastrutture... rendi cifrato l'export se
+possibile"). Nuovi pulsanti "Esporta..."/"Importa..." nel pannello. Il file esportato porta
+SEMPRE il Tenant ID risolto (stessa chiave del punto 1) - all'import, un confronto col tenant
+attivo in quel momento produce un avviso non bloccante se diverso (l'import non salva mai da
+solo, richiede comunque "Salva" esplicito). Cifratura con passphrase FACOLTATIVA (vuota = export
+in chiaro): AES-256-CBC + HMAC-SHA256 (cifra-poi-autentica), non AES-GCM -
+`System.Security.Cryptography.AesGcm` non e' disponibile in modo affidabile su Windows
+PowerShell 5.1/.NET Framework (dichiarato supportato da questo modulo), CBC+HMAC funziona
+identico li' e sotto PowerShell 7 (il runtime reale della GUI). Chiavi derivate via PBKDF2
+(100.000 iterazioni, salt casuale) - due chiavi SEPARATE per cifratura/autenticazione dallo
+stesso materiale derivato, mai la stessa chiave riusata per entrambe. Verifica HMAC SEMPRE prima
+di decifrare (mai il contrario - decifrare per primo esporrebbe a un padding-oracle). Confronto a
+tempo costante scritto a mano (non `CryptographicOperations.FixedTimeEquals`, anch'essa assente
+su .NET Framework). Nuovi `Private\Protect-/Unprotect-M365OpsInfraExport.ps1`, due nuove route
+`Gui/Server.ps1` (`/api/infra-diagram/export`, `/import`).
+
+**Verificato dal vivo, non solo lettura del codice**:
+- Crypto isolata prima dell'integrazione: round-trip cifra/decifra corretto, passphrase sbagliata
+  rifiutata con un errore chiaro, ciphertext manomesso (1 byte capovolto) rifiutato - testato in
+  isolamento via dot-sourcing diretto dei due file, PRIMA di collegarli alle route.
+- Risoluzione Tenant ID confermata REALE (non simulata): "vnsysit.onmicrosoft.com" risolto al
+  GUID canonico `6214cf15-ccd4-4eec-8171-da2ace0ebc91` tramite una vera chiamata di rete.
+- Migrazione confermata sui dati reali gia' presenti nel repository di test: attivando
+  "vnsys-test" (6 nodi legacy) poi "vnsys delegata" (1 nodo legacy, "PersistedNode") in
+  sequenza, i due diagrammi si sono uniti additivamente nello stesso file condiviso (7 nodi
+  totali) - i due file legacy correttamente rinominati `.migrated-20260825`. "AlePiras" (tenant
+  reale diverso, GUID diverso) rimasto isolato con la propria Knowledge Base/diagramma intatti.
+- Stesso test ripetuto con successo per la Knowledge Base: un documento di test caricato su
+  "vnsys-test" via `Add-M365OpsKnowledgeDocument` immediatamente leggibile - testo completo
+  incluso via `Get-M365OpsKnowledgeDocumentText` - da "vnsys delegata", assente su "AlePiras";
+  rimozione (`Remove-M365OpsKnowledgeDocument`) confermata sparire da entrambi i profili
+  condivisi contemporaneamente.
+- Domanda IA reale dopo la migrazione ("quanti nodi ci sono nel diagramma infrastruttura di
+  questo tenant?") ha risposto correttamente "7 nodi" con la nota fonte corretta - confermato che
+  `get_tenant_infrastructure` legge in modo trasparente la nuova chiave, nessuna modifica
+  necessaria in `Invoke-M365OpsAgentTools.ps1` per questo (gia' passava solo il nome profilo).
+- Export/import testati nel browser reale con veri `PointerEvent`/eventi file (tecnica
+  `DataTransfer` per simulare la selezione di un file su `<input type=file>`, `window.prompt`
+  temporaneamente sovrascritto per fornire la passphrase senza un vero dialogo di sistema):
+  round-trip in chiaro corretto, round-trip cifrato corretto, passphrase errata rifiutata con un
+  errore chiaro (nessun dato corrotto, canvas rimasto vuoto), avviso di tenant diverso mostrato
+  correttamente importando deliberatamente un export di "vnsys-test" mentre "AlePiras" era
+  attivo, confermato che quell'import cross-tenant NON ha scritto nulla su disco (diagramma di
+  "AlePiras" verificato invariato dopo, prima di premere "Salva").
+- 396 file `.ps1` sintatticamente puliti, tag HTML bilanciati, 2 blocchi `<script>` inline
+  sintatticamente validi.
+
+Spedito in v0.10.0 (bump minore invece che di patch, a segnare che questo e' un blocco di lavoro
+piu' sostanzioso del solito giro di fix puntuale - non un cambio di disciplina, la stessa identica
+verifica dal vivo/changelog/PDF/marathon-state e' stata applicata). Nessun agente di regressione
+dedicato per questo giro specifico: cambiamento verificato a fondo direttamente, in modo end-to-end,
+prima di considerarlo chiuso (crypto isolata, migrazione sui dati reali del repository di test,
+isolamento cross-tenant, integrazione IA, GUI export/import) - se l'utente vuole comunque un altro
+giro di agenti dedicati, va richiesto esplicitamente come nei giri precedenti.

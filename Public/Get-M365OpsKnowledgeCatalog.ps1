@@ -7,14 +7,14 @@ function Get-M365OpsKnowledgeCatalog {
         AI aggiuntiva) - per il testo completo di UN documento specifico vedi
         Get-M365OpsKnowledgeDocumentText.
     .PARAMETER TenantName
-        Determina ESCLUSIVAMENTE quale catalogo leggere (Config\KnowledgeBase-<TenantName>.json)
-        - stesso schema di isolamento di Get-M365OpsChatHistory, nessuna possibilita' di leggere
-        il catalogo di un altro tenant passando un nome diverso.
+        Nome del PROFILO - la chiave di storage reale e' pero' il Tenant ID risolto (vedi
+        Get-M365OpsKnowledgeBasePaths, 25/08/2026: due profili sullo stesso tenant reale
+        condividono la stessa Knowledge Base), nessuna possibilita' comunque di leggere quella
+        di un tenant DIVERSO.
     #>
     param([Parameter(Mandatory)] [string]$TenantName)
 
-    $safeName = $TenantName -replace '[^\w\-]', '_'
-    $catalogPath = Join-Path $script:M365OpsModuleRoot "Config\KnowledgeBase-$safeName.json"
+    $catalogPath = (Get-M365OpsKnowledgeBasePaths -TenantName $TenantName).CatalogPath
     if (-not (Test-Path $catalogPath)) { return @() }
 
     try {

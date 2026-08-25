@@ -26,8 +26,8 @@ function Get-M365OpsKnowledgeDocumentText {
         throw "Nessun documento '$requestedName' nella Knowledge Base di '$TenantName' - verifica il nome esatto con Get-M365OpsKnowledgeCatalog, mai indovinato."
     }
 
-    $safeName = $TenantName -replace '[^\w\-]', '_'
-    $textPath = Join-Path $script:M365OpsModuleRoot "Uploads\kb\$safeName\$requestedName.extracted.txt"
+    $kbDir = (Get-M365OpsKnowledgeBasePaths -TenantName $TenantName).KbDir
+    $textPath = Join-Path $kbDir "$requestedName.extracted.txt"
     if (-not (Test-Path $textPath)) {
         throw "Il documento '$requestedName' e' catalogato ma il testo estratto non e' piu' presente su disco - potrebbe non aver avuto testo estraibile al momento del caricamento."
     }

@@ -332,6 +332,9 @@
     <button id="infra-add-node-btn">+ Nodo</button>
     <button id="infra-save-btn">Salva</button>
     <button id="infra-reload-btn" style="background:var(--surface-alt);">Ricarica</button>
+    <button id="infra-export-btn" style="background:var(--surface-alt);">Esporta...</button>
+    <button id="infra-import-btn" style="background:var(--surface-alt);">Importa...</button>
+    <input type="file" id="infra-import-input" accept=".json,.m365ops-infra" style="display:none">
     <span id="infra-status-msg"></span>
   </div>
   <div id="infra-canvas-wrap">
@@ -342,7 +345,7 @@
     <div class="full infra-field-node"><label>Tipo</label><select id="infra-prop-type"></select></div>
     <div class="infra-field-node"><label>Nome</label><input id="infra-prop-name" placeholder="es. DC01, vnet-prod, s3-backup..."></div>
     <div class="infra-field-node"><label>Ruolo</label><input id="infra-prop-role" placeholder="es. PDC Emulator, Load Balancer pubblico..."></div>
-    <div class="infra-field-node"><label>Indirizzo IP</label><input id="infra-prop-ip" placeholder="es. 10.0.0.10"></div>
+    <div class="infra-field-node"><label>Indirizzo IP / classe</label><input id="infra-prop-ip" placeholder="es. 10.0.0.10, 10.0.0.0/8, 0.0.0.0/0..."></div>
     <div class="infra-field-node"><label>Dominio / regione / account</label><input id="infra-prop-domain" placeholder="es. contoso.local, eu-west-1, sub-prod..."></div>
     <div class="full infra-field-node"><label>Note</label><textarea id="infra-prop-notes" rows="2"></textarea></div>
     <div class="full infra-field-edge"><label>Etichetta collegamento</label><input id="infra-prop-label" placeholder="es. sync ogni 30 min, VPN site-to-site, peering..."></div>
@@ -512,6 +515,10 @@
   <div class="tab-panel" id="tab-kb" style="display:none;">
     <h2>Documentazione del tenant attivo</h2>
     <p class="hint">Carica documentazione specifica di QUESTO tenant (peculiarita' di infrastruttura, procedure di troubleshooting, note operative) - .txt, .md, .docx, .xlsx/.xls, .pdf. L'AI la cataloga automaticamente e la consulta quando rilevante. Ogni tenant ha la propria Knowledge Base separata: cambiando tenant, questi documenti non sono piu' visibili ne' influenzano le risposte, e tornano visibili solo quando riattivi questo stesso tenant.</p>
+    <div style="margin:0 0 16px; padding:10px 14px; background:var(--surface-alt); border-radius:var(--radius-sm); font-size:12.5px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <span>Il diagramma grafico dell'infrastruttura (Domain Controller, reti, cloud...) e' anch'esso parte della documentazione di questo tenant, ma vive in un editor dedicato con un canvas piu' grande - non qui sotto.</span>
+      <button id="kb-open-infra-btn" style="flex-shrink:0;">🗺️ Apri Infrastruttura</button>
+    </div>
     <div id="kb-upload-row" style="margin:10px 0;">
       <span id="kb-file-label">Nessun file selezionato</span>
       <button id="kb-browse-btn">Carica documento...</button>
@@ -2742,6 +2749,26 @@
     if (isOpen) { loadProfiles(); loadAiSettings(); loadAiUsage(); updateAuthModeFieldVisibility(); loadConnectionStatus(); loadSetupStatus(); }
   });
 
+  // Rimando dalla tab "Documentazione" al pannello Infrastruttura (25/08/2026, richiesto
+  // esplicitamente dall'utente: concettualmente e' documentazione del tenant anche lei, ma
+  // resta un pulsante/pannello dedicato in toolbar - un canvas di disegno grande starebbe
+  // stretto in una tab di impostazioni) - chiude le Impostazioni (riusando lo stesso toggle di
+  // settingsBtn, che gestisce gia' correttamente mostrare/nascondere chat e footer) e apre
+  // #infra-panel al suo posto.
+  const kbOpenInfraBtn = document.getElementById('kb-open-infra-btn');
+  if (kbOpenInfraBtn) {
+    kbOpenInfraBtn.addEventListener('click', () => {
+      if (settingsPanel.classList.contains('open')) { settingsBtn.click(); }
+      const p = document.getElementById('infra-panel');
+      if (!p.classList.contains('open')) {
+        p.classList.add('open');
+        document.getElementById('infra-toggle-btn').classList.add('active');
+        if (!infraLoadedOnce) { infraLoadedOnce = true; loadInfraDiagram(); }
+      }
+      p.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
   permissionsCheckBtn.addEventListener('click', () => sendMessage('verifica permessi app'));
 
   // ============================================================
@@ -2783,6 +2810,8 @@
     Tenant:           { icon: '☁️', color: '#0ea5e9', label: 'Tenant M365 / Entra ID' },
     IdentityProvider: { icon: '🪪', color: '#a855f7', label: 'Identity Provider (Okta, ADFS...)' },
     Site:             { icon: '🏢', color: '#14b8a6', label: 'Sede fisica' },
+    Internet:         { icon: '🌐', color: '#2563eb', label: 'Internet (rete pubblica esterna)' },
+    Intranet:         { icon: '🔒', color: '#64748b', label: 'Intranet (rete interna/privata)' },
     Firewall:         { icon: '🛡️', color: '#ef4444', label: 'Firewall' },
     Gateway:          { icon: '🔀', color: '#f97316', label: 'Gateway VPN / ExpressRoute' },
     LoadBalancer:     { icon: '⚖️', color: '#eab308', label: 'Load Balancer' },
@@ -3061,6 +3090,85 @@
   document.getElementById('infra-save-btn').addEventListener('click', saveInfraDiagram);
   document.getElementById('infra-reload-btn').addEventListener('click', loadInfraDiagram);
   document.getElementById('infra-delete-btn').addEventListener('click', deleteSelectedInfra);
+
+  // Esporta/Importa (25/08/2026, richiesto esplicitamente dall'utente: condividere un
+  // diagramma tra installazioni diverse dell'app). La passphrase e' facoltativa - lasciata
+  // vuota nel prompt() esporta in chiaro, senza cifratura. Il file scaricato porta il
+  // Tenant ID di riferimento (vedi commento esteso nella route server) - all'import, se non
+  // coincide col tenant attivo ora, un avviso non bloccante lo segnala prima del Salva.
+  document.getElementById('infra-export-btn').addEventListener('click', async () => {
+    const status = document.getElementById('infra-status-msg');
+    if (infraNodes.length === 0) { status.textContent = 'Nessun nodo da esportare.'; return; }
+    const passphrase = prompt('Passphrase per cifrare l\'export (lascia vuoto per esportare in chiaro, senza cifratura):', '');
+    if (passphrase === null) return;
+    status.textContent = 'esportazione in corso...';
+    try {
+      const res = await fetch('/api/infra-diagram/export', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passphrase: passphrase || '' })
+      });
+      const data = await res.json();
+      if (!data.ok) { status.textContent = 'Errore: ' + (data.text || 'sconosciuto'); return; }
+      const blob = new Blob([JSON.stringify(data.envelope, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'infrastruttura-' + (data.envelope.sourceProfile || 'tenant').replace(/[^\w\-]/g, '_') + '.m365ops-infra.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      status.textContent = 'Esportato' + (passphrase ? ' (cifrato)' : ' (in chiaro, nessuna passphrase inserita)') + '.';
+    } catch (e) {
+      status.textContent = 'Errore di comunicazione: ' + e.message;
+    }
+  });
+
+  document.getElementById('infra-import-btn').addEventListener('click', () => {
+    document.getElementById('infra-import-input').click();
+  });
+  document.getElementById('infra-import-input').addEventListener('change', async (ev) => {
+    const file = ev.target.files[0];
+    ev.target.value = ''; // permette di re-importare lo stesso file una seconda volta di seguito
+    if (!file) return;
+    const status = document.getElementById('infra-status-msg');
+    let envelope;
+    try {
+      envelope = JSON.parse(await file.text());
+    } catch (e) {
+      status.textContent = 'File non valido (JSON illeggibile): ' + e.message;
+      return;
+    }
+    if (!envelope || envelope.m365opsExport !== 'infra-diagram-v1') {
+      status.textContent = 'File non riconosciuto come export di un diagramma infrastruttura M365Ops.';
+      return;
+    }
+    let passphrase = '';
+    if (envelope.encrypted) {
+      passphrase = prompt('Questo export e\' cifrato - inserisci la passphrase usata al momento dell\'esportazione:', '');
+      if (passphrase === null) return;
+    }
+    if (infraNodes.length > 0 && !confirm('Importare sostituira\' il diagramma attualmente sul canvas (non ancora salvato su disco finche\' non premi "Salva"). Procedere?')) return;
+    status.textContent = 'importazione in corso...';
+    try {
+      const res = await fetch('/api/infra-diagram/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ envelope, passphrase })
+      });
+      const data = await res.json();
+      if (!data.ok) { status.textContent = 'Errore: ' + (data.text || 'sconosciuto'); return; }
+      infraNodes = Array.isArray(data.nodes) ? data.nodes : [];
+      infraEdges = Array.isArray(data.edges) ? data.edges : [];
+      infraSelectedId = null; infraSelectedKind = null;
+      infraCloseProps();
+      renderInfraCanvas();
+      const tenantWarning = data.sameTenant ? '' : ' - ATTENZIONE: proviene da un tenant diverso da quello attivo ora, verifica prima di salvare';
+      const whenText = data.exportedAt ? new Date(data.exportedAt).toLocaleString('it-IT') : '?';
+      status.textContent = 'Importato da "' + (data.sourceProfile || '?') + '" (' + whenText + ')' + tenantWarning + '. Premi "Salva" per renderlo definitivo.';
+    } catch (e) {
+      status.textContent = 'Errore di comunicazione: ' + e.message;
+    }
+  });
 
   // Pannello upload a scomparsa (21/08/2026, richiesto esplicitamente dall'utente: prima erano
   // 3 pulsanti sempre visibili sopra la casella di testo, "possiamo renderla piu' ordinata

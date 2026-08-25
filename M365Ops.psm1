@@ -88,4 +88,10 @@ $customNames = Get-ChildItem -Path $script:M365OpsCustomScriptsPath -Filter '*.p
 # GUI, richiesta esplicitamente dall'utente): Gui\Server.ps1 la chiama direttamente sia per il
 # parsing locale (/api/analyze-headers) sia per costruire il contesto strutturato passato
 # all'IA (/api/analyze-headers-ai).
-Export-ModuleMember -Function (@($publicNames) + @($customNames) + 'Invoke-M365OpsGraphRequest' + 'Get-M365OpsNormalizedChatText' + 'Start-M365OpsIsolatedModuleConnectAsync' + 'Get-M365OpsIsolatedModuleConnectAsyncStatus' + 'Get-M365OpsAiProviderLabel' + 'Get-M365OpsMessageHeaderAnalysis')
+# Get-M365OpsTenantStorageKey/Protect-/Unprotect-M365OpsInfraExport aggiunte il 25/08/2026
+# (export/import cifrato del diagramma infrastruttura, richiesto esplicitamente dall'utente):
+# Gui\Server.ps1 le chiama direttamente nelle route /api/infra-diagram/export e /import - la
+# prima per calcolare il Tenant ID risolto da includere nel pacchetto esportato e per il
+# confronto "stesso tenant?" in import, le altre due per cifrare/decifrare quando l'utente
+# sceglie una passphrase.
+Export-ModuleMember -Function (@($publicNames) + @($customNames) + 'Invoke-M365OpsGraphRequest' + 'Get-M365OpsNormalizedChatText' + 'Start-M365OpsIsolatedModuleConnectAsync' + 'Get-M365OpsIsolatedModuleConnectAsyncStatus' + 'Get-M365OpsAiProviderLabel' + 'Get-M365OpsMessageHeaderAnalysis' + 'Get-M365OpsTenantStorageKey' + 'Protect-M365OpsInfraExport' + 'Unprotect-M365OpsInfraExport')
