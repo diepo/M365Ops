@@ -213,8 +213,16 @@
   #settings-panel .hint { font-size: 12px; color: var(--text-faint); margin: 4px 0 14px; }
 
   #profile-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  /* flex-wrap aggiunto in questa maratona (26/08/2026, stress-test GUI a larghezza mobile):
+     stesso bug/pattern gia' visto due volte in questa stessa sessione (header v0.9.73,
+     .settings-tabs poco sopra) - qui pero' PEGGIO: a 375px i pulsanti Modifica/✕ non
+     andavano semplicemente a capo, finivano DAVVERO fuori dalla viewport visibile (misurato
+     dal vivo: getBoundingClientRect().left=382 con viewport largo 375px) - non solo "non sta
+     benissimo", ma un profilo diverso da quello attivo diventava impossibile da modificare o
+     rimuovere da mobile (nessuno scroll orizzontale della pagina li rendeva raggiungibili,
+     l'overflow restava clippato dentro la riga). */
   .profile-row {
-    display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 10px;
     background: var(--surface-alt); border-radius: var(--radius-sm); font-size: 12.5px;
   }
   .profile-row .p-name { font-weight: 600; min-width: 120px; }
@@ -240,7 +248,14 @@
   #save-profile-btn:hover { background: var(--accent-strong); }
   #settings-status { font-size: 12px; color: var(--text-muted); }
 
-  .settings-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  /* flex-wrap aggiunto in questa maratona (26/08/2026, stress-test GUI a larghezza mobile):
+     stesso identico bug gia' corretto per il gruppo di pulsanti dell'header in v0.9.73 (nessun
+     flex-wrap), qui pero' mai verificato prima - le 6 schede (Tenant/Documentazione/Motore AI/
+     MCP-Connettori/Email/Manutenzione) restavano su una sola riga (551px) forzando l'INTERA
+     pagina in overflow orizzontale a 375px di larghezza (misurato via scrollWidth, non solo un
+     "non sta benissimo" accettabile per un'app desktop-first: il body intero smetteva di
+     rispettare la viewport). */
+  .settings-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
   .tab-btn {
     padding: 9px 14px; border: none; background: transparent; color: var(--text-muted);
     font-size: 13px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent;
@@ -1055,6 +1070,17 @@
         body: JSON.stringify({ filename: file.name, contentBase64: base64, kind: 'app' })
       });
       const data = await res.json();
+      // Bug reale trovato dal vivo (26/08/2026, stress-test GUI): fetch() non lancia
+      // un'eccezione per uno status HTTP di errore (es. 500) - senza controllare res.ok/
+      // data.role, un upload fallito lato server (base64 malformato, file troppo grande,
+      // percorso non scrivibile...) finiva comunque qui, mostrando il nome del file come se
+      // fosse stato caricato con successo e il testo dell'errore come un normale messaggio
+      // "system" invece che un errore. Vedi anche il fix lato server sulla stessa rotta.
+      if (!res.ok || data.role === 'error') {
+        fileLabel.textContent = 'Nessun file caricato';
+        addMessage('error', data.text || 'Upload fallito.');
+        return;
+      }
       fileLabel.textContent = file.name;
       addMessage('system', data.text || ('File caricato: ' + file.name));
     } catch (e) {
@@ -1081,6 +1107,14 @@
         body: JSON.stringify({ filename: file.name, contentBase64: base64, kind: 'icon' })
       });
       const data = await res.json();
+      // Stesso bug/fix del file principale qui sopra: senza controllare res.ok/data.role, un
+      // upload fallito lato server mostrava comunque il nome dell'icona come se fosse stata
+      // caricata con successo.
+      if (!res.ok || data.role === 'error') {
+        iconLabel.textContent = 'Nessuna icona';
+        addMessage('error', data.text || 'Upload icona fallito.');
+        return;
+      }
       iconLabel.textContent = file.name;
       addMessage('system', data.text || ('Icona caricata: ' + file.name));
     } catch (e) {
@@ -1190,6 +1224,14 @@
         body: JSON.stringify({ filename: file.name, contentBase64: base64, kind: 'migration-csv' })
       });
       const data = await res.json();
+      // Stesso bug/fix del file principale qui sopra: senza controllare res.ok/data.role, un
+      // upload fallito lato server mostrava comunque il nome del CSV come se fosse stato
+      // caricato con successo.
+      if (!res.ok || data.role === 'error') {
+        migrationCsvLabel.textContent = 'Nessun CSV migrazione';
+        addMessage('error', data.text || 'Upload CSV fallito.');
+        return;
+      }
       migrationCsvLabel.textContent = file.name;
       addMessage('system', data.text || ('CSV caricato: ' + file.name));
     } catch (e) {

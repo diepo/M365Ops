@@ -2241,28 +2241,44 @@ try {
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
                 "POST /api/upload" {
-                    $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
-                    $body = $reader.ReadToEnd() | ConvertFrom-Json
-                    $fileBytes = [Convert]::FromBase64String($body.contentBase64)
-                    $kind = if ($body.kind -eq 'icon') { 'icon' } elseif ($body.kind -eq 'migration-csv') { 'migration-csv' } else { 'app' }
-                    $uploadDir = Join-Path $moduleRoot "Uploads\$kind"
-                    New-Item -ItemType Directory -Force -Path $uploadDir | Out-Null
-                    $safeName = Split-Path -Leaf $body.filename
-                    $destPath = Join-Path $uploadDir $safeName
-                    [IO.File]::WriteAllBytes($destPath, $fileBytes)
+                    # try/catch dedicato aggiunto in questa maratona (26/08/2026, stress-test GUI):
+                    # prima di questo fix un errore qui (base64 malformato, file troppo grande che
+                    # esaurisce la memoria in FromBase64String/WriteAllBytes, percorso non
+                    # scrivibile...) cadeva solo nel catch generico esterno, che risponde con
+                    # { role='error' } e HTTP 500 - corretto lato server, ma i TRE handler client
+                    # per questa stessa rotta (file principale/icona/CSV migrazione) non
+                    # controllavano ne' res.ok ne' data.role prima di questo fix: un fetch() risolto
+                    # con status 500 non lancia un'eccezione JS, quindi finivano comunque nel ramo
+                    # "successo", mostrando il nome del file come se fosse stato caricato davvero e
+                    # il testo dell'errore come un normale messaggio "system" invece che un errore.
+                    # Vedi anche il fix lato client sullo stesso bug qui sotto in index.html.
+                    try {
+                        $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                        $body = $reader.ReadToEnd() | ConvertFrom-Json
+                        $fileBytes = [Convert]::FromBase64String($body.contentBase64)
+                        $kind = if ($body.kind -eq 'icon') { 'icon' } elseif ($body.kind -eq 'migration-csv') { 'migration-csv' } else { 'app' }
+                        $uploadDir = Join-Path $moduleRoot "Uploads\$kind"
+                        New-Item -ItemType Directory -Force -Path $uploadDir | Out-Null
+                        $safeName = Split-Path -Leaf $body.filename
+                        $destPath = Join-Path $uploadDir $safeName
+                        [IO.File]::WriteAllBytes($destPath, $fileBytes)
 
-                    if ($kind -eq 'icon') {
-                        $script:LoadedIconPath = $destPath
-                        $msgText = "Icona caricata: $safeName. Verra' usata nel prossimo packaging."
-                    } elseif ($kind -eq 'migration-csv') {
-                        $script:LoadedMigrationCsvPath = $destPath
-                        $emailCount = @(Get-Content $destPath | Select-Object -Skip 1 | Where-Object { $_.Trim() }).Count
-                        $msgText = "CSV caricato: $safeName ($emailCount indirizzi trovati, prima colonna=EmailAddress). Ora puoi chiedermi di creare il batch di migrazione."
-                    } else {
-                        $script:LoadedFilePath = $destPath
-                        $msgText = "File caricato: $safeName ($([math]::Round($fileBytes.Length/1MB,1)) MB). Ora puoi chiedermi di pacchettizzarlo."
+                        if ($kind -eq 'icon') {
+                            $script:LoadedIconPath = $destPath
+                            $msgText = "Icona caricata: $safeName. Verra' usata nel prossimo packaging."
+                        } elseif ($kind -eq 'migration-csv') {
+                            $script:LoadedMigrationCsvPath = $destPath
+                            $emailCount = @(Get-Content $destPath | Select-Object -Skip 1 | Where-Object { $_.Trim() }).Count
+                            $msgText = "CSV caricato: $safeName ($emailCount indirizzi trovati, prima colonna=EmailAddress). Ora puoi chiedermi di creare il batch di migrazione."
+                        } else {
+                            $script:LoadedFilePath = $destPath
+                            $msgText = "File caricato: $safeName ($([math]::Round($fileBytes.Length/1MB,1)) MB). Ora puoi chiedermi di pacchettizzarlo."
+                        }
+                        $json = (@{ role = 'system'; text = $msgText } | ConvertTo-Json -Compress)
+                    } catch {
+                        $response.StatusCode = 500
+                        $json = (@{ role = 'error'; text = "Caricamento fallito: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
                     }
-                    $json = (@{ role = 'system'; text = $msgText } | ConvertTo-Json -Compress)
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
                 "GET /api/reports/download" {

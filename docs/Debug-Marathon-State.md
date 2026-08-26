@@ -1999,3 +1999,99 @@ script di test rimosso subito dopo.
 Spedito in v0.10.14. Nessun agente di autoreview dedicato per QUESTI fix specifici (compito
 dell'agente autoreview generale della maratona, se presente) - ogni fix verificato dal vivo
 individualmente prima di essere considerato chiuso, come sopra.
+
+## Agente "Stress-test GUI ampio, tutta l'app" — COMPLETATO (v0.10.15)
+
+Uno dei cinque agenti avviati in parallelo dopo la correzione di rotta ("verificare TUTTO il
+codice", non solo le feature appena spedite - vedi sezione sopra). Scope: l'INTERA superficie
+GUI/UX (`Gui/index.html` + `Gui/Server.ps1`), tab per tab/pulsante per pulsante, non limitato a
+quanto toccato di recente - inclusi flussi piu' vecchi mai ri-verificati dopo l'accumulo di
+funzionalita' successive (regola #4 della maratona: "testare ogni elemento della GUI... non solo
+le funzionalita' principali").
+
+**Copertura**: 396 file `.ps1` sintatticamente puliti (`ParseFile`) prima di iniziare. Tab
+Impostazioni - Motore AI (cambio provider Claude/Azure OpenAI, campi mostrati/nascosti, stato e
+utilizzo), MCP/Connettori (aggiunta/rimozione server generico, non solo Lokka), Email (sender
+config), Manutenzione (versione, porta, ricerca/filtri log, "Controlla aggiornamenti", canale
+Stabile/Test - non toccato lo script personalizzato ne' il pulsante Riavvia oltre alle verifiche
+gia' necessarie per i miei fix). CRUD profilo tenant completo (aggiungi/modifica/annulla/rimuovi)
+con toggle campi AuthMode App-only/Delegata. Avvio del login Delegato a codice dispositivo (solo
+il percorso di errore - completamento reale con MFA umano resta non testabile da questo ambiente
+sandboxato, limite gia' noto e documentato sopra per l'isolamento reattivo). Pannello Upload (tre
+slot). Banner di aggiornamento e il suo pulsante "Vedi in Manutenzione". Tastiera (Invio per
+inviare in chat, verificato end-to-end con una vera risposta AI). Layout a 375px di larghezza
+(header, tab Impostazioni per intero, non solo Infrastruttura gia' coperta da un giro precedente).
+
+**3 bug reali trovati e corretti, tutti riverificati dal vivo - v0.10.15**:
+
+1. **`POST /api/upload` (file principale/icona/CSV migrazione) - upload fallito mostrato come
+   riuscito**: la rotta non aveva un proprio `try/catch` - un errore (base64 malformato, file
+   troppo grande, percorso non scrivibile...) cadeva nel catch generico esterno del server, che
+   risponde correttamente con `{ role: 'error' }` e HTTP 500. Il problema vero era lato client:
+   `fetch()` non lancia un'eccezione JS per uno status HTTP di errore, e nessuno dei tre handler
+   (file/icona/CSV - la Knowledge Base invece gia' controllava `data.ok` correttamente) verificava
+   `res.ok`/`data.role` prima di questo fix - un upload fallito finiva comunque nel ramo
+   "successo": l'etichetta mostrava il nome del file come se fosse stato caricato davvero, e il
+   testo dell'errore appariva come un normale messaggio di sistema invece che un errore.
+   Riprodotto dal vivo forzando un base64 non valido via `/api/upload` diretto (sia con `curl` sia
+   eseguendo il vero handler client nel browser): prima del fix l'etichetta diventava il nome del
+   file "caricato" e il messaggio appariva in stile normale; dopo il fix l'etichetta resta "Nessun
+   file caricato" e il messaggio appare correttamente come errore (rosso). Corretto sia lato
+   server (`try/catch` dedicato sulla rotta, stesso pattern gia' in uso in `/api/kb/upload`) sia
+   lato client (controllo esplicito su tutti e tre gli handler upload). Non e' stato possibile
+   testare dal vivo un file DAVVERO oversize (nessun limite esplicito di dimensione configurato
+   lato server - HttpListener non ne impone uno di default) - il fix comunque copre correttamente
+   qualunque causa di fallimento della rotta, oversize incluso, dato che passa tutte per lo stesso
+   catch generico gia' verificato.
+2. **`.settings-tabs` (le 6 schede del pannello Impostazioni) - overflow orizzontale dell'INTERA
+   pagina a 375px**: stesso schema del bug header gia' corretto in v0.9.73 (nessun `flex-wrap`),
+   qui pero' mai verificato prima. Misurato dal vivo: le 6 schede (551px) forzavano
+   `document.body.scrollWidth` a superare la larghezza reale dello schermo - non il solito "non
+   sta benissimo" accettabile per un'app dichiaratamente desktop-first, un vero overflow di
+   pagina. Corretto aggiungendo `flex-wrap: wrap` alla regola, riverificato con screenshot e
+   misure DOM dirette: le schede ora vanno su due righe, nessun overflow, nessun impatto sul
+   layout desktop.
+3. **`.profile-row` (riga di ogni profilo tenant salvato) - pulsanti "Modifica"/"✕" DAVVERO
+   irraggiungibili a 375px**: stesso pattern del punto 2, ma piu' grave - misurato dal vivo che
+   `getBoundingClientRect().left` del pulsante Modifica era 382px su una viewport di soli 375px
+   disponibili, e l'overflow restava clippato (non scrollabile) invece di allargare la pagina: un
+   profilo diverso da quello attivo diventava impossibile da modificare o rimuovere da mobile,
+   nessuno scroll orizzontale lo rendeva raggiungibile. Corretto con lo stesso `flex-wrap: wrap`,
+   riverificato dal vivo: entrambi i pulsanti ora dentro la viewport (right edge a 153px e 195px),
+   `document.body.scrollWidth` torna a coincidere esattamente con la larghezza reale (375px).
+
+**Aree coperte senza trovare problemi**: validazione client-side gia' corretta sul salvataggio
+profilo (rifiuta App-only senza secret ne' certificato); avvio login Delegato con tenant cambiato
+nel frattempo da un'altro agente concorrente (errore corretto mostrato, pulsante riabilitato -
+solo piu' lento del previsto per la contesa reale sul server a singolo thread condiviso con altri
+quattro agenti, non un bug); tag `<br>` dentro un contenitore `display:flex` (dubbio teorico
+sollevato durante l'indagine, smentito da verifica visiva diretta - il browser lo rispetta
+comunque); rendering "Documentazione" (KB) su tenant senza documenti; `checkUpdateBanner` e "Vedi
+in Manutenzione" (simulato forzando `data.UpdateAvailable`, click verificato apre Impostazioni sul
+tab giusto); "Controlla aggiornamenti" reale (canale Stabile, risposta corretta "sei alla versione
+piu' recente").
+
+**Non testato dal vivo in questo giro** (rischio concreto su stato condiviso con altri quattro
+agenti in esecuzione sullo stesso server/tenant in parallelo, coerente con la nota di cautela
+ricevuta a inizio compito): esperienza "primo avvio" a zero configurazione - verificata solo
+leggendo il codice (`FIRST_RUN_TEXT`, coerente con i campi form reali, nessuna incongruenza
+trovata, ma non eseguita dal vivo per non azzerare i profili tenant che altri agenti stavano
+usando); completamento reale con MFA umano del login Delegato a codice dispositivo (limite gia'
+noto, richiede un utente reale al tavolo, non solo l'avvio del flow che invece e' stato
+verificato). Nessuna tastiera "Escape per chiudere un pannello" implementata da nessuna parte
+della GUI (solo Invio-per-inviare esiste) - annotato come osservazione di design, non un bug: i
+pannelli sono sezioni espandibili in pagina, non modali veri, quindi Escape non e' un requisito
+scontato: proposta libera per un giro futuro se l'utente lo ritiene utile.
+
+**Dati di test creati e rimossi entro fine turno, nessun residuo lasciato**: profilo tenant
+`ZZTEST-marathon-gui-profile` (creato/modificato/rimosso), server MCP
+`ZZTEST-marathon-gui-mcp` (aggiunto/rimosso), file `Uploads\app\ZZTEST-marathon-good.ps1`
+(caricato per verificare il percorso di successo dell'upload, rimosso manualmente a fine test).
+Nota collaterale: `$script:LoadedFilePath` lato server puo' essere rimasto per un momento puntato
+a quel file poi cancellato, prima del riavvio successivo per caricare i fix - nessun impatto
+oltre quella finestra (il riavvio pulisce lo stato in memoria).
+
+Spedito in v0.10.15. Nessun agente di autoreview dedicato per QUESTI fix specifici (stesso
+principio delle sessioni precedenti) - ogni fix verificato dal vivo individualmente (screenshot +
+misure DOM dirette prima/dopo, chiamate dirette alla rotta `/api/upload` con payload validi e
+invalidi) prima di essere considerato chiuso.
