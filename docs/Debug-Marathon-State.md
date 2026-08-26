@@ -2329,5 +2329,38 @@ indipendenti, non possono piu' entrare in conflitto.
   sintatticamente validi.
 
 Spedito in v0.10.18. Su richiesta esplicita dell'utente ("al termine fai giro di debug di questa
-cosa cambiata lato script, ai, motore, gui piu' commit"), agenti di regressione da avviare subito
-dopo questa dichiarazione - vedi sotto.
+cosa cambiata lato script, ai, motore, gui piu' commit"), DUE agenti paralleli avviati subito dopo
+questa dichiarazione, scope centrato sul solo cambiamento v0.10.18:
+
+**Agente "Regressione codice/GUI su rimozione redirect intestazioni"** (general-purpose,
+background) — AVVIATO 26/08/2026. Scope: integrita' strutturale di `Gui/CommandCatalog.ps1` dopo
+la rimozione della voce, nessun riferimento residuo altrove nel codice, formati header/NDR diversi
+(RFC 5322 puro vs blocco NDR/message-trace), interazione tra `maybeOpenHeadersPanelFor` e stato
+gia' presente nel pannello (input non salvato, pannello gia' aperto su un'altra analisi), timing
+tra apertura pannello e invio del messaggio in chat. — COMPLETATO (dopo un'interruzione per
+limite di utilizzo, ripreso dallo stesso punto), nessun problema trovato: array del catalogo
+integro (nessun riferimento residuo a `PastedEmailHeadersRedirect` in nessun file), nessuna
+regressione sulle altre voci (`MfaStatus`/`ListNonCompliant`/`EmailLastReport` tutte ancora
+dispatchate correttamente, nessuno shift di indice), tutti i formati header/NDR rilevati
+correttamente incluso un header incorporato a meta' messaggio (grazie al flag multiline), il
+falso positivo storico (v0.9.96) confermato ancora assente sia isolato sia end-to-end, tutti e
+tre i casi limite sullo stato del pannello (input non salvato sovrascritto, riapertura dopo
+chiusura manuale, sostituzione di un'analisi diversa) verificati puliti dal vivo, nessuna
+race/conflitto DOM tra l'analisi locale e la risposta IA in corso. Unica osservazione minore (non
+un difetto introdotto qui, pattern gia' esistente prima di v0.10.18, ora solo meno dannoso dato
+che non blocca piu' il messaggio): `recipientstatus\s*:` non e' ancorato a inizio riga, quindi una
+frase come "il sistema mostra RecipientStatus: Failed" aprirebbe comunque il pannello - nessuna
+azione, fuori ambito.
+
+**Agente "Comportamento AI/motore su intestazioni in chat"** (general-purpose, background) —
+AVVIATO 26/08/2026. Scope: piu' formulazioni di domande reali combinate con header incollati,
+conteggio token/nota fonte dati ancora corretti, storico chat multi-turno su un header gia'
+discusso, nessuna interferenza con altri strumenti AI (kb_query, graph_api_call) nella stessa
+conversazione. — COMPLETATO (dopo un'interruzione per limite di utilizzo, ripreso dallo stesso
+punto), nessun problema trovato: 4 formulazioni diverse tutte con risposta IA pertinente (mai un
+redirect), nota fonte dati sempre corretta con conteggio token reale; conteggio token riverificato
+matematicamente su una conversazione a 3 round (somma esatta 92978 token inviati/83712 dalla
+cache, confermata contro i log per-round); storico chat multi-turno confermato funzionante (un
+follow-up senza ripetere l'header ha richiamato correttamente dominio mittente e motivo del
+fallimento DMARC discussi in precedenza); nessuna interferenza con `graph_api_call` ne' con
+`kb_query` nella stessa conversazione di un header incollato.
