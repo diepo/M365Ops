@@ -41,46 +41,72 @@ function Get-M365OpsDelegatedPermissionsCheck {
         throw "Il profilo '$($Context.Name)' e' in modalita' Delegated ma non ha un DelegatedUpn configurato."
     }
 
-    Connect-M365OpsExchange
-    $assignments = Get-ManagementRoleAssignment -RoleAssignee $Context.DelegatedUpn -ErrorAction Stop
-    $heldRoles = @($assignments | Select-Object -ExpandProperty Role -Unique)
+    $results = @()
 
-    $areaDefs = @(
-        @{ Area = 'Domini accettati e domini remoti'; WriteRoles = @('Remote and Accepted Domains')
-           Note = "" }
-        @{ Area = 'Anti-spam / anti-phishing / filtro malware'; WriteRoles = @('Transport Hygiene')
-           Note = "" }
-        @{ Area = 'Connettori Inbound/Outbound, impostazioni trasporto globali'; WriteRoles = @('Organization Transport Settings')
-           Note = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale." }
-        @{ Area = 'Mailbox, gruppi di distribuzione, destinatari'; WriteRoles = @('Mail Recipients'); ReadRoles = @('View-Only Recipients')
-           Note = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale." }
-        @{ Area = 'Regole di trasporto (mail flow rules)'; WriteRoles = @('Transport Rules')
-           Note = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale." }
-        @{ Area = 'Ruoli RBAC Exchange (Role Management)'; WriteRoles = @('Role Management')
-           Note = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale." }
-    )
+    # Try/catch attorno a TUTTO il blocco Exchange (26/08/2026, bug reale segnalato dal vivo
+    # dall'utente: "perche' cita solo EXO? dovrebbe guardare permessi per tutto non solo
+    # exo"). Prima di questo fix, Connect-M365OpsExchange (riga sotto) veniva chiamata SENZA
+    # protezione: se la sessione Exchange delegata non era ancora attiva, lanciava
+    # immediatamente il suo errore dedicato ("vai al tab Tenant...") e l'intera funzione
+    # moriva li' - il controllo dei ruoli DIRECTORY Entra ID (Intune/Entra ID/Teams/
+    # SharePoint via Graph, blocco piu' sotto) non dipende affatto da Exchange, ma non veniva
+    # MAI raggiunto: un solo prerequisito mancante (Exchange) nascondeva il risultato di
+    # controlli completamente indipendenti che avrebbero potuto rispondere comunque. Ora un
+    # fallimento qui produce una riga informativa dedicata (stesso messaggio di
+    # Connect-M365OpsExchange, cosi' l'utente sa esattamente cosa fare) e la funzione
+    # PROSEGUE sul resto.
+    try {
+        Connect-M365OpsExchange
+        $assignments = Get-ManagementRoleAssignment -RoleAssignee $Context.DelegatedUpn -ErrorAction Stop
+        $heldRoles = @($assignments | Select-Object -ExpandProperty Role -Unique)
 
-    $results = foreach ($def in $areaDefs) {
-        $hasWrite = @($def.WriteRoles | Where-Object { $heldRoles -contains $_ }).Count -gt 0
-        $hasRead = $hasWrite -or (@($def.ReadRoles) | Where-Object { $heldRoles -contains $_ }).Count -gt 0
-        $status = if ($hasWrite) { 'lettura+scrittura' } elseif ($hasRead) { 'lettura' } else { 'nessun accesso' }
-        [pscustomobject]@{
-            Area            = $def.Area
-            Resource        = "Ruolo RBAC Exchange di $($Context.DelegatedUpn)"
-            Status          = $status
-            MissingForRead  = if (-not $hasRead) { @($def.ReadRoles) } else { @() }
-            MissingForWrite = if (-not $hasWrite) { @($def.WriteRoles) } else { @() }
-            Note            = $def.Note
+        $areaDefs = @(
+            @{ Area = 'Domini accettati e domini remoti'; WriteRoles = @('Remote and Accepted Domains')
+               Note = "" }
+            @{ Area = 'Anti-spam / anti-phishing / filtro malware'; WriteRoles = @('Transport Hygiene')
+               Note = "" }
+            @{ Area = 'Connettori Inbound/Outbound, impostazioni trasporto globali'; WriteRoles = @('Organization Transport Settings')
+               Note = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale." }
+            @{ Area = 'Mailbox, gruppi di distribuzione, destinatari'; WriteRoles = @('Mail Recipients'); ReadRoles = @('View-Only Recipients')
+               Note = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale." }
+            @{ Area = 'Regole di trasporto (mail flow rules)'; WriteRoles = @('Transport Rules')
+               Note = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale." }
+            @{ Area = 'Ruoli RBAC Exchange (Role Management)'; WriteRoles = @('Role Management')
+               Note = "Dedotto dal nome del ruolo, non ancora confermato con una prova reale." }
+        )
+
+        foreach ($def in $areaDefs) {
+            $hasWrite = @($def.WriteRoles | Where-Object { $heldRoles -contains $_ }).Count -gt 0
+            $hasRead = $hasWrite -or (@($def.ReadRoles) | Where-Object { $heldRoles -contains $_ }).Count -gt 0
+            $status = if ($hasWrite) { 'lettura+scrittura' } elseif ($hasRead) { 'lettura' } else { 'nessun accesso' }
+            $results += [pscustomobject]@{
+                Area            = $def.Area
+                Resource        = "Ruolo RBAC Exchange di $($Context.DelegatedUpn)"
+                Status          = $status
+                MissingForRead  = if (-not $hasRead) { @($def.ReadRoles) } else { @() }
+                MissingForWrite = if (-not $hasWrite) { @($def.WriteRoles) } else { @() }
+                Note            = $def.Note
+            }
+        }
+
+        $results += [pscustomobject]@{
+            Area            = "Elenco completo ruoli RBAC EXCHANGE posseduti da $($Context.DelegatedUpn)"
+            Resource        = 'Exchange Online RBAC (Get-ManagementRoleAssignment)'
+            Status          = 'informativo'
+            MissingForRead  = @()
+            MissingForWrite = @()
+            Note            = if ($heldRoles.Count -gt 0) { ($heldRoles | Sort-Object) -join ', ' } else { '(nessun ruolo Exchange assegnato a questo utente)' }
         }
     }
-
-    $results += [pscustomobject]@{
-        Area            = "Elenco completo ruoli RBAC EXCHANGE posseduti da $($Context.DelegatedUpn)"
-        Resource        = 'Exchange Online RBAC (Get-ManagementRoleAssignment)'
-        Status          = 'informativo'
-        MissingForRead  = @()
-        MissingForWrite = @()
-        Note            = if ($heldRoles.Count -gt 0) { ($heldRoles | Sort-Object) -join ', ' } else { '(nessun ruolo Exchange assegnato a questo utente)' }
+    catch {
+        $results += [pscustomobject]@{
+            Area            = 'Ruoli RBAC Exchange Online (tutte le aree sopra)'
+            Resource        = 'Exchange Online RBAC (Get-ManagementRoleAssignment)'
+            Status          = 'non verificabile'
+            MissingForRead  = @()
+            MissingForWrite = @()
+            Note            = "Verifica Exchange non riuscita, le sole aree Exchange restano sconosciute (il resto del controllo - Intune/Entra ID/Teams/SharePoint via Graph - prosegue comunque piu' sotto): $($_.Exception.Message)"
+        }
     }
 
     # Ruoli DIRECTORY Entra ID (21/08/2026, aggiunto dopo che l'utente ha segnalato dal vivo:

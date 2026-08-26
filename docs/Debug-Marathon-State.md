@@ -1631,7 +1631,10 @@ entrambi i layout. — COMPLETATO, un bug reale trovato e corretto, vedi sezione
 AVVIATO 26/08/2026. Scope: giro ampio non legato a una singola feature recente - percorsi utente
 tipici end-to-end (connessione tenant, report, proposta di scrittura con conferma, chat multi-turno),
 ricerca di bug NUOVI non gia' coperti dalle maratone precedenti, non ri-verifica di cio' che e'
-gia' stato testato a fondo in giri precedenti. — IN CORSO.
+gia' stato testato a fondo in giri precedenti. — COMPLETATO, 1 bug reale trovato e corretto
+(v0.10.5, voci del catalogo comandi locale che ignoravano "invia/manda a email" - vedi sezione
+dedicata sotto), molte altre aree stress-testate senza problemi (coesistenza pannelli, richieste
+concorrenti, ciclo completo proposta scrittura, percorsi di errore su piu' route).
 
 ## Stress-test approfondito layout Infrastruttura v0.10.3: canvas che non rispettava l'altezza sul layout impilato (v0.10.4)
 
@@ -1769,3 +1772,44 @@ variazione di comportamento su nessuno di essi, zero regressioni. 396 file `.ps1
 puliti dopo la modifica.
 
 Spedito in v0.10.5.
+
+## Seguito: "Stato permessi" su tenant Delegato nascondeva il controllo Graph dietro un Exchange non connesso (v0.10.6)
+
+Segnalato dal vivo dall'utente subito dopo aver ricevuto il messaggio di errore Exchange atteso
+("Sessione Exchange Online non ancora attiva... vai al tab Tenant...") - corretto in se', ma:
+"perche' cita solo EXO? dovrebbe guardare permessi per tutto non solo exo".
+
+**Causa reale**: `Private\Get-M365OpsDelegatedPermissionsCheck.ps1` (il percorso "Stato permessi"
+per i tenant Delegato, dove non esiste un'App Registration da verificare - si controllano invece i
+ruoli RBAC reali dell'utente) chiamava `Connect-M365OpsExchange` SENZA nessuna protezione come
+primissimo passo della funzione. Su un tenant Delegato senza sessione Exchange gia' attiva, quella
+funzione lancia deliberatamente un errore invece di avviare un login interattivo da sola (comportamento
+corretto e voluto - il server e' a thread singolo, un login bloccante congelerebbe l'intera app per
+tutti, non solo per chi ha fatto la richiesta - NON toccato da questo fix). Il problema vero era che
+nulla catturava quell'errore: l'intera funzione moriva li', PRIMA di raggiungere un blocco di codice
+gia' esistente e COMPLETAMENTE indipendente da Exchange - il controllo dei ruoli DIRECTORY Entra ID
+(Intune/Entra ID/Teams/SharePoint via Graph, aggiunto il 21/08/2026, usa lo stesso token del login
+Graph delegato) - che non veniva mai raggiunto. Un solo prerequisito mancante (Exchange) nascondeva
+quindi il risultato di un controllo del tutto slegato che avrebbe potuto rispondere comunque.
+
+**Corretto** racchiudendo l'intero blocco Exchange (connessione + lettura ruoli RBAC + le sei aree
+derivate) in un `try/catch`: un fallimento produce ora una riga informativa dedicata ("Ruoli RBAC
+Exchange Online (tutte le aree sopra) - non verificabile", con lo stesso messaggio gia' prodotto da
+`Connect-M365OpsExchange` cosi' l'utente sa esattamente cosa fare) invece di interrompere l'intera
+funzione - il codice prosegue poi regolarmente sul blocco Graph/Entra ID gia' esistente (che ha gia'
+il proprio try/catch indipendente per il proprio possibile fallimento, invariato).
+
+**Verificato dal vivo**: riprodotto lo scenario esatto segnalato dall'utente - attivato "AlePiras"
+(tenant Delegato) appena dopo un riavvio del server, ne' sessione Exchange ne' login Graph delegato
+attivi, poi inviato "verifica permessi app" via `/api/chat` (lo stesso percorso reale della GUI). La
+risposta ora mostra ENTRAMBE le informazioni nello stesso messaggio: "Ruoli RBAC Exchange Online...
+non verificabile" (con l'istruzione su come connettere Exchange) E "Elenco completo ruoli DIRECTORY
+Entra ID... Lettura fallita (serve prima un login Graph delegato attivo - vedi tab Tenant, 'Accedi a
+Microsoft Graph con il mio utente')" - prima del fix la seconda riga non sarebbe MAI comparsa,
+l'intera risposta si sarebbe fermata al primo errore Exchange. Il controllo raggiunge quindi ora
+davvero l'area Graph, riportando onestamente lo stato di ENTRAMBE le aree invece di una sola. 396
+file `.ps1` sintatticamente puliti dopo la modifica.
+
+Spedito in v0.10.6. Nessun agente dedicato per questo giro - fix mirato (un `try/catch` attorno a un
+blocco gia' isolato), verificato direttamente end-to-end riproducendo lo scenario esatto segnalato
+dall'utente prima di considerarlo chiuso.
