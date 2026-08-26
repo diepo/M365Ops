@@ -972,9 +972,37 @@
     document.querySelector('.tab-btn[data-tab="maint"]').click();
   });
 
+  // Rilevamento intestazioni email/NDR incollate direttamente in chat (26/08/2026, cambiato su
+  // richiesta esplicita dell'utente rispetto al comportamento precedente - v0.9.95, rimosso da
+  // Gui/CommandCatalog.ps1 insieme a questo cambiamento). PRIMA: un redirect lato server
+  // BLOCCAVA il messaggio, impedendogli di arrivare all'AI, mostrando solo un invito ad usare
+  // il pannello dedicato. ORA: il messaggio prosegue SEMPRE normalmente in chat (l'utente puo'
+  // fare qualunque domanda, l'AI risponde come sempre) - il rilevamento qui e' un puro effetto
+  // collaterale sulla UI, non una decisione su come rispondere: se il testo sembra un'intestazione/
+  // NDR, si apre in aggiunta il pannello "Intestazioni email" gia' popolato e analizzato (stessi
+  // stessi tre pattern gia' collaudati in precedenza lato server, stesso principio "un vero header e'
+  // sempre la prima cosa sulla sua riga" per evitare il falso positivo su una frase normale che
+  // contiene "received: from" a meta' frase, gia' trovato e corretto una volta in v0.9.96).
+  function looksLikePastedHeaders(msg) {
+    return /^\s*received:\s*from\s/im.test(msg) || /recipientstatus\s*:/i.test(msg) || /\{led=/i.test(msg);
+  }
+
+  function maybeOpenHeadersPanelFor(msg) {
+    if (!looksLikePastedHeaders(msg)) return;
+    const panel = document.getElementById('headers-panel');
+    const toggleBtn = document.getElementById('headers-toggle-btn');
+    document.getElementById('headers-input').value = msg;
+    if (!panel.classList.contains('open')) {
+      panel.classList.add('open');
+      toggleBtn.classList.add('active');
+    }
+    document.getElementById('headers-analyze-btn').click();
+  }
+
   async function sendMessage(presetText) {
     const text = presetText !== undefined ? presetText : inputBox.value.trim();
     if (!text) return;
+    maybeOpenHeadersPanelFor(text);
     // Bug reale trovato dal vivo il 26/08/2026 durante un giro di bug-hunt: i pulsanti Sì/No
     // di un messaggio precedente restano abilitati anche dopo che quella proposta e' stata
     // risolta scrivendo "si"/"no" a mano invece di cliccarli (ognuno ha i propri pulsanti,

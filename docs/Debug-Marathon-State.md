@@ -2275,3 +2275,59 @@ permessi), non un caso isolato. 396 file `.ps1` sintatticamente puliti su tutto 
 l'unione di tutti i fix.
 
 Spedito in v0.10.17.
+
+## Seguito: intestazioni incollate in chat - da redirect bloccante a risposta AI normale + pannello aperto in aggiunta (v0.10.18)
+
+Cambio di approccio richiesto esplicitamente dall'utente sul comportamento introdotto in v0.9.95
+("PastedEmailHeadersRedirect"): "cambiamo approccio: io voglio che l'utente incolli il messaggio
+in chat. in chat puo' fare le domande che vuole e in piu' si apre una finestra separata con
+l'analisi dell'header riprendendo quanto c'e' ora di implementato".
+
+**Prima**: incollare intestazioni/NDR in chat faceva scattare un redirect lato server
+(`Gui/CommandCatalog.ps1`) che BLOCCAVA il messaggio prima che arrivasse all'AI - l'utente vedeva
+solo un invito a usare il pannello dedicato, mai una risposta alla domanda reale che aveva posto
+insieme al testo incollato.
+
+**Ora**: il messaggio arriva SEMPRE all'AI generica (risponde normalmente a qualunque domanda,
+esattamente come qualunque altro messaggio) E, in aggiunta, si apre automaticamente il pannello
+"Intestazioni email" gia' popolato e analizzato - le due cose insieme, non una alternativa
+all'altra.
+
+**Implementazione**: rimossa interamente la voce `PastedEmailHeadersRedirect` da
+`Gui/CommandCatalog.ps1` (il messaggio non viene piu' intercettato lato server, prosegue verso
+`Invoke-M365OpsAgentTools` come qualunque testo libero). Il rilevamento (stessi tre pattern gia'
+collaudati e corretti in v0.9.96 per evitare il falso positivo su una frase normale: `(?m)^\s*
+received:\s*from\s`, `recipientstatus\s*:`, `\{led=`) si sposta interamente lato client in
+`Gui/index.html` - una nuova `looksLikePastedHeaders()` + `maybeOpenHeadersPanelFor()`, chiamate
+all'inizio di `sendMessage()` PRIMA dell'invio effettivo del messaggio: se il testo sembra
+un'intestazione/NDR, popola `headers-input`, apre `#headers-panel` (se non gia' aperto), e
+aziona il pulsante "Analizza" gia' esistente via codice - nessun codice del pannello stesso
+toccato, riusato integralmente cosi' com'e' (v0.9.90-94: parsing locale, tabella hop, verifica
+SPF/DKIM/DMARC, decodifica antispam, pulsante copia+apri Microsoft Message Header Analyzer). La
+decisione "e' un header?" ora vive puramente come effetto collaterale sulla UI, mai piu' come
+condizione che decide se il messaggio arriva o no all'AI - le due cose sono per costruzione
+indipendenti, non possono piu' entrare in conflitto.
+
+**Verificato dal vivo end-to-end** (non solo lettura del codice):
+- Lato server (`/api/chat` diretto): lo stesso identico testo che prima veniva intercettato dal
+  redirect ora produce una vera risposta AI pertinente alla domanda posta insieme all'header
+  ("perche' potrebbe essere stata bloccata?" - risposta che analizza gli header SPF/DKIM/DMARC
+  disponibili, spiega cosa NON si puo' dedurre da loro soli, e chiede esplicitamente gli header
+  piu' utili mancanti - non piu' un messaggio di redirect).
+- Lato browser (sequenza reale: valore impostato sulla casella di chat + click reale sul pulsante
+  Invia, non una chiamata diretta alle funzioni): inviando un blocco di intestazioni realistico
+  dalla chat principale, il pannello "Intestazioni email" si apre da solo, si popola col testo
+  appena inviato, e mostra gia' riepilogo/tabella hop entro mezzo secondo - PRIMA ancora che
+  arrivi la risposta dell'IA (che nel frattempo prosegue in parallelo, confermata arrivare
+  qualche secondo dopo nella cronologia chat, messaggio utente e risposta AI entrambi presenti).
+- Falso positivo storico (v0.9.96, "Your payment has been received: from now on please send
+  invoices to billing@contoso.com") riverificato: il pannello resta correttamente chiuso, nessuna
+  apertura indesiderata su un messaggio di lavoro normale.
+- `looksLikePastedHeaders()` testata isolatamente in console: riconosce correttamente
+  un'intestazione vera, rifiuta correttamente la frase normale nota per il falso positivo storico.
+- 396 file `.ps1` sintatticamente puliti, tag HTML bilanciati, 2 blocchi `<script>` inline
+  sintatticamente validi.
+
+Spedito in v0.10.18. Su richiesta esplicita dell'utente ("al termine fai giro di debug di questa
+cosa cambiata lato script, ai, motore, gui piu' commit"), agenti di regressione da avviare subito
+dopo questa dichiarazione - vedi sotto.
