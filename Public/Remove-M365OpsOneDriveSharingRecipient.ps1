@@ -47,6 +47,7 @@ function Remove-M365OpsOneDriveSharingRecipient {
     }
 
     $removed = @()
+    $failed = @()
     foreach ($item in $items) {
         $perms = $null
         try { $perms = Invoke-M365OpsGraphRequest -Method GET -Path "/users/$OwnerUpn/drive/items/$($item.id)/permissions" } catch { continue }
@@ -55,16 +56,33 @@ function Remove-M365OpsOneDriveSharingRecipient {
             $grantedEmail = $p.grantedToV2.user.email
             if (-not $grantedEmail) { $grantedEmail = $p.grantedTo.user.email }
             if ($grantedEmail -and $grantedEmail -eq $RecipientUpn) {
-                Invoke-M365OpsGraphRequest -Method DELETE -Path "/users/$OwnerUpn/drive/items/$($item.id)/permissions/$($p.id)" | Out-Null
-                $removed += [pscustomobject]@{ ItemName = $item.name; PermissionId = $p.id; Roles = ($p.roles -join ',') }
+                # try/catch per-permesso (26/08/2026, bug reale trovato durante lo stress-test
+                # mirato al pattern "un passo fallito blocca i passi fratelli indipendenti" -
+                # stesso schema gia' corretto 3 volte in questa maratona). PRIMA di questo fix,
+                # una DELETE fallita su UN elemento (es. throttling Graph, permesso gia' rimosso
+                # nel frattempo, item bloccato) lanciava un'eccezione non catturata che usciva
+                # dall'intera funzione: sia i permessi GIA' rimossi con successo nelle iterazioni
+                # precedenti (persi dal valore di ritorno, anche se davvero rimossi su
+                # SharePoint) sia gli elementi restanti ancora da controllare (mai raggiunti)
+                # andavano perduti - il chiamante (AI o umano, passo 3 del workaround OneDrive)
+                # non aveva modo di sapere quanto del lavoro fosse davvero riuscito. Ora un
+                # fallimento su un singolo permesso viene registrato e il ciclo prosegue sugli
+                # altri elementi/permessi.
+                try {
+                    Invoke-M365OpsGraphRequest -Method DELETE -Path "/users/$OwnerUpn/drive/items/$($item.id)/permissions/$($p.id)" | Out-Null
+                    $removed += [pscustomobject]@{ ItemName = $item.name; PermissionId = $p.id; Roles = ($p.roles -join ',') }
+                }
+                catch {
+                    $failed += [pscustomobject]@{ ItemName = $item.name; PermissionId = $p.id; Roles = ($p.roles -join ','); Error = $_.Exception.Message }
+                }
             }
         }
     }
 
-    if ($removed.Count -eq 0) {
+    if ($removed.Count -eq 0 -and $failed.Count -eq 0) {
         Write-Host "Nessun permesso di $RecipientUpn trovato $(if ($ItemName) { "su '$ItemName'" } else { 'negli elementi radice' }) del OneDrive di $OwnerUpn." -ForegroundColor Yellow
     } else {
-        Write-Host "Rimossi $($removed.Count) permesso/i di $RecipientUpn dal OneDrive di $OwnerUpn." -ForegroundColor Green
+        Write-Host "Rimossi $($removed.Count) permesso/i di $RecipientUpn dal OneDrive di $OwnerUpn.$(if ($failed.Count -gt 0) { " $($failed.Count) falliti, vedi Failed." })" -ForegroundColor $(if ($failed.Count -gt 0) { 'Yellow' } else { 'Green' })
     }
-    [pscustomobject]@{ OwnerUpn = $OwnerUpn; RecipientUpn = $RecipientUpn; RemovedCount = $removed.Count; Removed = $removed }
+    [pscustomobject]@{ OwnerUpn = $OwnerUpn; RecipientUpn = $RecipientUpn; RemovedCount = $removed.Count; Removed = $removed; FailedCount = $failed.Count; Failed = $failed }
 }

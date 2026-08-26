@@ -1850,7 +1850,8 @@ conditional access, utenti/gruppi, MFA, ruoli - non limitato a modifiche recenti
 
 **Agente "Stress-test funzioni Teams/SharePoint/report/script personalizzati, tutto il codice"**
 (general-purpose, background) — AVVIATO 26/08/2026. Scope: policy Teams, siti/permessi SharePoint,
-generazione report, catalogo script personalizzati - non limitato a modifiche recenti. — IN CORSO.
+generazione report, catalogo script personalizzati - non limitato a modifiche recenti. —
+COMPLETATO, 5 bug reali trovati e corretti (v0.10.14, vedi sezione dedicata sotto).
 
 **Agente "Stress-test GUI ampio, tutta l'app"** (general-purpose, background) — AVVIATO 26/08/2026.
 Scope: percorsi utente end-to-end su TUTTE le sezioni della GUI (non solo quelle aggiunte di
@@ -1914,5 +1915,87 @@ principalmente dall'agente Teams/SharePoint parallelo) - dato solo un'occhiata r
 l'overlap Exchange-adiacente citato nel task, nessun problema Exchange-rilevante notato.
 
 Spedito in v0.10.7. Nessun agente di autoreview dedicato per QUESTI fix specifici (compito
+dell'agente autoreview generale della maratona, se presente) - ogni fix verificato dal vivo
+individualmente prima di essere considerato chiuso, come sopra.
+
+## Esito "Stress-test funzioni Teams/SharePoint/OneDrive/report/script personalizzati, tutto il codice" (v0.10.14)
+
+Agente COMPLETATO. Scope: creazione/gestione Team, policy Teams (meeting/messaging/app-setup/
+app-permission, limite documentato "solo assegnazione, non creazione contenuto"), siti SharePoint
+(creazione, membership, ereditarieta' permessi, sharing, quota), workaround OneDrive delegate
+access a 5 passi, generazione report multi-sezione (xlsx/pdf), catalogo script personalizzati -
+non limitato a modifiche recenti. 396 file `.ps1` di tutto il repo sintatticamente puliti
+(verificato con `[System.Management.Automation.Language.Parser]::ParseFile`).
+
+**5 bug reali trovati e corretti**, quattro della stessa famiglia "un passo fallito blocca i
+passi fratelli indipendenti" gia' vista in v0.10.1/v0.10.2/v0.10.6/v0.10.7 (cercata
+deliberatamente su richiesta esplicita, non trovata per caso):
+1. `Public\Export-M365OpsDataReport.ps1` - il ciclo che costruisce le sezioni del PDF (grafici +
+   tabella) viveva in UN SOLO try/catch attorno all'INTERO ciclo, non uno per sezione: un errore
+   imprevisto in UNA sezione faceva perdere anche le sezioni PRECEDENTI gia' costruite con
+   successo nello stesso giro (un report con 5 sezioni valide + 1 malformata produceva un PDF
+   con ZERO sezioni, non 5 + una nota). Il percorso xlsx gemello (`Export-M365OpsReport.ps1`,
+   ramo 'xlsx') aveva gia' questo isolamento per-foglio dal 17/08/2026. Isolato con try/catch
+   per sezione, riprodotto dal vivo forzando un'eccezione in una sezione su tre (via un throw
+   temporaneo di test in `New-M365OpsSvgChart`, poi rimosso): le altre due sezioni restano
+   intatte nel PDF, solo quella rotta mostra una nota d'errore invece di far sparire tutto.
+2. `Public\Remove-M365OpsOneDriveSharingRecipient.ps1` (terzo passo del workaround OneDrive) -
+   la chiamata Graph DELETE per rimuovere un permesso non aveva protezione: un fallimento su UN
+   elemento perdeva sia i permessi GIA' rimossi con successo nelle iterazioni precedenti (persi
+   dal valore di ritorno pur essendo davvero rimossi su SharePoint) sia gli elementi restanti mai
+   raggiunti. Isolato con try/catch per permesso, nuovo campo `Failed`/`FailedCount` nel risultato.
+3. `Public\Get-M365OpsSharePointSitePermissions.ps1` - amministratori raccolta siti + i tre
+   gruppi standard (Owners/Members/Visitors) senza isolamento reciproco: un fallimento su UNO dei
+   quattro controlli perdeva anche gli altri tre gia' letti con successo. Isolato con try/catch
+   per area, verificato dal vivo su un sito reale (vnsysit.sharepoint.com/sites/test): tutte e
+   quattro le aree risolte correttamente (System Account + test Owners come admin, gruppi Owners/
+   Members/Visitors letti singolarmente).
+4. `Public\Get-M365OpsTeamsPolicies.ps1` e `Public\Get-M365OpsTeamsExternalAccessConfig.ps1` -
+   stesso schema sulle chiamate `Get-CsTeams*Policy`/`Get-CsTeams*Configuration` indipendenti
+   (Meeting/Calling/Messaging e Federazione/Chat ospiti/Riunioni ospiti/Chiamate ospiti). Isolato
+   ciascuna nel proprio try/catch, MA preservando invariato il meccanismo di retry via isolamento
+   reattivo gia' esistente (`Get-M365OpsModuleConflictHint`: se riconosce il conflitto .NET
+   sezione 6.6, l'eccezione viene sempre rilanciata invece di essere degradata a nota, cosi' il
+   retry esterno tramite `Connect-M365OpsIsolatedModule` continua a scattare esattamente come
+   prima) - verificato dal vivo: 19 criteri Teams (10 Meeting, 5 Calling, 4 Messaging) e le 4 aree
+   di accesso esterno/ospiti (federazione abilitata, chat/Giphy ospiti, video/MeetNow riunioni,
+   chiamate private) risolte correttamente su vnsys-test dopo il fix, nessuna regressione.
+
+**6° bug reale, causa diversa**: `Public\Export-M365OpsReport.ps1` (ramo 'pdf') - dopo il lancio
+di Edge headless, un `Start-Sleep -Seconds 2` fisso seguito da `Test-Path` produceva un falso
+negativo intermittente. **Riprodotto dal vivo** chiedendo "elenca i team del tenant e genera un
+report PDF con quella lista" via `/api/chat` (percorso reale, non un test sintetico): la risposta
+ha riportato "Edge non ha prodotto il file", ma il file .pdf era gia' presente su disco con la
+dimensione corretta (79-84 KB) subito dopo, con timestamp coerente con la richiesta - falso
+negativo confermato confrontando file e timestamp. Il processo msedge.exe avviato con `&` non
+garantisce che il file sia scritto su disco al ritorno del comando, specialmente con altri
+processi Edge/Chromium gia' attivi sulla macchina (plausibile in questo ambiente: strumenti di
+automazione browser di altre sessioni/agenti in esecuzione in parallelo). Corretto sostituendo
+l'attesa fissa con un polling fino a 20 secondi (dimensione del file stabile per due controlli
+consecutivi consecutivi, invece di sperare che 2 secondi bastino sempre) - stesso principio gia'
+in uso in questa maratona per il polling di riavvio del server ("allow 15-20+ seconds, multiple
+poll attempts"). **Riverificato dal vivo lo stesso identico scenario dopo il fix**: PDF generato
+e offerto correttamente come allegato in chat, nessun falso negativo.
+
+**Verificato dal vivo, non solo letto**: server riavviato dopo ogni fix (poll fino a 200 su `/`),
+ogni fix testato sul tenant reale `vnsys-test` (App-only) via `/api/chat` in linguaggio naturale
+o chiamata diretta della funzione. Nota metodologica: il server di test e' CONDIVISO dai 5 agenti
+paralleli di questa maratona - due volte una richiesta ha ricevuto una risposta con una proposta
+di scrittura Intune pendente lasciata da un altro agente concorrente (non mia), cancellata con
+"no" prima di procedere con i propri test, nessuna azione presa su proposte non originate dal
+proprio turno.
+
+**Aree coperte senza trovare problemi**: creazione Team/siti SharePoint, membership siti,
+ereditarieta' permessi, sharing esterno, quota sito, sync App Registration SharePoint, report
+utilizzo OneDrive/account inattivi (gia' correttamente isolati con try/catch per riga), invio
+report via email con allegato (`Send-M365OpsReportEmail`); catalogo script personalizzati
+(`Get-M365OpsCustomScriptCatalog`, caricamento in `M365Ops.psm1`) verificato dal vivo con uno
+script di test deliberatamente rotto (sintassi non valida) creato accanto a quello reale gia'
+presente: lo script valido (`Get-M365OpsOneDriveSharingReport`) ha continuato a caricarsi e a
+funzionare, il warning ha nominato correttamente il file rotto, il catalogo lo ha segnalato
+`Valid=$false` con motivo chiaro - fix gia' presente da un giro precedente, nessuna regressione,
+script di test rimosso subito dopo.
+
+Spedito in v0.10.14. Nessun agente di autoreview dedicato per QUESTI fix specifici (compito
 dell'agente autoreview generale della maratona, se presente) - ogni fix verificato dal vivo
 individualmente prima di essere considerato chiuso, come sopra.

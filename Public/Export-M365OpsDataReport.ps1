@@ -94,32 +94,50 @@ function Export-M365OpsDataReport {
       # e' nello stesso try, cosi' un fallimento qui degrada sempre a un avviso, mai a
       # un'eccezione che si porta via anche l'xlsx.
       try {
+        # Ogni sezione costruita nel proprio try/catch (26/08/2026, bug reale trovato durante
+        # lo stress-test mirato al pattern "un passo fallito blocca i passi fratelli
+        # indipendenti" - lo stesso schema gia' corretto 3 volte in questa maratona, v0.10.1/
+        # v0.10.2/v0.10.6): PRIMA di questo fix, l'intero foreach qui sotto viveva senza
+        # protezione per-sezione - una singola sezione (es. un campo con dati imprevisti che fa
+        # fallire Group-Object o New-M365OpsSvgChart) faceva risalire l'eccezione al try esterno,
+        # che la trasforma in un semplice avviso "PDF non generato" MA a costo di perdere anche
+        # le sezioni PRECEDENTI gia' costruite con successo nello stesso ciclo - un report con 5
+        # sezioni valide + 1 malformata prima produceva ZERO sezioni nel PDF invece di 5 sezioni
+        # + una nota d'errore sulla sesta. Il percorso xlsx (Export-M365OpsReport, ramo 'xlsx')
+        # ha gia' questo isolamento per-foglio dal 17/08/2026 - qui mancava l'equivalente.
         $pdfSections = foreach ($s in $Sections) {
-            # Appiattito PRIMA di raggruppare per i grafici e di costruire la tabella: un campo
-            # con valore ARRAY (es. ManagedBy di un gruppo) raggrupperebbe tutte le righe insieme
-            # sotto la stessa etichetta inutile "System.Object[]" invece che per valore reale, e
-            # la tabella mostrerebbe lo stesso testo al posto del contenuto (bug reale 18/08/2026).
-            $sectionData = @(ConvertTo-M365OpsFlatRows -Rows @($s.Data))
-            $chartsHtml = if ($sectionData.Count -gt 0) {
-                $availableFields = @($sectionData[0].PSObject.Properties.Name)
-                foreach ($cf in @($s.ChartFields)) {
-                    $field = $cf.Field
-                    if (-not $field -or $field -notin $availableFields) { continue }
-                    $grouped = $sectionData | Group-Object -Property $field | Sort-Object Count -Descending
-                    if ($grouped.Count -eq 0) { continue }
-                    $labels = @($grouped | ForEach-Object { if ($_.Name) { $_.Name } else { '(vuoto)' } })
-                    $values = @($grouped | ForEach-Object { $_.Count })
-                    $chartTitle = if ($cf.Label) { $cf.Label } else { $field }
-                    $chartType = if ($cf.Type -eq 'Pie') { 'Pie' } else { 'Bar' }
-                    $svg = New-M365OpsSvgChart -Labels $labels -Values $values -Type $chartType
-                    "<div class='chart-block'><h2>$([System.Security.SecurityElement]::Escape($chartTitle))</h2>$svg</div>"
-                }
-            } else { @() }
+            try {
+                # Appiattito PRIMA di raggruppare per i grafici e di costruire la tabella: un campo
+                # con valore ARRAY (es. ManagedBy di un gruppo) raggrupperebbe tutte le righe insieme
+                # sotto la stessa etichetta inutile "System.Object[]" invece che per valore reale, e
+                # la tabella mostrerebbe lo stesso testo al posto del contenuto (bug reale 18/08/2026).
+                $sectionData = @(ConvertTo-M365OpsFlatRows -Rows @($s.Data))
+                $chartsHtml = if ($sectionData.Count -gt 0) {
+                    $availableFields = @($sectionData[0].PSObject.Properties.Name)
+                    foreach ($cf in @($s.ChartFields)) {
+                        $field = $cf.Field
+                        if (-not $field -or $field -notin $availableFields) { continue }
+                        $grouped = $sectionData | Group-Object -Property $field | Sort-Object Count -Descending
+                        if ($grouped.Count -eq 0) { continue }
+                        $labels = @($grouped | ForEach-Object { if ($_.Name) { $_.Name } else { '(vuoto)' } })
+                        $values = @($grouped | ForEach-Object { $_.Count })
+                        $chartTitle = if ($cf.Label) { $cf.Label } else { $field }
+                        $chartType = if ($cf.Type -eq 'Pie') { 'Pie' } else { 'Bar' }
+                        $svg = New-M365OpsSvgChart -Labels $labels -Values $values -Type $chartType
+                        "<div class='chart-block'><h2>$([System.Security.SecurityElement]::Escape($chartTitle))</h2>$svg</div>"
+                    }
+                } else { @() }
 
-            $tableHtml = if ($sectionData.Count -gt 0) { $sectionData | ConvertTo-Html -Fragment } else { "<p><em>Nessun dato disponibile.</em></p>" }
-            $heading = "<h2>$([System.Security.SecurityElement]::Escape([string]$s.Name)) ($($sectionData.Count) righe)</h2>"
-            $chartsBlock = if ($chartsHtml) { "<div class='charts'>$($chartsHtml -join '')</div>" } else { "" }
-            "$heading$chartsBlock$tableHtml"
+                $tableHtml = if ($sectionData.Count -gt 0) { $sectionData | ConvertTo-Html -Fragment } else { "<p><em>Nessun dato disponibile.</em></p>" }
+                $heading = "<h2>$([System.Security.SecurityElement]::Escape([string]$s.Name)) ($($sectionData.Count) righe)</h2>"
+                $chartsBlock = if ($chartsHtml) { "<div class='charts'>$($chartsHtml -join '')</div>" } else { "" }
+                "$heading$chartsBlock$tableHtml"
+            }
+            catch {
+                $warnings += "Sezione PDF '$($s.Name)' non generata: $($_.Exception.Message)"
+                $heading = "<h2>$([System.Security.SecurityElement]::Escape([string]$s.Name))</h2>"
+                "$heading<p><em>Sezione non generata a causa di un errore: $([System.Security.SecurityElement]::Escape($_.Exception.Message))</em></p>"
+            }
         }
         $htmlBody = "<h1>$Title</h1>$($pdfSections -join '')"
         $candidatePdfPath = Join-Path $reportsDir "$slug-$stamp.pdf"

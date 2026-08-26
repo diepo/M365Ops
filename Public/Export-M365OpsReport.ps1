@@ -172,10 +172,41 @@ $body
             Set-Content -Path $tmpHtml -Value $html -Encoding UTF8
 
             & $edge --headless --disable-gpu "--print-to-pdf=$Path" "--print-to-pdf-no-header" (Resolve-Path $tmpHtml).Path | Out-Null
-            Start-Sleep -Seconds 2
+            # Poll invece di un fisso Start-Sleep -Seconds 2 (26/08/2026, bug reale trovato dal
+            # vivo tramite il server di test reale: "genera un report PDF" sui Team del tenant
+            # ha risposto "Edge non ha prodotto il file", ma il file .pdf ERA presente su disco
+            # subito dopo, con la dimensione corretta - falso negativo verificato confrontando il
+            # timestamp del file con l'ora della richiesta). Causa: il processo msedge.exe
+            # avviato con `&` non garantisce che al ritorno del comando il file sia gia' scritto
+            # su disco - su questa macchina, con altri processi Edge/Chromium gia' in esecuzione
+            # (es. automazione browser di altre sessioni), la nuova invocazione headless puo'
+            # cedere il lavoro reale di stampa a un processo esistente e restituire il controllo
+            # PRIMA che quel processo abbia finito di scrivere, rendendo 2 secondi fissi
+            # insufficienti in modo intermittente - stesso principio gia' applicato al polling di
+            # riavvio del server in questa stessa maratona ("allow 15-20+ seconds, multiple poll
+            # attempts") invece di un'attesa fissa indovinata. Ora si attende fino a 20 secondi,
+            # controllando ogni 250ms se il file esiste E non e' piu' in scrittura (dimensione
+            # stabile tra due controlli consecutivi), invece di sperare che 2 secondi bastino
+            # sempre.
+            $deadline = (Get-Date).AddSeconds(20)
+            $lastSize = -1
+            $stableChecks = 0
+            while ((Get-Date) -lt $deadline) {
+                if (Test-Path $Path) {
+                    $currentSize = (Get-Item $Path).Length
+                    if ($currentSize -gt 0 -and $currentSize -eq $lastSize) {
+                        $stableChecks++
+                        if ($stableChecks -ge 2) { break }
+                    } else {
+                        $stableChecks = 0
+                    }
+                    $lastSize = $currentSize
+                }
+                Start-Sleep -Milliseconds 250
+            }
             Remove-Item $tmpHtml -Force -ErrorAction SilentlyContinue
 
-            if (-not (Test-Path $Path)) { throw "Generazione PDF fallita (Edge non ha prodotto il file)." }
+            if (-not (Test-Path $Path)) { throw "Generazione PDF fallita (Edge non ha prodotto il file entro 20 secondi)." }
         }
     }
 

@@ -50,76 +50,110 @@ function Get-M365OpsTeamsExternalAccessConfig {
     # messaggistica' spariva del tutto dal CSV, pur essendo presente e leggibile per
     # proprieta' diretta sull'oggetto. Corretto unendo tutte le colonne su ogni riga,
     # stesso schema di Get-M365OpsTeamsPolicies.
+    # Ogni area di configurazione (Federazione/Messaggistica ospiti/Riunioni ospiti/Chiamate
+    # ospiti) nel proprio try/catch (26/08/2026, bug reale trovato durante lo stress-test
+    # mirato al pattern "un passo fallito blocca i passi fratelli indipendenti" - stesso schema
+    # gia' corretto 3 volte in questa maratona, vedi anche il gemello Get-M365OpsTeamsPolicies).
+    # PRIMA di questo fix, le quattro chiamate Get-CsTeams*Configuration vivevano in sequenza
+    # SENZA isolamento reciproco: un'eccezione nella prima (Federazione) faceva perdere anche le
+    # altre tre, mai nemmeno tentate, pur essendo quattro controlli concettualmente indipendenti.
+    # Il rethrow esplicito quando Get-M365OpsModuleConflictHint riconosce il conflitto .NET
+    # sezione 6.6 preserva INVARIATO il meccanismo di retry via isolamento reattivo sotto.
     $body = {
-        $federation = Get-CsTenantFederationConfiguration -ErrorAction Stop | ForEach-Object {
-            [pscustomobject]@{
-                ConfigType         = 'Federazione esterna'
-                Identity           = $_.Identity
-                AllowFederatedUsers = $_.AllowFederatedUsers
-                AllowPublicUsers   = $_.AllowPublicUsers
-                AllowTeamsConsumer = $_.AllowTeamsConsumer
-                BlockedDomains     = ($_.BlockedDomains | Out-String).Trim()
-                AllowUserChat      = $null
-                AllowGiphy         = $null
-                AllowUserEditMessage = $null
-                AllowIPVideo       = $null
-                AllowMeetNow       = $null
-                ScreenSharingMode  = $null
-                AllowPrivateCalling = $null
-            }
+        $results = @()
+        try {
+            $results += @(Get-CsTenantFederationConfiguration -ErrorAction Stop | ForEach-Object {
+                [pscustomobject]@{
+                    ConfigType         = 'Federazione esterna'
+                    Identity           = $_.Identity
+                    AllowFederatedUsers = $_.AllowFederatedUsers
+                    AllowPublicUsers   = $_.AllowPublicUsers
+                    AllowTeamsConsumer = $_.AllowTeamsConsumer
+                    BlockedDomains     = ($_.BlockedDomains | Out-String).Trim()
+                    AllowUserChat      = $null
+                    AllowGiphy         = $null
+                    AllowUserEditMessage = $null
+                    AllowIPVideo       = $null
+                    AllowMeetNow       = $null
+                    ScreenSharingMode  = $null
+                    AllowPrivateCalling = $null
+                }
+            })
         }
-        $guestMessaging = Get-CsTeamsGuestMessagingConfiguration -ErrorAction Stop | ForEach-Object {
-            [pscustomobject]@{
-                ConfigType = 'Ospiti - messaggistica'
-                Identity   = $_.Identity
-                AllowFederatedUsers = $null
-                AllowPublicUsers   = $null
-                AllowTeamsConsumer = $null
-                BlockedDomains     = $null
-                AllowUserChat      = $_.AllowUserChat
-                AllowGiphy         = $_.AllowGiphy
-                AllowUserEditMessage = $_.AllowUserEditMessage
-                AllowIPVideo       = $null
-                AllowMeetNow       = $null
-                ScreenSharingMode  = $null
-                AllowPrivateCalling = $null
-            }
+        catch {
+            if (Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Microsoft Teams' -OtherService 'Exchange Online') { throw }
+            $results += [pscustomobject]@{ ConfigType = 'Federazione esterna'; Identity = "Lettura fallita: $($_.Exception.Message)" }
         }
-        $guestMeeting = Get-CsTeamsGuestMeetingConfiguration -ErrorAction Stop | ForEach-Object {
-            [pscustomobject]@{
-                ConfigType = 'Ospiti - riunioni'
-                Identity   = $_.Identity
-                AllowFederatedUsers = $null
-                AllowPublicUsers   = $null
-                AllowTeamsConsumer = $null
-                BlockedDomains     = $null
-                AllowUserChat      = $null
-                AllowGiphy         = $null
-                AllowUserEditMessage = $null
-                AllowIPVideo    = $_.AllowIPVideo
-                AllowMeetNow    = $_.AllowMeetNow
-                ScreenSharingMode = $_.ScreenSharingMode
-                AllowPrivateCalling = $null
-            }
+        try {
+            $results += @(Get-CsTeamsGuestMessagingConfiguration -ErrorAction Stop | ForEach-Object {
+                [pscustomobject]@{
+                    ConfigType = 'Ospiti - messaggistica'
+                    Identity   = $_.Identity
+                    AllowFederatedUsers = $null
+                    AllowPublicUsers   = $null
+                    AllowTeamsConsumer = $null
+                    BlockedDomains     = $null
+                    AllowUserChat      = $_.AllowUserChat
+                    AllowGiphy         = $_.AllowGiphy
+                    AllowUserEditMessage = $_.AllowUserEditMessage
+                    AllowIPVideo       = $null
+                    AllowMeetNow       = $null
+                    ScreenSharingMode  = $null
+                    AllowPrivateCalling = $null
+                }
+            })
         }
-        $guestCalling = Get-CsTeamsGuestCallingConfiguration -ErrorAction Stop | ForEach-Object {
-            [pscustomobject]@{
-                ConfigType = 'Ospiti - chiamate'
-                Identity   = $_.Identity
-                AllowFederatedUsers = $null
-                AllowPublicUsers   = $null
-                AllowTeamsConsumer = $null
-                BlockedDomains     = $null
-                AllowUserChat      = $null
-                AllowGiphy         = $null
-                AllowUserEditMessage = $null
-                AllowIPVideo       = $null
-                AllowMeetNow       = $null
-                ScreenSharingMode  = $null
-                AllowPrivateCalling = $_.AllowPrivateCalling
-            }
+        catch {
+            if (Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Microsoft Teams' -OtherService 'Exchange Online') { throw }
+            $results += [pscustomobject]@{ ConfigType = 'Ospiti - messaggistica'; Identity = "Lettura fallita: $($_.Exception.Message)" }
         }
-        @($federation) + @($guestMessaging) + @($guestMeeting) + @($guestCalling)
+        try {
+            $results += @(Get-CsTeamsGuestMeetingConfiguration -ErrorAction Stop | ForEach-Object {
+                [pscustomobject]@{
+                    ConfigType = 'Ospiti - riunioni'
+                    Identity   = $_.Identity
+                    AllowFederatedUsers = $null
+                    AllowPublicUsers   = $null
+                    AllowTeamsConsumer = $null
+                    BlockedDomains     = $null
+                    AllowUserChat      = $null
+                    AllowGiphy         = $null
+                    AllowUserEditMessage = $null
+                    AllowIPVideo    = $_.AllowIPVideo
+                    AllowMeetNow    = $_.AllowMeetNow
+                    ScreenSharingMode = $_.ScreenSharingMode
+                    AllowPrivateCalling = $null
+                }
+            })
+        }
+        catch {
+            if (Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Microsoft Teams' -OtherService 'Exchange Online') { throw }
+            $results += [pscustomobject]@{ ConfigType = 'Ospiti - riunioni'; Identity = "Lettura fallita: $($_.Exception.Message)" }
+        }
+        try {
+            $results += @(Get-CsTeamsGuestCallingConfiguration -ErrorAction Stop | ForEach-Object {
+                [pscustomobject]@{
+                    ConfigType = 'Ospiti - chiamate'
+                    Identity   = $_.Identity
+                    AllowFederatedUsers = $null
+                    AllowPublicUsers   = $null
+                    AllowTeamsConsumer = $null
+                    BlockedDomains     = $null
+                    AllowUserChat      = $null
+                    AllowGiphy         = $null
+                    AllowUserEditMessage = $null
+                    AllowIPVideo       = $null
+                    AllowMeetNow       = $null
+                    ScreenSharingMode  = $null
+                    AllowPrivateCalling = $_.AllowPrivateCalling
+                }
+            })
+        }
+        catch {
+            if (Get-M365OpsModuleConflictHint -RawMessage $_.Exception.Message -ThisService 'Microsoft Teams' -OtherService 'Exchange Online') { throw }
+            $results += [pscustomobject]@{ ConfigType = 'Ospiti - chiamate'; Identity = "Lettura fallita: $($_.Exception.Message)" }
+        }
+        $results
     }
 
     try {
