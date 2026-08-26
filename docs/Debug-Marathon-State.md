@@ -1813,3 +1813,106 @@ file `.ps1` sintatticamente puliti dopo la modifica.
 Spedito in v0.10.6. Nessun agente dedicato per questo giro - fix mirato (un `try/catch` attorno a un
 blocco gia' isolato), verificato direttamente end-to-end riproducendo lo scenario esatto segnalato
 dall'utente prima di considerarlo chiuso.
+
+## Correzione di rotta: la regola "verificare TUTTO il codice" non stava venendo rispettata
+
+L'utente ha segnalato (giustamente, senza mezzi termini) che gli ultimi giri di stress-test erano
+stati scope-ati SOLO sulle feature appena spedite, in violazione diretta della regola #2 della
+maratona gia' scritta in cima a questo file ("Obiettivo reale: verificare TUTTO il codice, non solo
+le aree toccate di recente... Non dare per assodato nulla solo perche' una maratona passata lo ha
+gia' 'chiuso'"). Il bug v0.10.6 ("Stato permessi" su Delegato) e' rimasto nascosto per giorni proprio
+per questo motivo - una prima risposta che spiegava il perche' senza correggere subito la rotta e'
+stata giustamente respinta come una scusa invece che un'azione.
+
+**Osservazione di valore reale emersa comunque**: il bug v0.10.6 e' il TERZO caso nella stessa
+sessione dello stesso identico schema - una funzione con PIU' controlli/operazioni indipendenti in
+sequenza, dove un'eccezione nel passo 1 fa morire silenziosamente anche i passi 2..N pur non
+dipendendo dal primo (v0.10.1: un file bloccato durante la migrazione KB bloccava la copia di TUTTI
+gli altri file; v0.10.2: un campo malformato nell'import del diagramma bloccava l'INTERO server;
+v0.10.6: Exchange non connesso bloccava anche il controllo Graph/Entra ID indipendente). Vale la
+pena cercare questo pattern specifico in tutto il codice, non solo continuare a scoprirlo per caso.
+
+Su richiesta esplicita dell'utente ("parti subito con la fix gia' proposta e dopo fai un giro piu'
+ampio su tutto"), CINQUE agenti avviati in parallelo, nessuno scope-ato a commit recenti:
+
+**Agente "Audit pattern 'un passo fallito blocca i passi fratelli indipendenti'"** (general-purpose,
+background) — AVVIATO 26/08/2026. Scope: TUTTO il codice (non solo file recenti) - cercare funzioni
+con piu' controlli/operazioni indipendenti in sequenza/loop dove un'eccezione in un passo non e'
+isolata e blocca silenziosamente i successivi, stesso schema dei tre bug gia' trovati. — IN CORSO.
+
+**Agente "Stress-test funzioni Exchange/mail-flow, tutto il codice"** (general-purpose, background)
+— AVVIATO 26/08/2026. Scope: mailbox, gruppi di distribuzione, regole di trasporto, inoltri,
+anti-spam, message trace/NDR - non limitato a modifiche recenti. — IN CORSO.
+
+**Agente "Stress-test funzioni Intune/Entra ID/sicurezza, tutto il codice"** (general-purpose,
+background) — AVVIATO 26/08/2026. Scope: dispositivi, criteri di conformita', app protection,
+conditional access, utenti/gruppi, MFA, ruoli - non limitato a modifiche recenti. — IN CORSO.
+
+**Agente "Stress-test funzioni Teams/SharePoint/report/script personalizzati, tutto il codice"**
+(general-purpose, background) — AVVIATO 26/08/2026. Scope: policy Teams, siti/permessi SharePoint,
+generazione report, catalogo script personalizzati - non limitato a modifiche recenti. — IN CORSO.
+
+**Agente "Stress-test GUI ampio, tutta l'app"** (general-purpose, background) — AVVIATO 26/08/2026.
+Scope: percorsi utente end-to-end su TUTTE le sezioni della GUI (non solo quelle aggiunte di
+recente), inclusi flussi piu' vecchi mai ri-testati in questa maratona. — IN CORSO.
+
+## Esito "Stress-test funzioni Exchange/mail-flow, tutto il codice" (v0.10.7)
+
+Agente COMPLETATO. Scope: mailbox, gruppi di distribuzione, regole di trasporto, connettori,
+anti-spam/anti-phishing, domini accettati/remoti, forwarding, message trace/NDR, litigation hold,
+isolamento reattivo Exchange (worker separato), permessi app/delegati RBAC Exchange - 105 file
+`.ps1` Public+Private dell'area Exchange/mail-flow, tutti sintatticamente puliti (verificato con
+`[System.Management.Automation.Language.Parser]::ParseFile`).
+
+**4 bug reali trovati e corretti, stesso schema "un passo fallito blocca i passi fratelli
+indipendenti" gia' visto in v0.10.1/v0.10.2/v0.10.6** (cercato deliberatamente su richiesta
+esplicita, non trovato per caso):
+1. `Public\Get-M365OpsMailboxDelegatesReport.ps1` - ciclo su TUTTE le mailbox che chiamava
+   `Get-M365OpsMailboxPermissions` senza protezione: un errore su una sola mailbox uccideva il
+   resto del report. Isolato con try/catch per mailbox.
+2. `Public\Get-M365OpsSharedMailboxReport.ps1` - `Get-EXOMailboxPermission`/
+   `Get-EXORecipientPermission` per mailbox condivisa senza la stessa protezione gia' presente
+   due righe sopra per le statistiche (`-ErrorAction SilentlyContinue`). Allineato.
+3. `Public\Get-M365OpsMailboxStatistics.ps1` - `Get-EXOMailboxStatistics` per mailbox (percorso
+   "tutte le mailbox", senza `-Identity`) senza `-ErrorAction SilentlyContinue`, a differenza
+   delle due funzioni sorelle che gia' lo fanno (`Get-M365OpsInactiveMailboxes`,
+   `Get-M365OpsMailboxUsageReport`). Allineato.
+4. `Public\Get-M365OpsAppPermissionsCheck.ps1` - ciclo di risoluzione appRoles per RISORSA Graph
+   (Microsoft Graph / Exchange Online / SharePoint Online / Teams Admin API, passi indipendenti)
+   senza protezione per risorsa: un errore su una sola risorsa uccideva l'intera funzione,
+   azzerando anche le aree di risorse gia' risolte con successo. Isolato con try/catch per
+   risorsa (fallback: quella risorsa risulta "nessun accesso" invece di un errore secco).
+
+**5° bug reale, area diversa**: `Private\Get-M365OpsMessageHeaderAnalysis.ps1` (analizzatore
+locale intestazioni email/NDR, mai esercitato a fondo prima d'ora) - il nome del giorno della
+settimana in un header `Received`/`Date` viene VALIDATO da .NET contro la data numerica (non
+letto come testo decorativo): un giorno sbagliato (capita nel mondo reale - orologio/fuso
+configurato male su un gateway, header composti a mano) fa fallire ENTRAMBI i tentativi di
+parsing gia' presenti nel codice con "day of week was incorrect", diverso da tutti i casi di
+tolleranza gia' gestiti (giorno omesso, fuso tra parentesi). Riprodotto dal vivo con un header
+"Tue" su una data che cadeva di mercoledi'. Corretto rimuovendo il nome del giorno dal testo
+PRIMA del parsing (informazione ridondante, mai necessaria per il calcolo).
+
+**Verificato dal vivo, non solo letto**: server riavviato dopo ogni fix (poll fino a 200 su `/`),
+tutti e 5 i fix testati sul tenant reale `vnsys-test` (App-only) - `Get-M365OpsMailboxDelegatesReport`
+(24 righe, nessun errore), `Get-M365OpsMailboxStatistics` (25 righe), report mailbox condivise
+via `/api/chat` in linguaggio naturale (7 righe), "verifica permessi app" via `/api/chat` (tutte
+le aree risolte), `POST /api/analyze-headers` con header sintetico realistico (Gmail multi-hop,
+SPF/DKIM/DMARC, X-Forefront-Antispam-Report, giorno-della-settimana errato) - orario correttamente
+parsato/formattato e ritardo calcolato per entrambi gli hop dopo il fix, invece del testo grezzo
+di prima. Nessuna regressione sul percorso normale in nessuno dei 5 casi.
+
+**Aree riverificate senza trovare problemi**: ciclo di vita del worker isolato reattivo Exchange
+(`Connect-M365OpsIsolatedModule`, `Complete-M365OpsIsolatedModuleConnect`, percorso asincrono
+`Start-/Get-M365OpsIsolatedModuleConnectAsync*`) riletto per intero - gia' ben corretto e
+documentato dai fix precedenti (v0.10.6 e prima), nessun problema nuovo; forwarding report, mail
+flow report, litigation hold report, message trace, transport rule report, connettori partner
+Intune-Exchange, stato login mailbox condivise - gia' correttamente isolati con lo stesso pattern
+(molti usano gia' `-ErrorAction SilentlyContinue`/try-catch per elemento, verificato leggendoli
+uno per uno); workaround OneDrive delegate access a 5 passi (dominio SharePoint, coperto
+principalmente dall'agente Teams/SharePoint parallelo) - dato solo un'occhiata rapida per
+l'overlap Exchange-adiacente citato nel task, nessun problema Exchange-rilevante notato.
+
+Spedito in v0.10.7. Nessun agente di autoreview dedicato per QUESTI fix specifici (compito
+dell'agente autoreview generale della maratona, se presente) - ogni fix verificato dal vivo
+individualmente prima di essere considerato chiuso, come sopra.

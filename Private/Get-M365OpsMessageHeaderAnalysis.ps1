@@ -137,6 +137,20 @@ function Get-M365OpsRawHeaderAnalysis {
             # hop con questo formato perdeva completamente Time e DelaySec pur avendo una data
             # perfettamente valida.
             $dateForParse = $dateText -replace '\s*\([^)]*\)\s*$', ''
+
+            # Bug reale trovato durante l'audit del 26/08/2026: il nome del giorno (es. "Tue,")
+            # viene VALIDATO da .NET contro la data numerica che segue, non solo letto come testo
+            # decorativo - un hop con un nome del giorno sbagliato (capita davvero: gateway con
+            # l'orologio/fuso configurato male, header composti a mano da script di terze parti,
+            # o semplicemente un mittente che mente sull'intestazione) fa fallire ENTRAMBI i
+            # tentativi di parsing sotto con "was not recognized as a valid DateTime because the
+            # day of week was incorrect" - non un formato non standard (gia' gestito), un
+            # mismatch puro fra testo e data. L'hop finiva silenziosamente con Time=testo grezzo e
+            # DelaySec=null, esattamente il sintomo che questo blocco esiste per evitare. Il nome
+            # del giorno non aggiunge nessuna informazione che non sia gia' nella data numerica
+            # (che e' quella davvero usata per il calcolo del ritardo) - rimosso qui PRIMA del
+            # parsing, cosi' un giorno sbagliato non blocca mai piu' l'estrazione dell'orario reale.
+            $dateForParse = $dateForParse -replace '^[A-Za-z]{3},\s*', ''
             try { $parsedTime = [datetimeoffset]::Parse($dateForParse, [System.Globalization.CultureInfo]::InvariantCulture) } catch {
                 # Alcuni gateway on-premises omettono il nome del giorno o usano un formato non
                 # standard (verificato dal vivo su un hop Exchange on-prem) - un secondo

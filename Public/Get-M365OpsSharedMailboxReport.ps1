@@ -15,8 +15,16 @@ function Get-M365OpsSharedMailboxReport {
     $shared | ForEach-Object {
         $mbx = $_
         $stats = Get-EXOMailboxStatistics -Identity $mbx.PrimarySmtpAddress -Properties TotalItemSize, ItemCount -ErrorAction SilentlyContinue
-        $fullAccess = (Get-EXOMailboxPermission -Identity $mbx.PrimarySmtpAddress | Where-Object { $_.User -notlike "NT AUTHORITY\*" -and -not $_.IsInherited }).User -join '; '
-        $sendAs = (Get-EXORecipientPermission -Identity $mbx.PrimarySmtpAddress | Where-Object { $_.Trustee -notlike "NT AUTHORITY\*" }).Trustee -join '; '
+        # Bug reale (stesso schema di v0.10.1/v0.10.2/v0.10.6, trovato durante l'audit del
+        # 26/08/2026): a differenza della riga statistiche sopra (gia' protetta con
+        # -ErrorAction SilentlyContinue), queste due chiamate non avevano nessuna protezione -
+        # un errore terminante di Get-EXOMailboxPermission/Get-EXORecipientPermission su UNA
+        # sola mailbox condivisa (es. throttling momentaneo) uccideva l'intero report, facendo
+        # sparire in silenzio anche tutte le mailbox condivise successive nel ciclo, per quanto
+        # perfettamente lette. Isolate come le statistiche, cosi' un fallimento resta locale a
+        # quella singola mailbox invece di propagarsi a tutte le altre.
+        $fullAccess = try { (Get-EXOMailboxPermission -Identity $mbx.PrimarySmtpAddress -ErrorAction Stop | Where-Object { $_.User -notlike "NT AUTHORITY\*" -and -not $_.IsInherited }).User -join '; ' } catch { "Impossibile leggere: $($_.Exception.Message)" }
+        $sendAs = try { (Get-EXORecipientPermission -Identity $mbx.PrimarySmtpAddress -ErrorAction Stop | Where-Object { $_.Trustee -notlike "NT AUTHORITY\*" }).Trustee -join '; ' } catch { "Impossibile leggere: $($_.Exception.Message)" }
         $sendOnBehalf = ($mbx.GrantSendOnBehalfTo) -join '; '
 
         [pscustomobject]@{

@@ -68,13 +68,29 @@ function Get-M365OpsAppPermissionsCheck {
     # Per ogni risorsa distinta con almeno un'assegnazione, risolvi appRoleId -> stringa
     # permesso (es. "Exchange.ManageAsApp") leggendo gli appRoles del service principal DELLA
     # RISORSA - le assegnazioni riportano solo un GUID (appRoleId), mai il nome leggibile.
+    # Bug reale (stesso schema di v0.10.1/v0.10.2/v0.10.6, trovato durante l'audit del
+    # 26/08/2026): questa risoluzione avviene per RISORSA (Microsoft Graph, Office 365
+    # Exchange Online, ecc.), ognuna un passo indipendente dalle altre - un errore Graph su
+    # UNA sola risorsa (es. throttling, o un service principal risorsa nel frattempo rimosso)
+    # non protetto qui faceva morire l'intera funzione, trasformando TUTTE le aree (comprese
+    # quelle di risorse completamente diverse e già risolte con successo) in un errore secco
+    # invece di "nessun accesso"/dato mancante solo per l'area davvero coinvolta. Isolato per
+    # risorsa: un fallimento resta locale a quella risorsa (le sue aree finiranno con
+    # $granted vuoto, quindi "nessun accesso" invece di scomparire nel nulla), le altre
+    # risorse gia' risolte restano intatte.
     $grantedByResource = @{}
     foreach ($resourceId in @($resourceNames.Keys)) {
-        $roleDefs = Invoke-M365OpsGraphRequest -Method GET -Path "/servicePrincipals/$resourceId`?`$select=appRoles"
-        $roleMap = @{}
-        foreach ($r in @($roleDefs.appRoles)) { $roleMap[$r.id] = $r.value }
-        $grantedIds = @($assignments | Where-Object { $_.resourceId -eq $resourceId } | ForEach-Object { $_.appRoleId })
-        $grantedByResource[$resourceNames[$resourceId]] = @($grantedIds | ForEach-Object { $roleMap[$_] } | Where-Object { $_ })
+        try {
+            $roleDefs = Invoke-M365OpsGraphRequest -Method GET -Path "/servicePrincipals/$resourceId`?`$select=appRoles" -ErrorAction Stop
+            $roleMap = @{}
+            foreach ($r in @($roleDefs.appRoles)) { $roleMap[$r.id] = $r.value }
+            $grantedIds = @($assignments | Where-Object { $_.resourceId -eq $resourceId } | ForEach-Object { $_.appRoleId })
+            $grantedByResource[$resourceNames[$resourceId]] = @($grantedIds | ForEach-Object { $roleMap[$_] } | Where-Object { $_ })
+        }
+        catch {
+            Write-M365OpsLog "Get-M365OpsAppPermissionsCheck: impossibile risolvere gli appRoles della risorsa '$($resourceNames[$resourceId])' ($resourceId), quell'area risultera' 'nessun accesso' invece che un dato reale: $($_.Exception.Message)" -Level Warn
+            $grantedByResource[$resourceNames[$resourceId]] = @()
+        }
     }
 
     # Bug reale trovato dal vivo il 21/08/2026, segnalato dall'utente: l'app aveva
