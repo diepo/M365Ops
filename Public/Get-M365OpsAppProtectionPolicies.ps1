@@ -26,8 +26,23 @@ function Get-M365OpsAppProtectionPolicies {
         return Get-OnePlatform -plat $Platform -id $Identity
     }
 
+    if ($Platform -ne 'Both') {
+        return @(Get-OnePlatform -plat $Platform)
+    }
+
+    # Platform 'Both': Android e iOS sono due chiamate Graph indipendenti su due collezioni
+    # diverse (androidManagedAppProtections / iosManagedAppProtections) - try/catch separato
+    # per piattaforma (26/08/2026, stesso schema gia' trovato piu' volte in questo progetto,
+    # vedi Get-M365OpsDelegatedPermissionsCheck, commit 0dfc6fd): prima di questo fix, un
+    # errore Graph su UNA sola piattaforma (es. throttling, o un problema momentaneo solo su
+    # quella collezione) faceva fallire l'intera funzione, nascondendo anche i criteri
+    # dell'altra piattaforma gia' recuperati con successo.
     $results = @()
-    if ($Platform -in 'Android', 'Both') { $results += Get-OnePlatform -plat 'Android' }
-    if ($Platform -in 'iOS', 'Both') { $results += Get-OnePlatform -plat 'iOS' }
+    $errors = @()
+    try { $results += Get-OnePlatform -plat 'Android' } catch { $errors += "Android: $($_.Exception.Message)" }
+    try { $results += Get-OnePlatform -plat 'iOS' } catch { $errors += "iOS: $($_.Exception.Message)" }
+    if ($errors) {
+        Write-M365OpsLog "Get-M365OpsAppProtectionPolicies: recupero fallito per $($errors -join '; ') - mostrati solo i risultati della/e piattaforma/e riuscita/e." -Level Warn
+    }
     $results
 }

@@ -1846,7 +1846,18 @@ anti-spam, message trace/NDR - non limitato a modifiche recenti. — IN CORSO.
 
 **Agente "Stress-test funzioni Intune/Entra ID/sicurezza, tutto il codice"** (general-purpose,
 background) — AVVIATO 26/08/2026. Scope: dispositivi, criteri di conformita', app protection,
-conditional access, utenti/gruppi, MFA, ruoli - non limitato a modifiche recenti. — IN CORSO.
+conditional access, utenti/gruppi, MFA, ruoli - non limitato a modifiche recenti. — COMPLETATO,
+6 bug reali trovati e corretti (v0.10.16, vedi sezione dedicata sotto). I 2 piu' gravi:
+`Set-M365OpsAppProtectionAssignment`/`Set-M365OpsAppProtectionTargetApps` (assegnazione a
+gruppi e app di destinazione dei criteri MAM) non hanno MAI funzionato - rotta OData sbagliata,
+400 secco per QUALSIASI chiamata. Il primo tentativo di correzione basato SOLO su Microsoft
+Learn (collezione generica `managedAppPolicies`) e' risultato anch'esso sbagliato dal vivo -
+la rotta reale che funziona davvero e' la collezione specifica per piattaforma con `/assign`
+o `/targetApps` appeso, mai trovabile senza riprovare dal vivo con un criterio di test reale.
+Altri 4: stesso pattern "un passo fallito blocca i passi fratelli indipendenti" gia' cercato in
+questa maratona, in `Get-M365OpsCompliancePatterns`, `Get-M365OpsAppProtectionPolicies`,
+`Get-M365OpsUserOverview`, `Get-M365OpsGroupOverview`. Conditional Access: funzionalita' NON
+implementata nel modulo (nessun file dedicato) - niente da correggere li'.
 
 **Agente "Stress-test funzioni Teams/SharePoint/report/script personalizzati, tutto il codice"**
 (general-purpose, background) — AVVIATO 26/08/2026. Scope: policy Teams, siti/permessi SharePoint,
@@ -2095,3 +2106,112 @@ Spedito in v0.10.15. Nessun agente di autoreview dedicato per QUESTI fix specifi
 principio delle sessioni precedenti) - ogni fix verificato dal vivo individualmente (screenshot +
 misure DOM dirette prima/dopo, chiamate dirette alla rotta `/api/upload` con payload validi e
 invalidi) prima di essere considerato chiuso.
+
+## Agente "Stress-test funzioni Intune/Entra ID/sicurezza, tutto il codice" — COMPLETATO (v0.10.16)
+
+Uno dei cinque agenti avviati in parallelo dopo la correzione di rotta ("verificare TUTTO il
+codice", non solo le feature appena spedite - vedi sezione sopra). Scope: dispositivi gestiti
+Intune (elenco, compliance, cause di non conformita', pattern AI), criteri di compliance, app
+protection (MAM Android/iOS), RBAC Intune (ruoli custom + assegnazioni), Conditional Access,
+utenti/gruppi Entra ID, MFA (stato/reset), directory role assignments - non limitato a modifiche
+recenti. 401 file `.ps1` sintatticamente puliti (`ParseFile`) dopo le modifiche.
+
+**2 bug reali PIU' GRAVI trovati e corretti - due funzioni di scrittura non hanno mai funzionato
+una sola volta**: creato un criterio di protezione app Android di test
+(`ZZTEST-marathon-AppProtection`) e provata un'assegnazione/aggiunta app reale.
+1. `Public\Set-M365OpsAppProtectionAssignment.ps1` e
+2. `Public\Set-M365OpsAppProtectionTargetApps.ps1` facevano POST rispettivamente su
+   `.../assignments` e `.../apps` (le collezioni OData di sola LETTURA, gia' usate correttamente
+   in GET da `Get-M365OpsAppProtectionPolicies`, mai scrivibili in POST) - Graph rifiutava SEMPRE
+   con 400 "No OData route exists that match template ... with http verb POST", per QUALSIASI
+   gruppo/app. Il vecchio commento che giustificava questa scelta ("nessuna action assign
+   dedicata, verificato dal vivo") era la premessa sbagliata all'origine del bug.
+   **Correzione in due giri, nessuno dei due bastava da solo senza riverificare dal vivo**:
+   - 1° tentativo, basato SOLO su Microsoft Learn (pagina `targetedManagedAppPolicyAssignment`/
+     `targetApps`): la action vive sulla collezione GENERICA `/deviceAppManagement/
+     managedAppPolicies/{id}/assign`|`targetApps` - provato dal vivo con `propose_graph_write`,
+     risultato IDENTICO fallimento con un errore diverso ma altrettanto secco: 400 "Resource not
+     found for the segment 'assign'". La documentazione non bastava da sola.
+   - Rotta REALE trovata per tentativi mirati dal vivo (non da documentazione): la collezione
+     SPECIFICA per piattaforma con solo `/assign` o `/targetApps` appeso -
+     `/deviceAppManagement/{android|ios}ManagedAppProtections/{id}/assign`|`targetApps`, su Graph
+     BETA - confermata con una POST + GET di verifica separate PRIMA di toccare il codice del
+     modulo. Corretto usando questa rotta, azione ATOMICA che sostituisce l'intero elenco (non
+     piu' un POST separato per gruppo/app come faceva il codice precedente) - per mantere il
+     comportamento "AGGIUNGE" gia' promesso da queste funzioni, l'elenco esistente si legge prima
+     e si unisce a quello nuovo.
+   - **3° bug scoperto SOLO al secondo giro di verifica dal vivo attraverso la funzione vera**
+     (dopo la correzione della rotta, primo tentativo di riscrittura): la GET di rilettura non
+     include un `@odata.type` a livello di singolo elemento (solo il `target`/`mobileAppIdentifier`
+     annidato ce l'ha) - ririnviarlo cosi' com'e' (`$null`) faceva rifiutare l'INTERA POST con 400
+     "expected a string for ODataType value", per QUALSIASI elemento gia' esistente sul criterio.
+     L'errore e' stato diagnosticato dal layer di auto-recovery AI del server stesso (che ha
+     proposto una patch automatica al file sorgente) - la diagnosi era corretta ma la patch e'
+     stata applicata manualmente dall'agente dopo revisione, non accettata alla cieca: corretto
+     reinviando solo i campi che la action richiede davvero (`target` per le assegnazioni,
+     `mobileAppIdentifier` per le app).
+   Riverificato dal vivo end-to-end attraverso le funzioni vere (non chiamate Graph dirette):
+   aggiunto un secondo gruppo e una seconda app allo stesso criterio di test, confermato che i
+   due elementi precedenti restavano intatti (comportamento "aggiunge" confermato, non sostituisce
+   - 2 assegnazioni e 2 app lette indipendentemente via GET dopo ogni scrittura), criterio di test
+   rimosso a fine verifica e assenza confermata con una query indipendente.
+
+**4 istanze del pattern "un passo fallito blocca i passi fratelli indipendenti" gia' cercato in
+questa maratona** (v0.10.1/v0.10.2/v0.10.6/v0.10.7/v0.10.14/v0.10.15), corrette isolando l'unita'
+di lavoro fallita (try/catch per elemento):
+3. `Public\Get-M365OpsCompliancePatterns.ps1` - il recupero delle cause di non conformita' per
+   ciascun dispositivo (`Get-M365OpsDeviceComplianceReasons`) non era protetto dentro il
+   `foreach`: un solo dispositivo problematico (rimosso nel frattempo, 404/429 transitorio)
+   avrebbe fatto sparire dall'analisi AI anche i dispositivi gia' arricchiti con successo prima
+   di lui. Isolato: un fallimento locale produce ora un `reasons` con un campo `error` dedicato
+   per quel dispositivo, gli altri proseguono.
+4. `Public\Get-M365OpsAppProtectionPolicies.ps1` - con `-Platform Both` (default), un errore
+   Graph su UNA sola piattaforma (Android o iOS) faceva fallire l'intera funzione, nascondendo
+   anche i criteri dell'altra piattaforma gia' recuperati con successo. Isolato con try/catch per
+   piattaforma (solo quando `Both`, il percorso a piattaforma esplicita resta invariato - un
+   errore li' e' comunque l'unico dato richiesto, deve propagare).
+5. `Public\Get-M365OpsUserOverview.ps1` e
+6. `Public\Get-M365OpsGroupOverview.ps1` - app assegnate, profili di configurazione e criteri di
+   compliance sono tre chiamate `Get-M365OpsAssignmentMatches` indipendenti fra loro: un errore su
+   UNA sola faceva fallire l'intera panoramica utente/gruppo, incluse le due categorie
+   indipendenti gia' recuperate con successo. Isolato per categoria - un nuovo campo
+   `AssignmentCheckErrors` compare solo quando succede davvero, le tre liste restano popolate per
+   le categorie riuscite.
+
+Verificato dal vivo su vnsys-test dopo ogni fix via `/api/chat`: "verifica permessi app" (gia'
+corretto da un altro agente di questa stessa maratona in `Get-M365OpsAppPermissionsCheck` - v0.10.7,
+stessa causa radice, solo confermato qui senza modifiche aggiuntive), "elenca i criteri di
+protezione app per Android e iOS" (nessun criterio residuo dopo la pulizia, nessuna eccezione),
+"analizza i pattern di non conformita' dei dispositivi Intune" (5 dispositivi, correlazione VM
+Microsoft non cifrate identificata correttamente dall'IA, nessuna riga persa), "panoramica utente
+riccardo.porcu@vnsys.it" (23 gruppi, 2 dispositivi, 4 app/1 profilo/4 criteri assegnati
+correttamente), "panoramica gruppo vnsysit" (37 membri, 7 dispositivi, dati completi) - nessuna
+regressione sul percorso normale in nessuno dei sei fix.
+
+**Aree coperte senza trovare problemi**: RBAC Intune - creazione/rimozione ruoli custom
+(`New-/Remove-M365OpsCustomRole`) e assegnazioni (`Set-/Remove-M365OpsRoleAssignment`, gia'
+corrette in v0.9.80 dopo il bug storico sulla rotta `roleAssignments` - rilette per intero, nessun
+problema nuovo, stesso principio "non dare per assodato solo perche' gia' chiuso" della regola #2
+della maratona); le altre 6 funzioni "Set-*Assignment" del modulo (Admin Template, Enrollment
+Configuration, Update Ring, Autopilot Deployment Profile, Proactive Remediation, Configuration
+Policy) usano gia' correttamente un'unica action "assign" atomica con l'intero elenco nel body, MAI
+un POST per gruppo come facevano le due App Protection sopra prima del fix - unica eccezione nel
+modulo, ora allineata; `Reset-M365OpsUserMfa` gia' correttamente isolato per singolo metodo MFA
+(pattern di riferimento usato per gli altri fix di questo giro); `Get-M365OpsUserMfaStatus`; Get-/
+New-/Remove-M365OpsDeviceScript e relativa assegnazione (azione atomica singola, corretta);
+Autopilot (import, stato, dispositivi). **Conditional Access: funzionalita' NON implementata nel
+modulo** - nessun file dedicato in `Public`/`Private` (solo una menzione incidentale non
+funzionale in `Invoke-M365OpsDeviceCodeFlow.ps1`), quindi nessun bug possibile da correggere li' -
+annotato come osservazione, non un'area "chiusa senza problemi" in senso stretto: semplicemente
+non esiste ancora, proposta libera per un giro futuro se l'utente la ritiene utile.
+
+**Dati di test creati e rimossi entro fine turno, nessun residuo lasciato**: criterio di
+protezione app Android `ZZTEST-marathon-AppProtection` (creato, assegnato a 2 gruppi + 2 app di
+test per verificare il fix, rimosso) - assenza confermata con una query Graph indipendente
+(`$filter=displayName eq 'ZZTEST-marathon-AppProtection'`, 0 risultati) a fine turno. Nessuna
+modifica permanente lasciata su gruppi/utenti reali del tenant (le assegnazioni erano solo sul
+criterio di test, rimosse insieme ad esso).
+
+Spedito in v0.10.16. Nessun agente di autoreview dedicato per QUESTI fix specifici (stesso
+principio delle sessioni precedenti) - ogni fix verificato dal vivo individualmente attraverso le
+funzioni vere del modulo (non solo chiamate Graph dirette) prima di essere considerato chiuso.

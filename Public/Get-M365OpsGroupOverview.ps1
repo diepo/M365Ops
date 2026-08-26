@@ -32,11 +32,21 @@ function Get-M365OpsGroupOverview {
     $groupIds = @($GroupId)
     $groupNamesById = @{ $GroupId = $GroupName }
 
-    $assignedApps = Get-M365OpsAssignmentMatches -Path "/deviceAppManagement/mobileApps" -GroupIds $groupIds -GroupNamesById $groupNamesById
-    $assignedConfigs = Get-M365OpsAssignmentMatches -Path "/deviceManagement/deviceConfigurations" -GroupIds $groupIds -GroupNamesById $groupNamesById
-    $assignedCompliance = Get-M365OpsAssignmentMatches -Path "/deviceManagement/deviceCompliancePolicies" -GroupIds $groupIds -GroupNamesById $groupNamesById
+    # Try/catch per ciascuna delle tre categorie (26/08/2026, stesso schema gia' trovato piu'
+    # volte in questo progetto - vedi Get-M365OpsDelegatedPermissionsCheck, commit 0dfc6fd; e lo
+    # stesso fix appena applicato a Get-M365OpsUserOverview, il gemello di questa funzione): app
+    # assegnate, profili di configurazione e criteri di compliance sono tre chiamate Graph
+    # indipendenti fra loro - prima di questo fix, un errore su UNA sola faceva fallire l'intera
+    # panoramica gruppo, incluse le due categorie indipendenti gia' recuperate con successo.
+    $assignmentErrors = @()
+    try { $assignedApps = Get-M365OpsAssignmentMatches -Path "/deviceAppManagement/mobileApps" -GroupIds $groupIds -GroupNamesById $groupNamesById }
+    catch { $assignedApps = @(); $assignmentErrors += "App assegnate: $($_.Exception.Message)" }
+    try { $assignedConfigs = Get-M365OpsAssignmentMatches -Path "/deviceManagement/deviceConfigurations" -GroupIds $groupIds -GroupNamesById $groupNamesById }
+    catch { $assignedConfigs = @(); $assignmentErrors += "Profili di configurazione assegnati: $($_.Exception.Message)" }
+    try { $assignedCompliance = Get-M365OpsAssignmentMatches -Path "/deviceManagement/deviceCompliancePolicies" -GroupIds $groupIds -GroupNamesById $groupNamesById }
+    catch { $assignedCompliance = @(); $assignmentErrors += "Criteri di compliance assegnati: $($_.Exception.Message)" }
 
-    [pscustomobject]@{
+    $overview = [pscustomobject]@{
         Group                      = $GroupName
         GroupId                    = $GroupId
         Members                    = $members | Select-Object displayName, userPrincipalName
@@ -45,4 +55,9 @@ function Get-M365OpsGroupOverview {
         AssignedConfigProfiles     = $assignedConfigs
         AssignedCompliancePolicies = $assignedCompliance
     }
+    if ($assignmentErrors) {
+        $overview | Add-Member -NotePropertyName AssignmentCheckErrors -NotePropertyValue $assignmentErrors -Force
+        Write-M365OpsLog "Get-M365OpsGroupOverview ($GroupName): $($assignmentErrors -join '; ')" -Level Warn
+    }
+    $overview
 }

@@ -32,10 +32,27 @@ function Get-M365OpsCompliancePatterns {
     # con un dispositivo sintetico prima di correggere - il prompt AI chiede esplicitamente di
     # "raggruppare QUESTI dispositivi" (plurale), un oggetto nudo con un tenant quasi sano (un
     # solo dispositivo non conforme) avrebbe silenziosamente rotto quell'istruzione.
+    # Try/catch per dispositivo (26/08/2026, stesso schema gia' trovato piu' volte in questo
+    # progetto - vedi Get-M365OpsDelegatedPermissionsCheck, commit 0dfc6fd): il recupero delle
+    # cause di non conformita' per ciascun dispositivo e' un passo indipendente dagli altri
+    # dispositivi della stessa lista - prima di questo fix, un solo dispositivo che facesse
+    # fallire la chiamata Graph (es. rimosso dal tenant tra l'elenco e questo dettaglio, o un
+    # 404/429 transitorio) interrompeva l'intero "foreach", facendo sparire dall'analisi AI
+    # anche i dispositivi gia' arricchiti con successo prima di lui - su un tenant con molti
+    # dispositivi non conformi, il risultato dipendeva dall'ordine casuale in cui Graph li
+    # restituisce. Ora un fallimento resta locale al singolo dispositivo (segnalato come errore
+    # nel suo campo "reasons" invece di sparire), gli altri proseguono comunque.
     $enriched = @(foreach ($d in $devices) {
+        try {
+            $reasons = Get-M365OpsDeviceComplianceReasons -Id $d.id -ErrorAction Stop
+        }
+        catch {
+            Write-M365OpsLog "Get-M365OpsCompliancePatterns: impossibile recuperare le cause di non conformita' per il dispositivo $($d.id) ($($d.deviceName)): $($_.Exception.Message)" -Level Warn
+            $reasons = @([pscustomobject]@{ error = "Cause di non conformita' non recuperabili per questo dispositivo: $($_.Exception.Message)" })
+        }
         [pscustomobject]@{
             device = $d
-            reasons = Get-M365OpsDeviceComplianceReasons -Id $d.id
+            reasons = $reasons
         }
     })
 
