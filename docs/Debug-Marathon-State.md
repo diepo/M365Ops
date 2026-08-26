@@ -1838,11 +1838,15 @@ ampio su tutto"), CINQUE agenti avviati in parallelo, nessuno scope-ato a commit
 **Agente "Audit pattern 'un passo fallito blocca i passi fratelli indipendenti'"** (general-purpose,
 background) — AVVIATO 26/08/2026. Scope: TUTTO il codice (non solo file recenti) - cercare funzioni
 con piu' controlli/operazioni indipendenti in sequenza/loop dove un'eccezione in un passo non e'
-isolata e blocca silenziosamente i successivi, stesso schema dei tre bug gia' trovati. — IN CORSO.
+isolata e blocca silenziosamente i successivi, stesso schema dei tre bug gia' trovati. —
+COMPLETATO, 3 bug reali trovati e corretti (v0.10.17, vedi sezione dedicata sotto) - lavorando in
+parallelo agli altri quattro agenti, alcuni candidati risultati gia' corretti nel frattempo da
+loro sulla stessa area (stesso schema, funzioni diverse).
 
 **Agente "Stress-test funzioni Exchange/mail-flow, tutto il codice"** (general-purpose, background)
 — AVVIATO 26/08/2026. Scope: mailbox, gruppi di distribuzione, regole di trasporto, inoltri,
-anti-spam, message trace/NDR - non limitato a modifiche recenti. — IN CORSO.
+anti-spam, message trace/NDR - non limitato a modifiche recenti. — COMPLETATO, 5 bug reali trovati
+e corretti (v0.10.7, vedi sezione dedicata sotto).
 
 **Agente "Stress-test funzioni Intune/Entra ID/sicurezza, tutto il codice"** (general-purpose,
 background) — AVVIATO 26/08/2026. Scope: dispositivi, criteri di conformita', app protection,
@@ -1866,7 +1870,8 @@ COMPLETATO, 5 bug reali trovati e corretti (v0.10.14, vedi sezione dedicata sott
 
 **Agente "Stress-test GUI ampio, tutta l'app"** (general-purpose, background) — AVVIATO 26/08/2026.
 Scope: percorsi utente end-to-end su TUTTE le sezioni della GUI (non solo quelle aggiunte di
-recente), inclusi flussi piu' vecchi mai ri-testati in questa maratona. — IN CORSO.
+recente), inclusi flussi piu' vecchi mai ri-testati in questa maratona. — COMPLETATO, 3 bug reali
+trovati e corretti (v0.10.15, vedi sezione dedicata sotto).
 
 ## Esito "Stress-test funzioni Exchange/mail-flow, tutto il codice" (v0.10.7)
 
@@ -2215,3 +2220,58 @@ criterio di test, rimosse insieme ad esso).
 Spedito in v0.10.16. Nessun agente di autoreview dedicato per QUESTI fix specifici (stesso
 principio delle sessioni precedenti) - ogni fix verificato dal vivo individualmente attraverso le
 funzioni vere del modulo (non solo chiamate Graph dirette) prima di essere considerato chiuso.
+
+## Agente "Audit pattern 'un passo fallito blocca i passi fratelli indipendenti'" — COMPLETATO (v0.10.17)
+
+Scope: TUTTO il codice, audit strutturale mirato a UN solo schema di bug specifico (non un'area
+funzionale) - una funzione con piu' controlli/operazioni indipendenti in sequenza/loop, dove
+un'eccezione in un passo non e' isolata e blocca silenziosamente anche i passi successivi che non
+dipendono dal primo. Esaminati ~20+ funzioni candidate (report/check/status/overview/migration),
+verificate strutturalmente e, per le piu' probabili, dal vivo tramite un harness di mock-injection
+(override di funzioni dentro lo state-session del modulo, cosi' le chiamate non qualificate
+risolvono verso versioni finte senza toccare un tenant reale).
+
+Lavorando in PARALLELO ad altri quattro agenti sulle rispettive aree funzionali, molti dei
+candidati piu' probabili (App Permissions Check, User/Group Overview, Mailbox Delegates/Shared
+Mailbox Report, SharePoint Site Permissions, OneDrive Sharing Recipient Removal) sono risultati
+gia' corretti nel frattempo da loro sulla stessa identica causa, in funzioni diverse - nessun
+lavoro duplicato, solo una conferma incrociata indipendente della stessa diagnosi.
+
+**3 bug reali confermati e corretti, non gia' coperti dagli altri quattro agenti** (dettaglio nella
+riga di changelog corrispondente, `docs/Guida-Configurazione.html`, v0.10.17):
+1. `Public/Get-M365OpsGroupMembershipReport.ps1` - `Get-DistributionGroupMember` per gruppo senza
+   isolamento, un gruppo problematico faceva sparire i membri di TUTTI gli altri gruppi dal report.
+2. `Public/Get-M365OpsGroupsOverviewReport.ps1` - stesso schema sul conteggio membri per gruppo.
+3. `Public/Get-M365OpsThreatPolicies.ps1` - Safe Links e Safe Attachments sono due criteri
+   indipendenti, un errore transitorio sul primo nascondeva anche il secondo.
+
+**Falsi allarmi/design intenzionale verificati, non bug**: `Get-M365OpsSetupStatus.ps1` e
+`Get-M365OpsPartnerConnectorsStatus.ps1` (gia' isolati per-check per design, confermato dai
+docstring), `Get-M365OpsMailboxUsageReport.ps1`/`Get-M365OpsSharedMailboxSignInStatus.ps1`/
+`Get-M365OpsInboxRulesReport.ps1`/`Get-M365OpsAutoReplyReport.ps1` (gia' con `-ErrorAction
+SilentlyContinue` o try/catch per elemento), `Get-M365OpsCopilotUsageReport.ps1`/`Summary.ps1`
+(una sola chiamata Graph, non multi-area), il ciclo di dispatch di `Gui/CommandCatalog.ps1` (il
+try/catch per-voce e' gia' corretto per design - ogni voce e' un comando ALTERNATIVO, non un
+sotto-passo di un unico report, quindi "fallisce solo quella voce" e' il comportamento giusto).
+
+Tutti e tre i fix confermati: syntax-check pulito, riprodotti dal vivo PRIMA del fix (la funzione
+lanciava un'eccezione, scartando anche i risultati sani dei passi precedenti/successivi),
+riverificati dal vivo DOPO il fix (i passi sani sopravvivono, quello fallito produce una riga/nota
+di errore dedicata), server di test riavviato e tornato a 200 con le modifiche caricate.
+
+**Nota di coordinamento**: questo agente ha lasciato deliberatamente le proprie 3 modifiche NON
+committate per evitare di interferire con il lavoro in corso degli altri quattro agenti paralleli
+sullo stesso repository condiviso - consolidate in coda, dopo che tutti e cinque i giri sono
+COMPLETATI, dalla sessione coordinatrice (verificati nuovamente i diff, sintassi dell'intero
+repository, server riavviato e sano) prima di questo commit finale.
+
+**Bilancio complessivo del giro dei 5 agenti paralleli** (v0.10.7 → v0.10.17): oltre 20 bug reali
+trovati e corretti in un solo giro, su codice non toccato da settimane - inclusi due funzioni di
+scrittura (`Set-M365OpsAppProtectionAssignment`/`Set-M365OpsAppProtectionTargetApps`) che non
+avevano MAI funzionato una sola volta dalla loro creazione, e conferma diretta che lo schema "un
+passo fallito blocca i passi fratelli indipendenti" era diffuso trasversalmente in praticamente
+ogni area funzionale del modulo (Exchange, Intune, Entra ID, Teams, SharePoint, KB, export/import,
+permessi), non un caso isolato. 396 file `.ps1` sintatticamente puliti su tutto il repository dopo
+l'unione di tutti i fix.
+
+Spedito in v0.10.17.
