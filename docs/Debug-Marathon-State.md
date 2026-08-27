@@ -2364,3 +2364,80 @@ cache, confermata contro i log per-round); storico chat multi-turno confermato f
 follow-up senza ripetere l'header ha richiamato correttamente dominio mittente e motivo del
 fallimento DMARC discussi in precedenza); nessuna interferenza con `graph_api_call` ne' con
 `kb_query` nella stessa conversazione di un header incollato.
+
+## Seguito: fallback a CLI Microsoft 365 su consenso admin mancante per Graph delegato (v0.10.19)
+
+Richiesta esplicita dell'utente, dopo una spiegazione dell'architettura MCP/Graph/moduli interni:
+"esistono casi di login delegati che falliscono perche' manca admin consent su graph. in quel caso
+come fallback vorrei cliccare su cli365 e da quel punto in poi deve essere lui a sostituirsi a
+graph. ha senso ed e' fattibile?" - risposto di si', con un limite dichiarato (la sostituzione vale
+solo nel dominio che CLI365 copre davvero, mai un sostituto universale di Graph), poi approvato.
+
+**Indagine PRIMA di scrivere codice** (letto il codice reale, non assunto): il login Graph delegato
+di questo progetto usa il client pubblico Microsoft di prima parte "Microsoft Graph Command Line
+Tools" (`Private/Invoke-M365OpsDeviceCodeFlow.ps1`, `$script:M365OpsDeviceCodeClientId`). CLI
+Microsoft 365 si autentica con un'app Microsoft di prima parte DIVERSA
+(`Public/Connect-M365OpsCliMicrosoft365.ps1`). Un consenso amministratore e' per definizione
+specifico di UN client - realistico che un tenant l'abbia concesso all'una e non all'altra, quindi
+lo scenario descritto dall'utente e' concreto, non ipotetico. Cercato nel codice esistente qualunque
+riconoscimento gia' presente di `AADSTS65001` (il codice Azure AD per consenso mancante) nel flusso
+di login delegato - non c'era (solo un precedente in `Connect-M365OpsIntune.ps1`, un'area diversa).
+
+**Scoperta che ha ridotto di molto il lavoro necessario**: gran parte del meccanismo "CLI365
+sostituisce Graph" ESISTE GIA'. `Invoke-M365OpsAgentTools.ps1` calcola gia' `$graphDelegatedSessionActive`
+(presenza di un token nella cache per il tenant Delegato attivo) e, quando e' falso E CLI365 e'
+configurato, gia' preferisce CLI365 per il proprio dominio (lettura, tramite
+`$cliM365ProactivePreference` nel prompt) e gia' rifiuta con un guard duro le scritture Entra ID
+via `propose_graph_write` rimandando a `propose_cli_m365_command` (commit precedente di questa
+maratona, "chiuso l'item prioritario sul fallback CLI365"). Questo controllo NON distingue il
+motivo per cui la sessione Graph manca (mai tentato login vs. fallito per consenso) - la preferenza
+scatta comunque in entrambi i casi, GIA' OGGI. Il vero pulsante "Connetti CLI Microsoft 365" esiste
+gia' anche lui, nella tab MCP/Connettori. Il gap reale era solo di SCOPRIBILITA': al momento del
+fallimento per consenso, l'utente vedeva solo un errore generico, senza nessun invito a provare
+CLI365 li' per li'.
+
+**Implementato, minimale per costruzione** (riusa tutto quanto gia' esistente):
+- `Public/Complete-M365OpsDelegatedLogin.ps1`: riconosce `AADSTS65001` nel messaggio d'errore del
+  polling del login a codice dispositivo, aggiunge un campo `NeedsAdminConsent` (bool) al risultato
+  restituito alla GUI - distinto da altri errori (codice scaduto, login rifiutato) che restano
+  semplice testo come prima.
+- `Gui/index.html`: nuovo box `#delegated-login-consent-fallback` (nascosto di default, dentro
+  `#delegated-login-box` nella tab Tenant) con un pulsante "Prova con CLI Microsoft 365 invece" -
+  mostrato SOLO quando `NeedsAdminConsent` e' vero. Al click: passa alla tab MCP/Connettori e
+  aziona il pulsante `#cli-m365-test-btn` GIA' ESISTENTE (nessuna logica duplicata - stesso
+  identico percorso di un click manuale, stessa conferma dedicata per il login bloccante su
+  Delegato).
+- **Nessuna nuova logica di priorita' IA scritta**: il meccanismo che fa "sostituire" CLI365 a
+  Graph una volta che il login riesce e' quello gia' esistente descritto sopra - la sessione Graph
+  resta assente sia per login mai tentato sia per consenso mancante, la preferenza scatta identica.
+
+**Verificato dal vivo, non solo letto**:
+- Regex di riconoscimento testata contro un vero testo AADSTS65001 (riconosciuto) e due errori
+  diversi - codice scaduto, login rifiutato (entrambi correttamente NON riconosciuti).
+- `Complete-M365OpsDelegatedLogin` testata end-to-end due volte: (1) sostituendo
+  `Receive-M365OpsDeviceCodeToken` DENTRO lo scope del modulo (`Set-Item function:...` sul modulo
+  importato, non una semplice funzione di livello superiore - il primo tentativo con
+  `& (Get-Module M365Ops) { function ... }` non aveva funzionato, la chiamata reale a
+  Invoke-RestMethod dentro la funzione originale passava comunque) per simulare la risposta di
+  consenso mancante - `NeedsAdminConsent` risultato `True`; (2) SENZA alcun mock, con un
+  `DeviceCode` fittizio reale - una vera chiamata di rete ad Azure AD ha restituito un vero errore
+  Azure AD diverso (`AADSTS7000014`, device_code non valido) - `NeedsAdminConsent` risultato
+  correttamente `False`, confermando che il riconoscimento e' specifico del solo codice 65001, non
+  di un qualunque errore Azure AD.
+- Lato browser: il box compare/scompare correttamente in base al campo; il click sul pulsante passa
+  davvero alla tab MCP/Connettori (verificato `classList.contains('active')` sulla tab) e aziona
+  davvero il pulsante "Connetti CLI Microsoft 365" esistente (intercettato il suo gestore per
+  confermare l'azionamento senza avviare per davvero un login bloccante nel test).
+- 396 file `.ps1` sintatticamente puliti, tag HTML bilanciati.
+
+**Nota collaterale, non un problema del repository**: lo script di supporto locale
+`tagcheck.js` nello scratchpad di questa sessione (usato per verificare il bilanciamento dei tag
+HTML, MAI parte del repository del progetto) era stato sovrascritto da un giro di agenti
+precedente con una versione che conteneva un bug di escaping regex (`\s` dentro una stringa JS
+senza il doppio backslash necessario, silenziosamente ridotto a `s` letterale da JS) - risultato
+in conteggi palesemente sbagliati alla prima verifica di questo giro. Individuato e corretto
+(ripristinata la versione funzionante gia' in uso per tutta la maratona) prima di fidarsi del
+risultato - non ha mai riguardato `Gui/index.html` stesso, il file del progetto e' risultato
+sempre bilanciato una volta usato uno strumento di verifica corretto.
+
+Spedito in v0.10.19.

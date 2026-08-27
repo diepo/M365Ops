@@ -433,6 +433,14 @@
           <button id="delegated-login-cancel-btn" style="display:none;">Annulla</button>
         </div>
         <div id="delegated-login-code" style="display:none; margin-top:10px; font-size:13px;"></div>
+        <!-- Fallback su CLI Microsoft 365 quando manca il consenso admin per il login Graph
+             (26/08/2026, richiesto esplicitamente dall'utente) - vedi NeedsAdminConsent in
+             Complete-M365OpsDelegatedLogin.ps1. Mostrato SOLO in quel caso specifico, non su
+             un errore generico (codice scaduto, rifiuto utente, ecc.). -->
+        <div id="delegated-login-consent-fallback" style="display:none; margin-top:10px; padding:10px 12px; background:var(--warn-soft); border:1px solid var(--warn); border-radius:var(--radius-sm); font-size:12.5px;">
+          <p style="margin:0 0 8px;">Il consenso amministratore per il login Microsoft Graph non risulta ancora concesso su questo tenant (app "Microsoft Graph Command Line Tools"). CLI Microsoft 365 usa un'app Microsoft diversa - potrebbe essere già autorizzata anche se questa non lo è.</p>
+          <button id="delegated-login-try-cli365-btn">Prova con CLI Microsoft 365 invece</button>
+        </div>
       </div>
 
       <div id="exchange-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
@@ -1651,9 +1659,28 @@
     delegatedLoginStatus.textContent = 'Login annullato. Puoi ripartire quando vuoi.';
   });
 
+  // Fallback CLI Microsoft 365 su consenso admin mancante per Graph (26/08/2026) - passa alla
+  // tab "MCP / Connettori" e aziona il pulsante "Connetti CLI Microsoft 365" gia' esistente
+  // (stesso identico percorso di un click manuale li' - nessuna logica duplicata, il pulsante
+  // gestisce gia' da solo il flusso Delegato bloccante con la sua conferma dedicata). Da quel
+  // momento in poi, se il login CLI365 riesce dove Graph ha fallito, l'IA lo preferisce gia'
+  // automaticamente per il proprio dominio (Entra ID/Outlook/Planner/OneDrive/Purview) - stesso
+  // controllo $graphDelegatedSessionActive gia' esistente in Invoke-M365OpsAgentTools.ps1,
+  // nessuna nuova logica di priorita' necessaria: la sessione Graph resta assente sia che il
+  // login non sia mai stato tentato sia che sia fallito per consenso.
+  const delegatedLoginTryCli365Btn = document.getElementById('delegated-login-try-cli365-btn');
+  if (delegatedLoginTryCli365Btn) {
+    delegatedLoginTryCli365Btn.addEventListener('click', () => {
+      document.querySelector('.tab-btn[data-tab="mcp"]').click();
+      document.getElementById('cli-m365-connect-box').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      document.getElementById('cli-m365-test-btn').click();
+    });
+  }
+
   delegatedLoginBtn.addEventListener('click', async () => {
     delegatedLoginBtn.disabled = true;
     delegatedLoginCode.style.display = 'none';
+    document.getElementById('delegated-login-consent-fallback').style.display = 'none';
     try {
       const res = await fetch('/api/delegated-login/start', { method: 'POST' });
       const flow = await res.json();
@@ -1689,6 +1716,9 @@
           } else if (result.Status === 'Error') {
             resetDelegatedLoginUi();
             delegatedLoginStatus.textContent = 'Errore: ' + result.Message;
+            // Consenso admin mancante (26/08/2026) - offre il fallback CLI Microsoft 365
+            // invece del solo messaggio di errore, vedi NeedsAdminConsent lato server.
+            document.getElementById('delegated-login-consent-fallback').style.display = result.NeedsAdminConsent ? 'block' : 'none';
             return;
           }
         } catch (e) { /* riprova al prossimo giro */ }
