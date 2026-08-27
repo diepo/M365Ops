@@ -1472,14 +1472,31 @@
   async function loadConnectionStatus() {
     const panel = document.getElementById('connection-status-panel');
     let data;
-    try {
-      const res = await fetch('/api/mcp-status');
-      data = await res.json();
-    } catch (e) {
-      panel.innerHTML = 'Errore nel caricare lo stato — server non raggiungibile?';
-      delegatedLoginBox.style.display = 'none';
-      document.getElementById('delegated-login-consent-fallback').style.display = 'none';
-      return;
+    // Un tentativo, poi un SOLO retry dopo una breve pausa (27/08/2026, bug reale segnalato
+    // dal vivo dall'utente subito dopo "Connetti tutto": questa chiamata falliva UNA volta,
+    // subito dopo una riconnessione riuscita, con un messaggio generico che non diceva ne'
+    // la causa ne' cosa fare). Un blip isolato (server momentaneamente occupato a finire di
+    // scrivere la risposta precedente) si risolve da solo al secondo tentativo; se fallisce
+    // ANCHE il retry, il messaggio finale e' specifico invece di un generico "non
+    // raggiungibile?": lo scenario piu' plausibile dopo aver appena connesso piu' aree pesanti
+    // in sequenza (Exchange/Teams/SharePoint/Purview/Intune) e' il conflitto residuo tra
+    // moduli .NET gia' documentato in guida (sezione 6.6) - "il conflitto puo' manifestarsi
+    // anche DOPO un connect riuscito, non solo durante" - che richiede un riavvio reale del
+    // processo, non un altro tentativo.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const res = await fetch('/api/mcp-status');
+        data = await res.json();
+        break;
+      } catch (e) {
+        if (attempt === 2) {
+          panel.innerHTML = 'Il server non risponde più. Se questo è successo subito dopo aver connesso più aree in sequenza (es. "Connetti tutto"), è probabile un conflitto residuo tra moduli .NET già documentato in guida (sezione 6.6) — un secondo tentativo non basta, serve riavviare il processo dal tab Manutenzione. Se invece è la prima volta che lo vedi, potrebbe essere un blip momentaneo: riprova a cambiare tab.';
+          delegatedLoginBox.style.display = 'none';
+          document.getElementById('delegated-login-consent-fallback').style.display = 'none';
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
     }
 
     const isDelegated = data.authMode === 'Delegated';
@@ -2338,6 +2355,62 @@
     return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
+  // Bug reale segnalato dal vivo dall'utente (27/08/2026) subito dopo il primo rilascio di
+  // "Connetti tutto": il riquadro in alto mostrava "Riconnesso 8/8" (i risultati di
+  // POST /api/reconnect-all, gia' arrivati con successo), ma i riquadri Exchange/Teams/
+  // SharePoint/Purview/Intune piu' sotto restavano fermi su "non connesso" - contraddittorio
+  // e confuso. Causa: subito dopo, il click handler chiama loadConnectionStatus() per un
+  // refresh completo (GET /api/mcp-status) - se QUESTA seconda chiamata fallisce (vedi sotto
+  // per il perche' e' plausibile), la funzione ritorna presto nel ramo catch SENZA mai
+  // aggiornare i riquadri singoli, che restano quindi bloccati sullo stato precedente (prima
+  // di connettersi) anche se la riconnessione era realmente riuscita un attimo prima.
+  // Fix: i riquadri vengono ora aggiornati SUBITO dai risultati che abbiamo gia' in mano da
+  // reconnect-all/disconnect-all stesso (mai falliti, sono la stessa risposta appena arrivata
+  // con successo) - un secondo giro di loadConnectionStatus() resta utile per il quadro
+  // completo ma non e' piu' l'UNICA fonte di aggiornamento per queste aree.
+  function applyReconnectResultsToBoxes(results, connected) {
+    const boxByName = {
+      'Exchange Online': 'mcp-exchange-status',
+      'Microsoft Teams': 'mcp-teams-status',
+      'SharePoint': 'mcp-sharepoint-status',
+      'Security & Compliance (Purview)': 'mcp-compliance-status',
+      'Intune': 'mcp-intune-status',
+      'MCP: CLI-Microsoft365': 'mcp-cli-m365-status',
+    };
+    const msgByName = {
+      'Exchange Online': 'exchange-status-msg',
+      'Microsoft Teams': 'teams-status-msg',
+      'SharePoint': 'sharepoint-status-msg',
+      'Security & Compliance (Purview)': 'compliance-status-msg',
+      'Intune': 'intune-status-msg',
+      'MCP: CLI-Microsoft365': 'cli-m365-status-msg',
+    };
+    (results || []).forEach(r => {
+      const boxId = boxByName[r.name];
+      if (!boxId) return; // "Token Microsoft Graph"/"MCP: lokka" non hanno un riquadro dedicato qui
+      const box = document.getElementById(boxId);
+      if (!box) return;
+      const ok = connected ? r.ok : false; // disconnect-all: sempre "non connesso" per costruzione
+      box.innerHTML = ok
+        ? `${statusDot(true)}Connesso.`
+        : `${statusDot(false)}Non connesso.${(!connected || !r.ok) && r.message ? ' ' + escapeHtmlReconnect(r.message) : ''}`;
+      const msgEl = document.getElementById(msgByName[r.name]);
+      if (msgEl && (ok || !connected)) { msgEl.textContent = ''; } // stesso principio "un successo/reset pulisce un vecchio errore" gia' in loadConnectionStatus
+    });
+    // Stesso principio per il pulsante stesso: se il refresh completo successivo fallisce,
+    // l'etichetta non deve restare ferma su un'informazione che sappiamo gia' essere
+    // superata (abbiamo appena in mano il risultato reale di reconnect-all/disconnect-all).
+    // connected=true con ALMENO un passo riuscito basta per "qualcosa e' connesso" - un
+    // singolo refresh completo successivo riuscito correggera' comunque il quadro fine se
+    // servisse (es. un passo fallito su tutti).
+    const disconnectAllBtn = document.getElementById('disconnect-all-btn');
+    if (disconnectAllBtn) {
+      const anyOk = connected && (results || []).some(r => r.ok);
+      disconnectAllBtn.textContent = anyOk ? 'Disconnetti tutto' : 'Connetti tutto';
+      disconnectAllBtn.dataset.mode = anyOk ? 'disconnect' : 'connect';
+    }
+  }
+
   // Disconnetti/Connetti tutto (27/08/2026, richiesto esplicitamente dall'utente): un solo
   // pulsante per interrompere OGNI connessione del tenant attivo, che diventa "Connetti tutto"
   // una volta verificato che non ne resta nessuna (vedi il calcolo di anyConnected dentro
@@ -2358,6 +2431,16 @@
         const res = await fetch('/api/disconnect-all', { method: 'POST' });
         const data = await res.json();
         msg.textContent = data.ok ? '' : ('Errore: ' + data.text);
+        // Disconnect-all non restituisce un risultato per-area (interrompe tutto senza
+        // condizioni) - i sei riquadri con box dedicato vanno quindi tutti a "non connesso"
+        // per costruzione, aggiornati subito qui invece di aspettare solo loadConnectionStatus.
+        if (data.ok) {
+          applyReconnectResultsToBoxes([
+            { name: 'Exchange Online', ok: false }, { name: 'Microsoft Teams', ok: false },
+            { name: 'SharePoint', ok: false }, { name: 'Security & Compliance (Purview)', ok: false },
+            { name: 'Intune', ok: false }, { name: 'MCP: CLI-Microsoft365', ok: false },
+          ], false);
+        }
       } else {
         const res = await fetch('/api/reconnect-all', { method: 'POST' });
         const data = await res.json();
@@ -2380,6 +2463,7 @@
           resultsBox.innerHTML = (data.results || []).map(r =>
             `${statusDot(r.ok)}${r.name}${r.ok ? '' : ' — ' + escapeHtmlReconnect(r.message || 'errore sconosciuto')}`
           ).join('<br>');
+          applyReconnectResultsToBoxes(data.results, true);
         }
       }
     } catch (e) {

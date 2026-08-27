@@ -2665,4 +2665,68 @@ comportamenti diversi in base a `AuthMode`, invece di duplicare l'interfaccia.
   messaggio di indicazione verso "Accedi con il mio utente" mostrato correttamente, pulsante
   resta "Connetti tutto" (nulla e' stato davvero connesso, correttamente).
 
+---
+
+## Seguito: bug reale segnalato dal vivo dall'utente su "Connetti tutto" (v0.10.23, 27/08/2026)
+
+Segnalato subito dopo aver provato v0.10.22 sul suo PC: "vedo: Stato connessioni / Riconnesso
+8/8. / Token Microsoft Graph (app-only) / Exchange Online / Microsoft Teams / SharePoint /
+Security & Compliance (Purview) / Intune / MCP: CLI-Microsoft365 / MCP: lokka / Errore nel
+caricare lo stato — server non raggiungibile? quindi unerrore ma non dice dove boh. inoltre
+giu ci sono i tasti singoli ech intune etc e loro dicono non connesso. se sopra scrve connesso
+per exch intune teams shp etc allora questosemaforo verde si deve aggiornare anche nella
+sezione di giu".
+
+**Diagnosi**: il click handler di "Connetti tutto" chiama `loadConnectionStatus()` subito dopo
+aver mostrato con successo gli 8 risultati di `POST /api/reconnect-all` (per un refresh
+completo via `GET /api/mcp-status`). Se QUESTA seconda chiamata fallisce,
+`loadConnectionStatus` ritornava subito nel ramo `catch` SENZA mai aggiornare i riquadri
+Exchange/Teams/SharePoint/Purview/Intune/CLI365 sotto - restavano fermi sullo stato
+PRECEDENTE (prima di connettersi) nonostante la riconnessione fosse realmente riuscita un
+attimo prima. Riprodotto dal vivo simulando il fallimento di quella sola chiamata
+(`window.fetch` sostituito temporaneamente in pagina per intercettare solo
+`/api/mcp-status`, lasciando `/api/reconnect-all`/`/api/disconnect-all` reali) - confermato
+sia il sintomo (riquadri fermi, messaggio generico) sia, dopo il fix, la correzione.
+
+**Perche' quella seconda chiamata puo' davvero fallire**: NON riprodotto in modo affidabile
+sul tenant di test (stesso identico giro ripetuto piu' volte subito dopo un restart pulito
+del server, sempre riuscito su entrambe le chiamate). Ipotesi piu' plausibile (non confermata
+con certezza, ma coerente con quanto gia' documentato in guida sezione 6.6): il conflitto
+residuo tra moduli .NET che "puo' manifestarsi anche DOPO un connect riuscito, non solo
+durante" - "Connetti tutto" e' il primo punto del progetto che concatena Exchange+Teams+
+SharePoint+Compliance+Intune in sequenza rapida nello STESSO processo, mentre finora l'utente
+li connetteva sempre uno alla volta con click distanziati nel tempo. Non essendo riproducibile
+a comando, la correzione e' stata fatta per essere valida A PRESCINDERE dalla causa esatta
+(vedi sotto), invece di inseguire una root cause che potrebbe dipendere da uno stato
+accumulato nel processo reale dell'utente non replicabile qui.
+
+**Corretto** in `Gui/index.html` (nessuna modifica lato PowerShell in questo giro):
+1. Nuova `applyReconnectResultsToBoxes(results, connected)` - aggiorna SUBITO i riquadri
+   Exchange/Teams/SharePoint/Compliance/Intune/CLI-Microsoft365 (e il pulsante Disconnetti/
+   Connetti tutto stesso) dai risultati che `reconnect-all`/`disconnect-all` hanno GIA'
+   restituito con successo, invece di dipendere SOLO da un secondo giro di rete (`GET
+   /api/mcp-status` via `loadConnectionStatus`) che potrebbe fallire. Chiamata sia dal ramo
+   "Connetti tutto" riuscito (con gli 8 risultati per-area reali) sia dal ramo "Disconnetti
+   tutto" riuscito (sintetizzando un elenco "tutto non connesso", dato che quell'endpoint non
+   restituisce un dettaglio per-area).
+2. `loadConnectionStatus` ora riprova UNA volta dopo una pausa di 1.5s prima di arrendersi
+   (gestisce un blip isolato senza intervento); se fallisce ANCHE il retry, il messaggio
+   finale e' specifico invece del generico precedente ("server non raggiungibile?") - spiega
+   lo scenario piu' plausibile (conflitto .NET residuo dopo aver connesso piu' aree in
+   sequenza, sezione 6.6) e l'azione concreta (riavviare dal tab Manutenzione), rispondendo
+   direttamente al "non dice dove" dell'utente.
+
+**Verificato dal vivo** su vnsys-test, in un tab browser pulito (per evitare stato residuo
+tra un test e l'altro, es. `window.fetch` monkey-patchato in un test precedente):
+- Percorso normale (nessuna chiamata simulata fallita): nessuna regressione, 8/8 riconnessi,
+  pulsante e riquadri coerenti, comportamento identico a prima.
+- Percorso con `/api/mcp-status` simulato fallito dopo un "Connetti tutto" riuscito: riquadri
+  Exchange/Teams/SharePoint/Compliance/Intune/CLI365 tutti "Connesso" (verde) SUBITO, pulsante
+  "Disconnetti tutto" - nessuna piu' contraddizione col pannello in alto, che mostra il nuovo
+  messaggio specifico invece del generico.
+- Stesso test sul ramo "Disconnetti tutto": riquadri tornati "Non connesso" (rosso) subito,
+  pulsante tornato "Connetti tutto", anche con la stessa chiamata di stato simulata fallita.
+
+Versione modulo `0.10.23`, changelog in `docs/Guida-Configurazione.html`, PDF rigenerato.
+
 Versione modulo `0.10.22`, changelog in `docs/Guida-Configurazione.html`, PDF rigenerato.
