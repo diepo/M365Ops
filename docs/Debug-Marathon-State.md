@@ -2729,4 +2729,84 @@ tra un test e l'altro, es. `window.fetch` monkey-patchato in un test precedente)
 
 Versione modulo `0.10.23`, changelog in `docs/Guida-Configurazione.html`, PDF rigenerato.
 
-Versione modulo `0.10.22`, changelog in `docs/Guida-Configurazione.html`, PDF rigenerato.
+---
+
+## Seguito: pannello "Stato del processo" per distinguere lento da bloccato (v0.10.24, 27/08/2026)
+
+Episodio reale in diretta, subito dopo v0.10.23: l'utente ha cliccato "Connetti tutto" e ha
+scritto "ho cliccato connetti tutto è fermo in riconnessione in corso sembra freezato". Prima
+azione: chiesto come avesse avviato l'app (console visibile) per sapere come sbloccarla in
+caso di crash reale, poi verificato IO stesso lo stato: `curl http://localhost:8745/` ha
+risposto (lento, ~8s, probabilmente in coda dietro l'operazione in corso) e
+`GET /api/mcp-status` mostrava TUTTO connesso - quindi non era davvero bloccato, l'operazione
+era solo arrivata a compimento. Su richiesta esplicita dell'utente ("controlla se è tutto ok
+e killa tutto meglio") ho comunque terminato il processo (trovato via
+`Get-CimInstance Win32_Process` filtrando la command line per `Server.ps1`, PID 29724 sulla
+porta 8745) e un SECONDO processo orfano trovato per caso sulla porta 8743 (avanzo di un
+precedente restart con fallback di porta), poi rilanciato pulito.
+
+**Causa reale del "sembra freezato"**: nessun crash, nessun hang infinito - "Connetti tutto"
+concatena 8 passi reali (token Graph, Exchange, Teams, SharePoint, Purview, Intune, 2 server
+MCP) in UNA sola chiamata HTTP bloccante sul server a thread singolo, e su un tenant vero puo'
+richiedere fino a ~140 secondi (osservato in un giro di verifica successivo, contro i 35-40s
+tipici sul tenant di test con tutto gia' installato/cache). Senza nessun segnale di progresso,
+un'operazione solo LENTA e' indistinguibile da una bloccata per sempre - esattamente lo stesso
+schema gia' vissuto e risolto UNA volta per il solo login Teams (23/08/2026, "sembra che il
+server sia crashato" - vedi `Start-M365OpsIsolatedModuleConnectAsync.ps1`), qui riemerso
+perche' "Connetti tutto" e' codice nuovo che non passava da quel percorso asincrono.
+
+**Richiesta esplicita di follow-up dall'utente**: "puoi implementare una finestra di stato
+dove appare chiaro che il server è up e non bloccato, dove ci sono anche dei contatori per
+capire quanto è veloce lento in ms e quanta ram cpu sta occupando. magari mettila nella
+sezione ove c'è riavvia server in manutenzione".
+
+**Implementato**:
+1. `GET /api/server-health` (nuovo, `Gui/Server.ps1`) - deliberatamente SENZA alcuna chiamata
+   a Connect-M365Ops*/tenant/token, solo `Get-Process -Id $PID` (RAM, CPU totale, PID,
+   uptime) - deve rispondere il piu' velocemente possibile per essere un segnale affidabile.
+2. Pannello "Stato del processo" nel tab Manutenzione (sotto "Riavvia server"), polling ogni
+   3s SOLO mentre quel tab e' visibile (avviato/fermato ad ogni cambio tab e alla chiusura del
+   pannello impostazioni - stesso principio "mai un timer orfano in background" gia' seguito
+   altrove). Tempo di risposta in ms misurato LATO CLIENT (`performance.now()` prima/dopo il
+   fetch) - il segnale piu' onesto di "il ciclo principale sta rispondendo ADESSO". Timeout
+   client esplicito di 8s via `AbortController` (il fetch nativo non scade mai da solo) - oltre
+   quella soglia mostra "non risponde da Xs" con un contatore che cresce ad ogni poll, invece
+   di restare bloccato su "Caricamento...".
+3. Messaggio "Riconnessione/Disconnessione in corso" nel tab Tenant migliorato: avvisa subito
+   della durata attesa (fino a 2-3 minuti) e mostra un contatore di secondi trascorsi lato
+   client aggiornato ogni secondo (`setInterval`, ripulito con `clearInterval` non appena
+   arriva la risposta reale, in OGNI ramo - successo, errore, eccezione di rete - per evitare
+   che continui a sovrascrivere un messaggio finale gia' mostrato).
+
+**Scoperta importante durante la verifica dal vivo, non assunta**: interrogato
+`GET /api/server-health` via `curl` MENTRE "Connetti tutto" era ancora in esecuzione nel
+browser - la richiesta e' rimasta in coda per **48 secondi** (`time curl` misurato), poi ha
+risposto normalmente non appena il server si e' liberato. Questo conferma che ANCHE il nuovo
+pannello di stato smette di rispondere durante un'operazione lunga in corso - non e' un
+difetto del pannello, e' la prova stessa che il processo e' occupato (in coda) e non morto: un
+processo davvero crashato rifiuterebbe la connessione subito, non farebbe mettere la richiesta
+in coda per poi rispondere. Il testo del pannello spiega questa distinzione esplicitamente.
+
+**Deliberatamente NON reso asincrono** con lo stesso meccanismo a processo isolato usato per
+Teams (`Start-M365OpsIsolatedModuleConnectAsync`): quel percorso esiste oggi solo come
+RISPOSTA a un conflitto .NET rilevato, non come via normale - i token/le sessioni dovrebbero
+vivere in un processo diverso da quello principale per funzionare davvero, un cambiamento
+architetturale molto piu' ampio e rischioso di quanto serva per il problema reale (che era di
+percezione/trasparenza, non un vero blocco). Lasciato come possibile miglioramento futuro se
+il problema dovesse ripresentarsi in una forma che la sola trasparenza non basta a risolvere.
+
+**Verificato dal vivo** su vnsys-test, in un tab browser pulito:
+- Pannello mostra "Server attivo — ha risposto in N ms" con RAM/CPU aggiornati ogni 3s.
+- Polling fermato correttamente cambiando tab (verificato `serverHealthTimer === null`) e
+  chiudendo l'intero pannello impostazioni mentre su Manutenzione.
+- Simulato un fetch che non risolve mai (per testare il ramo di timeout senza aspettare un
+  vero blocco reale) - dopo 8s il pannello passa a "Il server non risponde da Xs" (pallino
+  rosso), il contatore cresce ad ogni poll successivo (25s osservato), torna da solo a
+  "Server attivo" appena il fetch reale riprende a rispondere.
+- Contatore "Riconnessione in corso... (Ns)" verificato dal vivo su un "Connetti tutto" reale
+  durato ~140s: contatore cresciuto correttamente (11s, 54s, 85s, 118s osservati durante il
+  polling), poi sostituito pulito da "Riconnesso 8/8." senza residui del contatore.
+- `GET /api/server-health` confermato in coda (non fallito) durante l'operazione lunga, come
+  sopra.
+
+Versione modulo `0.10.24`, changelog in `docs/Guida-Configurazione.html`, PDF rigenerato.

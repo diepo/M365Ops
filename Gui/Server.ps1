@@ -1509,6 +1509,29 @@ try {
                     } | ConvertTo-Json -Compress
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
+                "GET /api/server-health" {
+                    # Pannello "il server e' vivo, non bloccato" nel tab Manutenzione (27/08/2026,
+                    # richiesto esplicitamente dall'utente dopo aver scambiato un "Connetti tutto"
+                    # solo LENTO - 8 passi reali in sequenza, puo' superare 1-2 minuti su un tenant
+                    # vero - per un server bloccato/crashato, vedi il commento sul pulsante
+                    # Disconnetti/Connetti tutto in index.html per il contesto completo). Volutamente
+                    # SENZA alcuna chiamata a Connect-M365Ops*/tenant/token - deve rispondere il piu'
+                    # velocemente possibile per essere un segnale affidabile di "il ciclo principale
+                    # $listener.GetContext() e' libero e sta rispondendo ADESSO", non un indicatore
+                    # indiretto che potrebbe a sua volta bloccarsi. Se il processo e' davvero occupato
+                    # in un'altra richiesta (es. Connetti tutto ancora in corso), questa richiesta
+                    # semplicemente ATTENDE in coda come ogni altra - la GUI la richiama con un
+                    # timeout lato client (AbortController) cosi' un'attesa troppo lunga si vede
+                    # come "non risponde da Xs", non come un errore criptico.
+                    $proc = Get-Process -Id $PID
+                    $json = @{
+                        pid        = $PID
+                        ramMB      = [math]::Round($proc.WorkingSet64 / 1MB, 1)
+                        cpuSeconds = [math]::Round($proc.TotalProcessorTime.TotalSeconds, 1)
+                        upSeconds  = [math]::Round(((Get-Date) - $proc.StartTime).TotalSeconds, 0)
+                    } | ConvertTo-Json -Compress
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
                 "GET /api/chat/history" {
                     $history = @(Get-M365OpsChatHistory -TenantName $script:ActiveTenantProfile)
                     # Bug reale (16/08/2026): PIPARE un array in ConvertTo-Json (con o senza

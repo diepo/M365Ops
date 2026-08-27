@@ -703,6 +703,10 @@
       <span id="restart-status"></span>
     </div>
 
+    <h2 style="margin-top:20px;">Stato del processo</h2>
+    <p class="hint">Il server è a thread singolo: mentre elabora un'operazione lunga (es. "Connetti tutto" nel tab Tenant, un test di connessione, uno script personalizzato) resta MOMENTANEAMENTE occupato e non risponde ad altre richieste, <b>questo pannello incluso</b> — è normale, non un blocco (verificato dal vivo: durante un "Connetti tutto" da ~140s, anche questo pannello è restato "non risponde" per tutta la durata, poi è tornato attivo da solo). Se il tempo di inattività qui sotto continua a crescere per molto oltre 2-3 minuti senza mai tornare a rispondere, allora è probabilmente bloccato davvero: usa "Riavvia server" sopra.</p>
+    <div id="server-health-panel" class="hint">Caricamento...</div>
+
     <h2 style="margin-top:20px;">Porta del server</h2>
     <p class="hint">In ascolto ora su: <b id="server-port-active">—</b>. Se questa porta è già occupata da un altro programma all'avvio, M365Ops sceglie da solo la prima libera successiva. La preferenza qui sotto vale solo per il <b>prossimo avvio completo</b> (chiudi tutto e rilancia <code>M365Ops.bat</code>) — "Riavvia server" sopra resta sempre sulla porta già in uso in questa sessione, per non lasciare la scheda del browser già aperta puntata su un indirizzo morto.</p>
     <div class="actions">
@@ -2090,7 +2094,8 @@
       if (btn.dataset.tab === 'ai') loadAiUsage();
       if (btn.dataset.tab === 'mcp') { loadMcpStatus(); loadMcpServers(); }
       if (btn.dataset.tab === 'email') loadEmailSettings();
-      if (btn.dataset.tab === 'maint') { loadCustomScripts(); loadLogs(); loadUpdateStatus(); loadServerPort(); }
+      if (btn.dataset.tab === 'maint') { loadCustomScripts(); loadLogs(); loadUpdateStatus(); loadServerPort(); startServerHealthPolling(); }
+      else { stopServerHealthPolling(); }
     });
   });
 
@@ -2425,11 +2430,40 @@
     btn.disabled = true;
     resultsBox.style.display = 'none';
     resultsBox.innerHTML = '';
-    msg.textContent = mode === 'disconnect' ? 'Disconnessione in corso...' : 'Riconnessione in corso...';
+    // Bug reale segnalato dal vivo dall'utente (27/08/2026): "ho cliccato connetti tutto è
+    // fermo in riconnessione in corso sembra freezato" - il server NON era davvero bloccato
+    // (verificato subito dopo: rispondeva, tutto risultava connesso), ma "Connetti tutto"
+    // concatena 8 passi reali in sequenza (token Graph, Exchange, Teams, SharePoint, Purview,
+    // Intune, 2 server MCP) in UNA sola chiamata HTTP bloccante - senza nessun segnale di
+    // progresso durante l'attesa (che puo' superare 1-2 minuti su un tenant reale, molto piu'
+    // di quanto visto sul tenant di test con tutto gia' cache/installato), un'operazione
+    // solo LENTA e' indistinguibile da una bloccata per sempre. Stesso schema gia' vissuto e
+    // corretto una volta per il solo login Teams (23/08/2026, "sembra che il server sia
+    // crashato" - vedi Start-M365OpsIsolatedModuleConnectAsync.ps1), qui riemerso perche'
+    // "Connetti tutto" e' codice nuovo che non passava da quel percorso. Non e' stato reso
+    // asincrono (richiederebbe spostare token/sessioni su un processo isolato separato, che
+    // per Exchange/Teams esiste gia' solo come RISPOSTA a un conflitto .NET rilevato, non come
+    // percorso normale - riusarlo qui per tutti gli 8 passi sarebbe un cambiamento molto piu'
+    // ampio e rischioso di quanto serva per il problema reale, che e' solo di percezione/
+    // trasparenza) - corretto invece rendendo l'attesa onesta: un messaggio iniziale che
+    // avvisa della durata attesa, piu' un contatore di secondi trascorsi aggiornato ogni
+    // secondo lato client (che il server non puo' fornire, essendo la richiesta HTTP unica e
+    // bloccante) - prova visibile che la scheda del browser NON e' bloccata, anche se il
+    // server non puo' ancora rispondere.
+    let elapsedSeconds = 0;
+    const initialMsg = mode === 'disconnect'
+      ? 'Disconnessione in corso...'
+      : 'Riconnessione in corso... può richiedere fino a 2-3 minuti (connette Exchange/Teams/SharePoint/Purview/Intune/MCP in sequenza) - non chiudere la pagina.';
+    msg.textContent = initialMsg;
+    const elapsedTimer = setInterval(() => {
+      elapsedSeconds++;
+      msg.textContent = `${initialMsg} (${elapsedSeconds}s)`;
+    }, 1000);
     try {
       if (mode === 'disconnect') {
         const res = await fetch('/api/disconnect-all', { method: 'POST' });
         const data = await res.json();
+        clearInterval(elapsedTimer);
         msg.textContent = data.ok ? '' : ('Errore: ' + data.text);
         // Disconnect-all non restituisce un risultato per-area (interrompe tutto senza
         // condizioni) - i sei riquadri con box dedicato vanno quindi tutti a "non connesso"
@@ -2444,6 +2478,7 @@
       } else {
         const res = await fetch('/api/reconnect-all', { method: 'POST' });
         const data = await res.json();
+        clearInterval(elapsedTimer);
         if (!data.ok) {
           msg.textContent = 'Errore: ' + data.text;
         } else if (data.authMode === 'Delegated') {
@@ -2467,6 +2502,7 @@
         }
       }
     } catch (e) {
+      clearInterval(elapsedTimer);
       msg.textContent = 'Errore di comunicazione: ' + e.message;
     }
     btn.disabled = false;
@@ -2862,6 +2898,52 @@
     }
   });
 
+  // Pannello "il server e' vivo, non bloccato" (27/08/2026, richiesto esplicitamente
+  // dall'utente dopo aver scambiato un "Connetti tutto" solo LENTO per un server bloccato:
+  // "puoi implementare una finestra di stato dove appare chiaro che il server e' up e non
+  // bloccato, dove ci sono anche dei contatori per capire quanto e' veloce/lento in ms e
+  // quanta ram cpu sta occupando"). Interrogazione con TIMEOUT lato client esplicito
+  // (AbortController, non il default di fetch che non scade mai da solo) - senza, una vera
+  // attesa lunga lascerebbe questo pannello a sua volta fermo su "Caricamento..." per l'intera
+  // durata, lo stesso identico problema di trasparenza che questo pannello dovrebbe risolvere.
+  // Il tempo di risposta (ms) e' misurato QUI lato client con performance.now() prima/dopo il
+  // fetch - e' il segnale piu' onesto di "il ciclo principale del server sta rispondendo
+  // ADESSO", il server stesso non lo calcola (vedi GET /api/server-health, deliberatamente
+  // senza alcuna logica oltre a leggere Get-Process $PID, per restare il piu' veloce possibile).
+  let serverHealthTimer = null;
+  let serverHealthLastOkAt = null;
+  async function refreshServerHealth() {
+    const panel = document.getElementById('server-health-panel');
+    if (!panel) return;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const t0 = performance.now();
+    try {
+      const res = await fetch('/api/server-health', { signal: controller.signal });
+      const data = await res.json();
+      const ms = Math.round(performance.now() - t0);
+      clearTimeout(timeoutId);
+      serverHealthLastOkAt = Date.now();
+      panel.innerHTML =
+        `${statusDot(true)}<b>Server attivo</b> — ha risposto in ${ms} ms<br>` +
+        `RAM: ${data.ramMB} MB · CPU totale: ${data.cpuSeconds}s · PID ${data.pid} · in esecuzione da ${Math.round(data.upSeconds / 60)} min`;
+    } catch (e) {
+      clearTimeout(timeoutId);
+      const secsSinceOk = serverHealthLastOkAt ? Math.round((Date.now() - serverHealthLastOkAt) / 1000) : null;
+      panel.innerHTML = secsSinceOk !== null
+        ? `${statusDot(false)}<b>Il server non risponde da ${secsSinceOk}s</b> (l'ultima richiesta ha superato 8s senza risposta). Se hai appena avviato un'operazione lunga (es. "Connetti tutto", un test di connessione, uno script personalizzato), è normale — il server è a thread singolo, resta occupato finché non finisce, poi questo pannello torna da solo. Se persiste per molto oltre 2-3 minuti senza nessuna operazione in corso, usa "Riavvia server" sopra.`
+        : `${statusDot(false)}<b>Il server non risponde</b> (l'ultima richiesta ha superato 8s senza risposta).`;
+    }
+  }
+  function startServerHealthPolling() {
+    if (serverHealthTimer) return;
+    refreshServerHealth();
+    serverHealthTimer = setInterval(refreshServerHealth, 3000);
+  }
+  function stopServerHealthPolling() {
+    if (serverHealthTimer) { clearInterval(serverHealthTimer); serverHealthTimer = null; }
+  }
+
   async function loadServerPort() {
     try {
       const res = await fetch('/api/server-port');
@@ -3071,6 +3153,10 @@
     document.querySelector('footer').style.display = isOpen ? 'none' : '';
     settingsBtn.textContent = isOpen ? '← Torna alla chat' : '⚙ Impostazioni tenant';
     if (isOpen) { loadProfiles(); loadAiSettings(); loadAiUsage(); updateAuthModeFieldVisibility(); loadConnectionStatus(); loadSetupStatus(); }
+    // Chiudendo l'intero pannello impostazioni (non solo cambiando tab dentro di esso) mentre
+    // si era su Manutenzione, il polling dello stato server andrebbe avanti in background per
+    // sempre altrimenti - fermato qui esplicitamente, simmetrico all'avvio in startServerHealthPolling.
+    else { stopServerHealthPolling(); }
   });
 
   // Rimando dalla tab "Documentazione" al pannello Infrastruttura (25/08/2026, richiesto
