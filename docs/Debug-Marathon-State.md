@@ -2504,4 +2504,77 @@ background) — AVVIATO 26/08/2026. Scope: conferma che `$graphDelegatedSessionA
 (non toccati da questo commit, ma da riverificare dato che la spiegazione del meccanismo e' stata
 centrale nella decisione di NON scrivere nuova logica), guard duro sulle scritture Entra ID ancora
 attivo, nessuna regressione sul resto del login delegato Graph (percorso di successo, percorso di
-errore generico non-consenso). — IN CORSO.
+errore generico non-consenso). — COMPLETATO 27/08/2026, **nessuna regressione trovata**, nessuna
+modifica necessaria. Verificato dal vivo con conversazioni chat reali sul tenant "vnsys delegata"
+(Delegato, sessione Graph assente): `cli_m365_run_command` invocato correttamente per il dominio
+CLI365 senza alcun tentativo di `graph_api_call` nello stesso turno (log confermato); tentativo di
+scrittura su un percorso Entra ID (`/users`) tramite `propose_graph_write` rifiutato dal guard duro
+gia' esistente, con reindirizzamento corretto a `propose_cli_m365_command`; un percorso Graph FUORI
+dall'ambito del guard (non `/users|groups|devices|directoryRoles|organization|domains`) e' passato
+correttamente senza intercettazione, confermando che il guard resta mirato e non e' diventato una
+rete piu' larga per errore. Nessuna modifica al codice, solo verifica.
+
+---
+
+## Seguito: report di utilizzo Microsoft 365 Copilot agganciati all'IA in chat (v0.10.21, 27/08/2026)
+
+Richiesto esplicitamente dall'utente subito dopo la chiusura del giro v0.10.19/v0.10.20: "certo
+aggancia le funzoni alla app" (riferito a `Get-M365OpsCopilotUsageReport`/
+`Get-M365OpsCopilotUsageSummary`, implementate il 22/08/2026 - sezione 24 della guida - ma mai
+raggiungibili se non da console PowerShell diretta, confermato con un grep mirato su
+`CommandCatalog.ps1`/`Server.ps1`/`Invoke-M365OpsAgentTools.ps1`/`index.html`: zero riferimenti a
+"Copilot" in nessuno dei quattro).
+
+**Fatto**: due nuovi tool AI in `Invoke-M365OpsAgentTools.ps1` (definizione + dispatch),
+`get_copilot_usage_summary` e `get_copilot_usage_report`, entrambi SOLA LETTURA con parametro
+opzionale `period` (default D30, stesso `ValidateSet` delle cmdlet sottostanti). Nessuna modifica
+alle due cmdlet stesse (gia' corrette e complete). **Deliberatamente non aggiunta** una voce nel
+catalogo comandi locale (`CommandCatalog.ps1`): quel meccanismo di trigger deterministico e' il
+risultato di svariati giri di bug-hunt mirati sulle sue voci gemelle (MfaStatus/ListDevices/
+UserOverview - vedi i loro lunghi commenti su DeferWords/frasi di continuazione/invio email in
+coda), tutti trovati SOLO con stress-test dal vivo ripetuti - duplicare quel pattern da zero senza
+lo stesso livello di test avrebbe rischiato di reintrodurre le stesse classi di bug gia' risolte
+altrove, a fronte di un beneficio marginale (il tool AI copre gia' lo stesso caso d'uso in
+linguaggio naturale, senza il costo di manutenzione del catalogo deterministico).
+
+**Verificato dal vivo** sul server di test (`vnsys-test`, App-only, tenant reale attivato via
+`POST /api/tenants/activate`): due messaggi chat separati via `POST /api/chat`.
+1. "quanti utenti stanno usando copilot in teams negli ultimi 30 giorni?" → l'IA ha invocato
+   `get_copilot_usage_summary` (nessun `period` esplicito, default D30 usato correttamente), la
+   chiamata Graph reale (`/copilot/reports/getMicrosoft365CopilotUserCountSummary`) ha risposto
+   403 "S2SUnauthorized: Invalid permission" (permesso `Reports.Read.All` non ancora concesso su
+   questo tenant di test, stesso limite gia' documentato in sezione 24.2 dal 22/08/2026) - l'IA ha
+   riportato l'errore reale all'utente, spiegando il permesso mancante, senza mai inventare "nessun
+   dato disponibile".
+2. "dammi il dettaglio per singolo utente di chi ha usato copilot negli ultimi 90 giorni" → l'IA
+   ha invocato `get_copilot_usage_report` con `period=D90` riconosciuto correttamente dal testo
+   libero ("ultimi 90 giorni" → `D90`, non il default), stesso 403 reale propagato onestamente.
+
+**Nota collaterale, bug pre-esistenti trovati per caso**: durante la verifica di bilanciamento tag
+di questa stessa modifica alla guida (disciplina standard della maratona), il controllo
+open/close per conteggio (`tagcheck.js`) ha segnalato `div: open=132 close=128` sul documento GIA'
+COMMITTATO (non causato da questa modifica - confermato confrontando `git show HEAD` PRIMA di
+editare). Un controllo piu' preciso stack-based (non solo conteggio, per localizzare la riga
+esatta) ha isolato 2 `<div>` realmente mai chiusi (escludendo 2 falsi positivi dentro un commento
+HTML in testa al file, che contiene `<div class="note">`/`<div class="warn">` come ESEMPIO
+testuale per chi estende la guida - non tag reali). Causa reale in entrambi i casi: un `</p>`
+scritto per errore al posto di `</div>` in chiusura di un box `<div class="warn">` (confermato
+incrociando con un conteggio separato dei tag `<p>`, che mostrava esattamente 2 `</p>` orfani senza
+alcun `<p>` di apertura corrispondente, alle stesse identiche righe). Un terzo `</p>` orfano trovato
+nello stesso giro (sezione "17.20 La guida resta raggiungibile") non lasciava nulla aperto (il
+`</div>` corretto seguiva comunque subito dopo) - solo un tag invalido senza impatto visivo reale,
+rimosso per correttezza. **Impatto reale dei primi due**: il box "warn" (arancione, box di
+attenzione/problema aperto) restava tecnicamente aperto nell'HTML fino al successivo `</div>` reale
+piu' a valle - nel caso piu' vistoso (sezione sul ruolo directory Entra ID), questo ingloba un box
+"ok" (verde, "CONFERMATO... risolto") dentro quello che nell'HTML risultava ancora un box "ancora
+irrisolto", un problema di rendering reale (non solo di markup invalido silenzioso) probabilmente
+presente da quando quella sezione e' stata scritta. Corretti tutti e tre; riverificato con lo
+stesso controllo stack-based su div/p/span/section/button sull'intero documento: 0 tag non chiusi
+su tutti e cinque. **Nessuna relazione con la correzione precedente dello script scratchpad
+`tagcheck.js`** (quella riguardava uno strumento di supporto locale danneggiato da un giro
+precedente, non il repository - vedi sezione sopra): qui il bug era nel documento vero, non nello
+strumento di verifica.
+
+Versione modulo `0.10.21`, changelog in `docs/Guida-Configurazione.html`, PDF rigenerato, 396 file
+`.ps1` sintatticamente puliti (nessuna modifica a file `.ps1` oltre `Invoke-M365OpsAgentTools.ps1`,
+gia' verificato singolarmente).

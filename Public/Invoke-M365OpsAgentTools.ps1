@@ -328,6 +328,22 @@ PAGINAZIONE (bug reale osservato il 19/08/2026: chiesto 'ci sono stati accessi s
             }
         }
         @{
+            name = "get_copilot_usage_summary"
+            description = "Numero aggregato di utenti Microsoft 365 Copilot abilitati/attivi per app (Teams/Word/Excel/PowerPoint/Outlook/OneNote/Loop/Copilot Chat) su un periodo - stessi dati di 'Report > Utilizzo > Microsoft 365 Copilot' nell'admin center, vista riassuntiva. SOLA LETTURA. Usa questo per domande aggregate ('quanti utenti usano Copilot in Teams'); usa get_copilot_usage_report per il dettaglio per singolo utente. Richiede il permesso Graph Reports.Read.All (Application) sull'app registration - se non concesso, l'errore Graph 403 va riportato all'utente cosi' com'e', non reinterpretato come 'nessun dato'."
+            input_schema = @{
+                type       = "object"
+                properties = @{ period = @{ type = "string"; enum = @("D7", "D30", "D90", "D180", "ALL"); description = "Finestra di aggregazione in giorni precedenti. Se l'utente non specifica un periodo, ometti per usare il default D30." } }
+            }
+        }
+        @{
+            name = "get_copilot_usage_report"
+            description = "Report per-utente di utilizzo Microsoft 365 Copilot: ultima attivita' complessiva e per singola app (Teams/Word/Excel/PowerPoint/Outlook/OneNote/Loop/Copilot Chat) - stessi dati di 'Report > Utilizzo > Microsoft 365 Copilot' nell'admin center, vista dettagliata. SOLA LETTURA. Restituisce dati solo per utenti con licenza Microsoft 365 Copilot assegnata. Usa get_copilot_usage_summary invece se serve solo un conteggio aggregato. Richiede il permesso Graph Reports.Read.All (Application) - se non concesso, l'errore Graph 403 va riportato all'utente cosi' com'e', non reinterpretato come 'nessun dato'."
+            input_schema = @{
+                type       = "object"
+                properties = @{ period = @{ type = "string"; enum = @("D7", "D30", "D90", "D180", "ALL"); description = "Finestra di aggregazione in giorni precedenti. Se l'utente non specifica un periodo, ometti per usare il default D30." } }
+            }
+        }
+        @{
             name = "lookup_ms_docs"
             description = "Consulta la documentazione REALE e aggiornata di Microsoft Learn per una cmdlet Exchange Online (es. 'New-Mailbox', 'Set-CalendarProcessing') o un argomento Graph - MAI affidarti alla tua sola conoscenza pregressa dei parametri disponibili, che puo' essere incompleta o superata. Usalo: (1) PRIMA di includere in -ExtraParams un parametro che non hai gia' verificato in questa conversazione, per essere sicuro del nome esatto e del formato atteso; (2) quando l'utente chiede esplicitamente 'quali altre opzioni ci sono' per un comando - in quel caso elenca le opzioni reali trovate, non indovinarle; (3) quando stai per proporre uno script nuovo o una correzione che usa una cmdlet Exchange/Graph non standard. Restituisce la sintassi completa con tutti i parametri e i loro tipi."
             input_schema = @{
@@ -1363,6 +1379,8 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                     "get_user_overview" { Get-M365OpsUserOverview -Upn $block.input.upn | ConvertTo-Json -Depth 6 -Compress }
                     "get_group_overview" { Get-M365OpsGroupOverview -GroupName $block.input.groupName | ConvertTo-Json -Depth 6 -Compress }
                     "get_user_mfa_status" { Get-M365OpsUserMfaStatus -Upn $block.input.upn | ConvertTo-Json -Depth 6 -Compress }
+                    "get_copilot_usage_summary" { $p = if ($block.input.period) { $block.input.period } else { 'D30' }; ConvertTo-Json -InputObject @(Get-M365OpsCopilotUsageSummary -Period $p) -Depth 5 -Compress -AsArray }
+                    "get_copilot_usage_report" { $p = if ($block.input.period) { $block.input.period } else { 'D30' }; ConvertTo-Json -InputObject @(Get-M365OpsCopilotUsageReport -Period $p) -Depth 5 -Compress -AsArray }
                     "propose_mfa_reset" {
                         if ($pendingWrite) {
                             "Rifiutato: e' gia' in sospeso un'altra proposta di scrittura in questa stessa risposta ('$($pendingWrite.Kind)'). Puoi proporne solo UNA per risposta - concludi qui spiegando la proposta gia' registrata, poi proponi questa (reset MFA) in un messaggio separato dopo che la prima e' stata confermata ed eseguita."
