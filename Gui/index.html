@@ -1463,6 +1463,7 @@
     } catch (e) {
       panel.innerHTML = 'Errore nel caricare lo stato — server non raggiungibile?';
       delegatedLoginBox.style.display = 'none';
+      document.getElementById('delegated-login-consent-fallback').style.display = 'none';
       return;
     }
 
@@ -1488,6 +1489,21 @@
     panel.innerHTML = rows.join('<br>');
 
     delegatedLoginBox.style.display = isDelegated ? 'block' : 'none';
+    // Bug reale trovato in stress-test (27/08/2026): questa funzione (alias
+    // refreshDelegatedLoginBox, chiamata anche su cambio tenant attivo, vedi activateProfile)
+    // mostrava/nascondeva solo il box padre in base al tenant appena attivato, ma non toccava
+    // mai lo stato del box di fallback CLI365 dentro di esso (vedi NeedsAdminConsent in
+    // Complete-M365OpsDelegatedLogin.ps1) - se un tentativo di login falliva per consenso
+    // mancante su un tenant e l'utente cambiava poi tenant (anche verso uno Delegato diverso
+    // che non ha mai avuto quel problema, o passando per un tenant App-only in mezzo, che lo
+    // nascondeva solo visivamente senza pulirne lo stato), il box restava "sporco" e
+    // ricompariva mostrando il messaggio/pulsante del tentativo fallito precedente appena il
+    // tenant tornava ad essere Delegato - riprodotto dal vivo con due tenant Delegati diversi.
+    // Il campo NeedsAdminConsent e' per costruzione valido solo per il RISULTATO di un
+    // tentativo di login appena fatto (vedi pollDelegatedOnce piu' sotto) - va sempre nascosto
+    // qui, che e' l'unico punto che gestisce ogni altro refresh (cambio tenant, riavvio
+    // periodico, ecc.), mai lasciato visibile "per eredita'" da un tentativo precedente.
+    document.getElementById('delegated-login-consent-fallback').style.display = 'none';
     if (isDelegated) {
       delegatedLoginStatus.textContent = data.delegatedSessionActive
         ? `Sessione attiva per ${data.delegatedUpn || 'utente delegato'}.`

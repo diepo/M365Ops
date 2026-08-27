@@ -2440,4 +2440,68 @@ in conteggi palesemente sbagliati alla prima verifica di questo giro. Individuat
 risultato - non ha mai riguardato `Gui/index.html` stesso, il file del progetto e' risultato
 sempre bilanciato una volta usato uno strumento di verifica corretto.
 
-Spedito in v0.10.19.
+Spedito in v0.10.19. Su richiesta esplicita dell'utente ("dopo parti con la sessione di test di
+quanto fatto, stress test e spinna gli agenti per identificare bug"), DUE agenti paralleli avviati
+subito dopo questa dichiarazione, scope centrato sul solo cambiamento v0.10.19:
+
+**Agente "Stress-test riconoscimento consenso mancante + edge case GUI"** (general-purpose,
+background) — AVVIATO 26/08/2026. Scope: robustezza della regex `AADSTS65001` contro varianti
+reali del messaggio d'errore Azure AD, comportamento su tenant AppOnly (dove questo meccanismo non
+dovrebbe mai attivarsi), interazione con un login gia' in corso/annullato, stato del box dopo
+switch tenant, CLI365 non configurato come connettore (il pulsante esiste comunque? cosa succede
+al click?). — COMPLETATO 27/08/2026, **1 bug reale trovato e corretto** (spedito in v0.10.20).
+
+**Risultato agente "Stress-test riconoscimento consenso mancante + edge case GUI"**:
+
+- **Regex `AADSTS65001`** (`Public/Complete-M365OpsDelegatedLogin.ps1`): testata contro 5 varianti
+  plausibili del messaggio reale (resource/client id diversi, testo in tedesco, prefissato da
+  `invalid_grant:`, con trace ID/correlation ID/timestamp appesi, su piu' righe con
+  `authorization_pending`) - riconosciuta correttamente in tutti i casi, ancorata solo sul codice
+  numerico come da progetto. Controllo di falso positivo: nessun codice AADSTS realmente
+  documentato da Microsoft nel range `650010`-`650019` risulta esistere oggi, quindi nessun rischio
+  concreto attuale - annotato solo come osservazione minore (la regex non e' ancorata con un
+  confine di parola, quindi un futuro codice `AADSTS65001X` con X cifra darebbe un falso positivo
+  teorico; non corretto perche' non e' un bug reale oggi, solo un'ipotesi non dimostrata).
+- **Tenant AppOnly**: confermato che `Start-M365OpsDelegatedLogin.ps1` lancia un'eccezione esplicita
+  prima ancora di generare un device code se `AuthMode -ne 'Delegated'` - l'intero meccanismo
+  (compreso `NeedsAdminConsent`) e' quindi strutturalmente irraggiungibile su AppOnly, verificato
+  anche lato GUI (vedi sotto).
+- **Login in corso poi "annullato" e riavviato**: confermato dal vivo (due chiamate consecutive a
+  `/api/delegated-login/start` sullo stesso tenant) che `Start-M365OpsDelegatedLogin` sovrascrive
+  sempre `$script:M365OpsPendingDeviceCode[$tenantName]` con il nuovo flow (due `UserCode` distinti
+  ottenuti) - "annulla" lato client non lascia mai un device code stantio interferire, per
+  costruzione (una sola voce per tenant nel dizionario). Nessun problema trovato qui.
+- **CLI-Microsoft365 "non configurato"**: verificato che dal 23/08/2026 (nota gia' presente in
+  `Get-M365OpsMcpServers.ps1`) CLI-Microsoft365 e' un default built-in sempre presente per ogni
+  tenant, quindi lo scenario letterale "non in `McpServers`" non si verifica piu' in pratica per
+  questo connettore specifico. Verificato comunque che il percorso di errore generico
+  (`Connect-M365OpsMcpServer.ps1` riga 66, per un nome server davvero assente) degrada in modo
+  chiaro e non confuso: `{ok:false, text:"Errore: Server MCP '<nome>' non configurato per questo
+  tenant (tab Tenant, sezione Stato connessioni)."}`, mostrato cosi' com'e' nel messaggio accanto
+  al pulsante — nessun problema trovato.
+- **BUG REALE TROVATO E CORRETTO** (v0.10.20): box `#delegated-login-consent-fallback` mostrato
+  (es. dopo un fallimento per consenso su un tenant) restava visibile con il messaggio/pulsante del
+  tentativo precedente dopo un cambio di tenant attivo — riprodotto dal vivo con due tenant Delegati
+  diversi (mostrato il box su un tenant, attivato un secondo tenant Delegato mai toccato da quel
+  problema: il box restava `display:block`). Passando per un tenant App-only in mezzo il box padre
+  si nascondeva SOLO visivamente (mascherando il problema senza risolverlo) - tornando su un
+  qualunque tenant Delegato dopo, riappariva comunque sporco (riprodotto anche questo dal vivo).
+  Causa: `loadConnectionStatus`/`refreshDelegatedLoginBox` (richiamata da `activateProfile` ad ogni
+  cambio tenant) gestiva solo la visibilita' del box padre `#delegated-login-box`, mai quella del
+  box figlio di fallback, il cui stato e' per costruzione valido solo per il risultato di un
+  tentativo di login appena fatto. Corretto nascondendo esplicitamente
+  `#delegated-login-consent-fallback` in entrambi i percorsi di `loadConnectionStatus` (normale e
+  di errore/server irraggiungibile) - ogni refresh (cambio tenant compreso) riparte sempre pulito.
+  Verificato dal vivo sul server di test reale, stessa sequenza usata per riprodurre il bug: box
+  mostrato -> tenant Delegato diverso (nascosto) -> tenant App-only (nascosto) -> tenant Delegato
+  originale (ancora correttamente nascosto, contro `block` prima della correzione). Nessuna
+  regressione sul percorso positivo dopo la correzione. Changelog in
+  `docs/Guida-Configurazione.html`, PDF rigenerato, versione modulo `0.10.20`.
+
+**Agente "Verifica meccanismo di priorita' IA gia' esistente, non regredito"** (general-purpose,
+background) — AVVIATO 26/08/2026. Scope: conferma che `$graphDelegatedSessionActive`/
+`$cliM365ProactivePreference` in `Invoke-M365OpsAgentTools.ps1` continuano a funzionare come prima
+(non toccati da questo commit, ma da riverificare dato che la spiegazione del meccanismo e' stata
+centrale nella decisione di NON scrivere nuova logica), guard duro sulle scritture Entra ID ancora
+attivo, nessuna regressione sul resto del login delegato Graph (percorso di successo, percorso di
+errore generico non-consenso). — IN CORSO.
