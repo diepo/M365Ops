@@ -27,22 +27,33 @@ function Connect-M365OpsCliMicrosoft365 {
         delegata").
 
     .NOTES
-        Limite noto, dichiarato esplicitamente invece di tentare un percorso instabile:
-        verificato su pnp.github.io/cli-microsoft365/cmd/login che 'm365 login --authType
-        certificate' accetta --certificateFile o --certificateBase64Encoded (il CONTENUTO del
-        certificato) - esiste anche un flag --thumbprint, ma la documentazione non chiarisce
-        se da solo basti a referenziare un certificato gia' installato nel certificate store
-        di Windows (il meccanismo usato ovunque in M365Ops per Exchange/Teams/SharePoint/
-        Intune, vedi ExchangeCertThumbprint) o se serva comunque insieme al file/base64.
-        Esportare automaticamente la chiave privata da un certificato gia' installato
-        richiederebbe gestire una passphrase aggiuntiva per il .pfx esportato - un nuovo
-        materiale segreto da introdurre solo per questo, non ancora giustificato senza aver
-        prima verificato dal vivo il comportamento di --thumbprint da solo. Per questo, un
-        profilo AppOnly SOLO a certificato (senza SecretEnvVar) non e' supportato da questa
-        funzione - lancia un errore chiaro invece di un tentativo instabile. Un profilo
-        AppOnly CON un SecretEnvVar configurato usa invece '--authType secret' (riusa lo
-        stesso identico secret gia' usato per Lokka/Exchange/Graph, nessuna configurazione
-        aggiuntiva).
+        AUTENTICAZIONE A CERTIFICATO (27/08/2026, implementata dopo aver verificato dal vivo
+        quanto sotto era solo un'ipotesi non confermata): 'm365 login --help' (CLI installata,
+        v11.10.0) conferma che --thumbprint da solo NON basta a referenziare un certificato
+        gia' installato nel certificate store di Windows - e' calcolato automaticamente DAL
+        certificato fornito, non un modo per puntarne uno esistente. Serve quindi
+        --certificateFile o --certificateBase64Encoded (il CONTENUTO del certificato, non solo
+        il thumbprint) - stesso limite gia' sospettato ma non verificato in una versione
+        precedente di questa funzione. Verificato inoltre dal vivo (autorizzazione esplicita
+        dell'utente, trattandosi di materiale di chiave privata) che il certificato gia'
+        configurato per Exchange su questo progetto (ExchangeCertThumbprint) HA la chiave
+        privata esportabile - non scontato, molti certificati di produzione la marcano non
+        esportabile per scelta. Implementato quindi: il certificato viene esportato in formato
+        PFX **in memoria** (mai scritto su disco) con una password casuale generata per
+        l'occasione (GUID, mai persistita, scartata subito dopo l'uso), poi codificato in
+        base64 e passato a --certificateBase64Encoded/--password - stesso principio gia'
+        accettato in questo progetto per --secret qui sotto (pattern di automazione
+        documentato ufficialmente da CLI Microsoft 365 per questo scenario, nessuna
+        alternativa esposta dal tool MCP). Se l'export fallisce (chiave non esportabile),
+        l'errore lo dice chiaramente invece di un fallimento criptico piu' avanti.
+
+        PRIORITA' certificato > secret quando ENTRAMBI sono configurati: il certificato copre
+        esattamente lo stesso dominio del secret (Entra/Outlook/Planner, verificato) PIU'
+        SharePoint (che il secret non copre mai, vedi limite sotto) - e' quindi strettamente
+        preferibile quando disponibile, nessun motivo per restare sul secret in quel caso. Un
+        profilo AppOnly senza ne' ExchangeCertThumbprint ne' SecretEnvVar configurati non e'
+        supportato da questa funzione - lancia un errore chiaro invece di un tentativo
+        instabile.
 
         Tenant Delegato (aggiunto il 26/08/2026, dopo un primo giro che lo escludeva del
         tutto): 'm365 login --authType browser' apre un vero browser di sistema e BLOCCA il
@@ -64,11 +75,12 @@ function Connect-M365OpsCliMicrosoft365 {
         - verificato su 'm365 spo site list' con una connessione secret gia' autenticata e
         funzionante su Entra/Graph (stesso identico login, comandi diversi). Le altre aree
         (Entra, Outlook, Planner, verificate dal vivo con dati reali) funzionano correttamente
-        con secret - SharePoint via CLI Microsoft 365 resta quindi utilizzabile SOLO su
-        tenant configurati con login a certificato, non ancora supportato da questa funzione
-        (vedi limite sopra). Documentato anche nel system prompt dello strumento
-        (Invoke-M365OpsAgentTools.ps1) cosi' l'AI non propone comandi 'spo' su un tenant con
-        solo secret configurato aspettandosi che funzionino.
+        con secret. RISOLTO il 27/08/2026 per i profili con un certificato configurato (vedi
+        sopra): 'spo' via CLI Microsoft 365 funziona con --authType certificate, resta invece
+        limitato al solo secret (quindi senza 'spo') per i profili senza alcun certificato
+        configurato. Documentato anche nel system prompt dello strumento
+        (Invoke-M365OpsAgentTools.ps1), che ora distingue i due casi invece di escludere
+        sempre 'spo' su CLI365.
     #>
     param([switch]$AllowInteractive)
 
@@ -147,9 +159,45 @@ function Connect-M365OpsCliMicrosoft365 {
         # prompt interattivo.
         $loginCommand = "m365 login --authType browser --appId `"$script:M365OpsDeviceCodeClientId`" --tenant `"$($script:M365OpsContext.TenantId)`" --connectionName `"$connectionName`" --output json"
     }
+    elseif ($script:M365OpsContext.ExchangeCertThumbprint) {
+        # Certificato preferito al secret quando disponibile (vedi .NOTES: copre lo stesso
+        # dominio PIU' SharePoint). Stesso lookup a due store gia' usato ovunque nel progetto
+        # per questo stesso certificato (Connect-M365OpsExchange/Teams/SharePoint/Intune,
+        # New-M365OpsCertificateAssertion.ps1).
+        $thumbprint = $script:M365OpsContext.ExchangeCertThumbprint
+        $cert = Get-Item "Cert:\CurrentUser\My\$thumbprint" -ErrorAction SilentlyContinue
+        if (-not $cert) { $cert = Get-Item "Cert:\LocalMachine\My\$thumbprint" -ErrorAction SilentlyContinue }
+        if (-not $cert) {
+            throw "Certificato con thumbprint '$thumbprint' non trovato ne' in Cert:\CurrentUser\My ne' in Cert:\LocalMachine\My - stesso certificato gia' usato per Exchange deve essere installato su questo PC."
+        }
+        if (-not $cert.HasPrivateKey) {
+            throw "Il certificato con thumbprint '$thumbprint' non ha una chiave privata su questo PC - impossibile usarlo per il login CLI Microsoft 365."
+        }
+
+        # Password casuale generata SOLO per questo export in memoria - un GUID (solo caratteri
+        # esadecimali, nessuno speciale da fare l'escape quando finisce dentro la stringa di
+        # comando passata al tool MCP) mai persistita, scartata subito dopo l'uso. Il PFX
+        # risultante resta SEMPRE in memoria (array di byte -> base64), MAI scritto su disco -
+        # a differenza di un file temporaneo, non c'e' nulla da ripulire ne' rischio che resti
+        # li' per sbaglio.
+        $pfxPassword = [guid]::NewGuid().ToString('N')
+        $securePfxPassword = ConvertTo-SecureString -String $pfxPassword -AsPlainText -Force
+        try {
+            $pfxBytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $securePfxPassword)
+        } catch {
+            throw "Impossibile esportare la chiave privata del certificato '$thumbprint' (verificato dal vivo il 27/08/2026 su un certificato di test: non tutti i certificati la consentono, dipende da come e' stato marcato all'importazione) - CLI Microsoft 365 richiede il contenuto del certificato, non solo il thumbprint (vedi .NOTES). Errore originale: $($_.Exception.Message)"
+        }
+        $pfxBase64 = [Convert]::ToBase64String($pfxBytes)
+
+        # NOTA: stesso principio gia' accettato in questo progetto per --secret sotto - il
+        # contenuto del certificato e la sua password transitano come argomenti verso il
+        # processo figlio (nessuna alternativa esposta dal tool MCP), visibili solo per
+        # l'istante di avvio del processo, mai scritti su disco.
+        $loginCommand = "m365 login --authType certificate --certificateBase64Encoded `"$pfxBase64`" --password `"$pfxPassword`" --appId `"$($script:M365OpsContext.ClientId)`" --tenant `"$($script:M365OpsContext.TenantId)`" --connectionName `"$connectionName`" --output json"
+    }
     else {
         if (-not $script:M365OpsContext.SecretEnvVar) {
-            throw "CLI Microsoft 365 richiede un client secret configurato per questo profilo ('$connectionName') - l'autenticazione a certificato non e' supportata da questa integrazione (vedi .NOTES di questa funzione). Usa Set-M365OpsTenant -SecretEnvVar per impostarne uno, oppure non collegare questo server MCP su questo profilo."
+            throw "CLI Microsoft 365 richiede un client secret o un certificato configurato per questo profilo ('$connectionName'). Usa Set-M365OpsTenant -SecretEnvVar o -ExchangeCertThumbprint per impostarne uno, oppure non collegare questo server MCP su questo profilo."
         }
         $secret = Get-M365OpsSecret -Name $script:M365OpsContext.SecretEnvVar
         if (-not $secret) { throw "Secret del tenant ('$($script:M365OpsContext.SecretEnvVar)') non trovato." }

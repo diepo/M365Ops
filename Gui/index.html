@@ -324,7 +324,7 @@
     </svg>
     <div>
       <h1>M365 Ops Assistant</h1>
-      <span id="tenant-label">connessione...</span>
+      <span id="ambient-conn-indicator" title="Stato connessioni del tenant attivo - clicca per aprire il tab Tenant" style="cursor:pointer; display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--text-muted); margin-right:5px; vertical-align:middle;"></span><span id="tenant-label">connessione...</span>
     </div>
   </div>
   <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end;">
@@ -972,9 +972,47 @@
     }
   }
 
+  // Pallino ambientale nell'header (27/08/2026, richiesto esplicitamente dall'utente: prima
+  // per vedere se qualcosa era connesso serviva entrare nel tab Tenant ogni volta). Verde se
+  // almeno una connessione risulta attiva (stessa logica di computeAnyConnected gia' usata dal
+  // pulsante Disconnetti/Connetti tutto - un solo posto che decide "cosa vuol dire connesso"),
+  // grigio/muto altrimenti O se la richiesta fallisce/va in timeout - deliberatamente MAI un
+  // rosso allarmante qui: durante un'operazione lunga nota (es. "Connetti tutto") il server e'
+  // semplicemente occupato, non morto (vedi pannello "Stato del processo" in Manutenzione per
+  // quella diagnosi piu' approfondita, con timeout/messaggio dedicati) - questo pallino e' solo
+  // un colpo d'occhio ambientale, non uno strumento diagnostico.
+  function updateAmbientConnIndicator(data) {
+    const dot = document.getElementById('ambient-conn-indicator');
+    if (!dot) return;
+    const anyConnected = computeAnyConnected(data);
+    dot.style.background = anyConnected ? 'var(--ok)' : 'var(--text-muted)';
+    dot.title = (anyConnected ? 'Almeno una connessione attiva' : 'Nessuna connessione attiva') + ' - clicca per aprire il tab Tenant';
+  }
+  async function refreshAmbientConnIndicator() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch('/api/mcp-status', { signal: controller.signal });
+      const data = await res.json();
+      clearTimeout(timeoutId);
+      updateAmbientConnIndicator(data);
+    } catch (e) {
+      clearTimeout(timeoutId);
+      // Nessun cambio di colore qui deliberatamente (vedi commento sopra) - lascia l'ultimo
+      // stato noto invece di lampeggiare grigio/rosso ad ogni singolo blip, che sarebbe piu'
+      // fuorviante che utile per un indicatore pensato per un colpo d'occhio passivo.
+    }
+  }
+  document.getElementById('ambient-conn-indicator').addEventListener('click', () => {
+    if (!settingsPanel.classList.contains('open')) { settingsBtn.click(); }
+    document.querySelector('.tab-btn[data-tab="tenant"]').click();
+  });
+
   async function init() {
     await loadChatPanel();
     checkUpdateBanner();
+    refreshAmbientConnIndicator();
+    setInterval(refreshAmbientConnIndicator, 20000);
   }
 
   async function checkUpdateBanner() {
@@ -1473,6 +1511,22 @@
     return `<span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:${ok ? 'var(--ok)' : 'var(--warn)'}; margin-right:6px;"></span>`;
   }
 
+  // Estratta come funzione condivisa (27/08/2026) - prima duplicata dentro loadConnectionStatus
+  // per il pulsante Disconnetti/Connetti tutto, ora riusata anche dal pallino ambientale
+  // nell'header (sempre visibile, non solo nel tab Tenant) per evitare che le due logiche
+  // "cosa vuol dire connesso" divergano nel tempo. Copre anche il token Graph diretto
+  // (data.appOnlyTokenCached) e OGNI server MCP configurato, non solo le cinque aree con un
+  // riquadro dedicato nel tab Tenant.
+  function computeAnyConnected(data) {
+    const isDelegated = data.authMode === 'Delegated';
+    return !!(
+      (isDelegated ? data.delegatedSessionActive : data.appOnlyTokenCached) ||
+      data.exchangeConnected || data.sharePointConnected || data.teamsConnected ||
+      data.complianceConnected || data.intuneConnected ||
+      (data.mcpServers || []).some(s => s.connected)
+    );
+  }
+
   async function loadConnectionStatus() {
     const panel = document.getElementById('connection-status-panel');
     let data;
@@ -1664,15 +1718,11 @@
     // dedicato qui sopra.
     const disconnectAllBtn = document.getElementById('disconnect-all-btn');
     if (disconnectAllBtn) {
-      const anyConnected = !!(
-        (isDelegated ? data.delegatedSessionActive : data.appOnlyTokenCached) ||
-        data.exchangeConnected || data.sharePointConnected || data.teamsConnected ||
-        data.complianceConnected || data.intuneConnected ||
-        (data.mcpServers || []).some(s => s.connected)
-      );
+      const anyConnected = computeAnyConnected(data);
       disconnectAllBtn.textContent = anyConnected ? 'Disconnetti tutto' : 'Connetti tutto';
       disconnectAllBtn.dataset.mode = anyConnected ? 'disconnect' : 'connect';
     }
+    updateAmbientConnIndicator(data);
   }
   // Alias per compatibilità con chiamate esistenti nel resto dello script.
   const refreshDelegatedLoginBox = loadConnectionStatus;

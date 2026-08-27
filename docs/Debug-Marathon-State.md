@@ -2810,3 +2810,107 @@ il problema dovesse ripresentarsi in una forma che la sola trasparenza non basta
   sopra.
 
 Versione modulo `0.10.24`, changelog in `docs/Guida-Configurazione.html`, PDF rigenerato.
+
+---
+
+## Seguito: SharePoint via CLI365 a certificato + pallino ambientale (v0.10.25, 27/08/2026)
+
+Richiesto dopo una domanda aperta dell'utente ("che altre features possiamo aggiungerE?"),
+a cui ho risposto con 4 opzioni concrete basate su gap gia' documentati nel progetto.
+L'utente ha scelto: "implementa 1 e 3" (SharePoint via CLI365 a certificato + indicatore di
+connessione persistente), poi durante l'implementazione ha aggiunto una domanda aperta
+sull'utilita' di un generatore di certificato in GUI (vedi sezione separata sotto per quella,
+NON ancora implementata a fine di questo blocco) e infine "sipoi implementa l'opzione 1 dove
+l'utente fa upload" (conferma della versione scoperta del generatore cert, da fare come
+prossimo passo).
+
+**1) SharePoint via CLI365 a certificato**: limite noto dal 26/08/2026, mai risolto perche'
+non era mai stato verificato dal vivo se '--thumbprint' da solo bastasse a referenziare un
+certificato gia' nel certificate store di Windows. Verificato ora con `m365 login --help`
+(CLI installata su questa macchina, v11.10.0): NO, serve il contenuto vero del certificato
+(`--certificateFile`/`--certificateBase64Encoded`) - il thumbprint e' calcolato dal
+certificato fornito, non un riferimento. **Passaggio delicato**: prima di implementare,
+richiesto un controllo dell'esportabilita' della chiave privata del certificato Exchange gia'
+in uso - il classificatore di sicurezza di Claude Code ha bloccato il primo tentativo
+(materiale di chiave privata, azione sensibile), chiesto e ottenuto il permesso esplicito
+dall'utente per procedere, poi verificato dal vivo: `HasPrivateKey: True`,
+`.Export(Pfx, password)` riuscito (2580 byte) - il certificato E' esportabile su questo PC
+(non scontato, molti certificati di produzione non lo sono).
+
+**Implementato**: `Connect-M365OpsCliMicrosoft365.ps1`, nuovo ramo `elseif
+($script:M365OpsContext.ExchangeCertThumbprint)` PRIMA del ramo secret (certificato ora
+preferito quando disponibile - copre lo stesso dominio del secret PIU' SharePoint) - stesso
+lookup a due store (`Cert:\CurrentUser\My` poi `Cert:\LocalMachine\My`) gia' usato ovunque nel
+progetto per questo certificato. Password casuale (GUID, solo esadecimale, nessun escape da
+gestire) generata SOLO per l'export, mai persistita. PFX esportato **in memoria**, mai su
+disco - convertito subito in base64 e passato a `--certificateBase64Encoded`/`--password`,
+stesso principio gia' accettato per `--secret` (pattern documentato ufficialmente da CLI
+Microsoft 365, nessuna alternativa esposta dal tool MCP).
+
+Aggiornato anche `Invoke-M365OpsAgentTools.ps1`: nuovo flag `$cliM365SpoSupportedAppOnly`
+(calcolato dal vivo sul tenant ATTIVO: AppOnly + ExchangeCertThumbprint configurato), usato
+per rendere condizionali (non piu' un "MAI" statico) sia il system prompt generale sia le
+description dei due tool `cli_m365_run_command`/`propose_cli_m365_command`. Deliberatamente
+NON toccata l'affermazione sul comportamento Delegato (login a browser, mai verificato dal
+vivo per 'spo' specificamente ne' in un modo ne' nell'altro) - fuori scope di quanto
+verificato oggi.
+
+**Verificato dal vivo end-to-end** su vnsys-test: rimossa la connessione CLI365 salvata da
+sessioni precedenti (era a secret, avrebbe fatto sembrare il test un successo senza aver mai
+esercitato il nuovo codice) con `m365 connection remove --name vnsys-test --force`,
+riconnesso via `POST /api/mcp-servers/connect` - `m365 connection list --output json` conferma
+`"authType":"certificate"` sulla nuova connessione (prima era `"secret"`). Poi in chat: "chiama
+cli_m365_run_command con m365 spo site list, non usare graph_api_call" -> "Comando `m365 spo
+site list` eseguito correttamente. L'elenco dei siti SharePoint e' stato restituito." - lo
+stesso comando che su questo stesso tenant falliva SEMPRE con solo secret configurato.
+
+**2) Pallino di stato connessioni sempre visibile nell'header**: prima, per sapere se
+qualcosa era connesso bisognava aprire il tab Tenant. Nuovo `<span id="ambient-conn-
+indicator">` accanto al nome tenant nell'header (visibile sempre, non solo nelle
+Impostazioni), poll ogni 20s con timeout client di 5s (`AbortController`). Verde se almeno una
+connessione risulta attiva, grigio altrimenti O in caso di fallimento/timeout della richiesta
+- deliberatamente MAI un rosso allarmante qui (durante un'operazione lunga nota il server e'
+solo occupato, non morto - per quella diagnosi c'e' gia' il pannello "Stato del processo" in
+Manutenzione, v0.10.24; questo pallino e' solo un colpo d'occhio ambientale passivo). Click sul
+pallino apre le Impostazioni sul tab Tenant. La logica "cosa vuol dire connesso" (prima
+duplicata dentro il pulsante Disconnetti/Connetti tutto) e' stata estratta in
+`computeAnyConnected(data)`, condivisa da entrambi - un solo posto che decide la definizione,
+non due copie che potrebbero divergere nel tempo.
+
+**Verificato dal vivo** nel browser: pallino grigio con tenant scollegato dopo un restart
+pulito; connesso Exchange via API diretta, poi chiamato manualmente
+`refreshAmbientConnIndicator()` - pallino passato a verde con il titolo corretto; click sul
+pallino conferma apertura Impostazioni + tab Tenant attivo.
+
+Versione modulo `0.10.25`, changelog in `docs/Guida-Configurazione.html`, PDF rigenerato.
+
+---
+
+## Non ancora implementato: generatore di certificato in GUI (richiesto, in coda)
+
+Durante l'implementazione di quanto sopra, l'utente ha chiesto: "nel mentre che verifichi,
+sec te e' utile implementare in gui una funzione genera certificato per app registration cosi
+da usarlo per exchange e per sharepoint, renderlo realizzabile direttamente dall'app che da
+la possibilita di scaricarlo e uploadarlo poi nella gui entra e poi la app lo avrebbe gia
+pronto anche con la chiave per queste necessita tipo sharepoint?"
+
+Risposto con una correzione importante (l'utente sembrava immaginare di scaricare/ricaricare
+la CHIAVE PRIVATA, che non deve mai lasciare il PC) e due opzioni: (1) generazione locale +
+download del solo `.cer` PUBBLICO + thumbprint auto-compilato, un solo passaggio manuale
+(caricare il `.cer` su Entra ID) - nessun permesso Graph nuovo richiesto; (2) upload
+automatico su Entra via Graph (`Application.ReadWrite.All`) - zero passaggi manuali ma un
+permesso potente in piu', contro la disciplina di minimo privilegio gia' seguita nel progetto.
+
+L'utente ha confermato l'opzione (1): "sipoi implementa l'opzione 1 dove l'utente fa upload".
+**NON ancora implementato** a fine di questo giro (v0.10.25 copriva gia' i punti 1+3
+originali) - prossimo passo del prossimo giro di lavoro. Progettazione di massima gia'
+abbozzata nella risposta data all'utente: pulsante "Genera nuovo certificato" (probabilmente
+nel tab Tenant, vicino ai campi Secret/Certificato del profilo, o in Manutenzione) che chiama
+`New-SelfSignedCertificate` in locale, offre il `.cer` pubblico per il download (endpoint GET
+dedicato, `Content-Type: application/x-x509-ca-cert` o simile), e compila da solo il campo
+`ExchangeCertThumbprint` del profilo attivo (il thumbprint e' gia' noto appena generato, non
+serve chiederlo all'utente). Da verificare dal vivo prima di committare: parametri corretti di
+`New-SelfSignedCertificate` per un certificato compatibile con Microsoft Entra ID (tipicamente
+`-KeySpec KeyExchange -KeyLength 2048 -CertStoreLocation Cert:\CurrentUser\My -NotAfter
+(data futura ragionevole, es. +2 anni)` - verificare contro la documentazione Microsoft
+ufficiale per app-only auth, non a memoria), e se serve un formato subject/CN particolare.
