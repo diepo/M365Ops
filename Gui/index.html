@@ -471,6 +471,23 @@
         <div id="exchange-login-code" style="display:none; margin-top:10px; font-size:13px;"></div>
       </div>
 
+      <!-- Genera nuovo certificato (27/08/2026, richiesto esplicitamente dall'utente): stesso
+           certificato usato da Exchange/SharePoint/Intune/CLI365 sopra - prima andava generato
+           a mano seguendo la guida (sezione 5.1, copia/incolla comandi PowerShell). La chiave
+           privata resta SEMPRE su questo PC (mai scaricata) - solo il certificato PUBBLICO
+           (.cer) va scaricato e caricato manualmente su Entra ID, l'unico passaggio rimasto
+           manuale per scelta (un upload automatico richiederebbe un permesso Graph molto
+           potente, Application.ReadWrite.All, mai concesso in questo progetto). -->
+      <div id="generate-cert-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
+        <h3 style="margin-top:0;">Certificato applicativo</h3>
+        <p class="hint">Stesso certificato usato da Exchange, SharePoint, Intune e CLI Microsoft 365 (sopra/sotto) per l'autenticazione app-only. Genera un nuovo certificato autofirmato in locale — la chiave privata resta SEMPRE su questo PC, non lascia mai il processo: scarichi solo la parte pubblica (.cer) da caricare su Entra ID → App Registration → Certificati e segreti (l'unico passaggio manuale rimasto). Il thumbprint viene salvato automaticamente su questo profilo.</p>
+        <div class="actions">
+          <button id="generate-cert-btn">Genera nuovo certificato</button>
+          <span id="generate-cert-msg"></span>
+        </div>
+        <div id="generate-cert-result" style="display:none; margin-top:10px; padding:10px 12px; background:var(--ok-soft,#e6f4ea); border-radius:var(--radius-sm); font-size:12.5px;"></div>
+      </div>
+
       <div id="sharepoint-connect-box" style="margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
         <h3 style="margin-top:0;">SharePoint / OneDrive</h3>
         <div id="mcp-sharepoint-status" class="hint">caricamento stato...</div>
@@ -1687,6 +1704,13 @@
     }
     const intuneWarning = document.getElementById('intune-warning');
     if (intuneWarning) { intuneWarning.style.display = isDelegated ? 'block' : 'none'; }
+    // Bug reale segnalato dal vivo dall'utente (27/08/2026): l'etichetta del pulsante diceva
+    // sempre "Connetti Intune (browser)", anche su tenant App-only dove la connessione e'
+    // silenziosa (certificato/secret) - nessun browser si apre mai in quel caso. Il paragrafo
+    // "browser" veniva gia' nascosto correttamente su App-only (riga sopra), ma il pulsante
+    // restava incoerente con esso.
+    const intuneTestBtn = document.getElementById('intune-test-btn');
+    if (intuneTestBtn) { intuneTestBtn.textContent = isDelegated ? 'Connetti Intune (browser)' : 'Connetti Intune'; }
 
     // CLI Microsoft 365 (26/08/2026): stesso schema dei riquadri sopra, letto dal nuovo
     // campo generico data.mcpServers invece di un campo dedicato (vedi
@@ -2583,6 +2607,49 @@
     const codeBox = document.getElementById('exchange-login-code');
     resetExchangeLoginUi(btn, codeBox);
     status.textContent = 'Login annullato. Puoi ripartire quando vuoi.';
+  });
+
+  // Genera nuovo certificato (27/08/2026, richiesto esplicitamente dall'utente). Il download
+  // del .cer avviene lato client con un Blob + un <a download> temporaneo (nessun endpoint di
+  // file statico dedicato necessario) - il contenuto arriva dal server gia' in base64, solo il
+  // certificato PUBBLICO, mai la chiave privata (che il server non restituisce mai, resta solo
+  // nel certificate store di Windows di questo PC).
+  document.getElementById('generate-cert-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('generate-cert-btn');
+    const msg = document.getElementById('generate-cert-msg');
+    const resultBox = document.getElementById('generate-cert-result');
+    btn.disabled = true;
+    resultBox.style.display = 'none';
+    msg.textContent = 'Generazione in corso...';
+    try {
+      const res = await fetch('/api/generate-certificate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const data = await res.json();
+      if (!data.ok) {
+        msg.textContent = 'Errore: ' + data.text;
+      } else {
+        msg.textContent = '';
+        const byteChars = atob(data.publicCertBase64);
+        const byteNumbers = new Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) { byteNumbers[i] = byteChars.charCodeAt(i); }
+        const blob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/x-x509-ca-cert' });
+        const url = URL.createObjectURL(blob);
+        const fileName = data.subject.replace(/[^\w\-]/g, '_') + '.cer';
+        resultBox.style.display = 'block';
+        resultBox.innerHTML =
+          `<b>✓ Certificato generato e salvato su questo profilo</b><br>` +
+          `Thumbprint: <code>${data.thumbprint}</code><br>Scadenza: ${data.notAfter}<br>` +
+          `<a id="download-cert-link" href="${url}" download="${fileName}" style="display:inline-block; margin-top:8px;">⬇ Scarica certificato pubblico (${fileName})</a><br>` +
+          `<span style="display:block; margin-top:6px; color:var(--text-muted);">Prossimo passo (manuale): carica questo file su Entra ID → App Registration → Certificati e segreti → Upload certificate.</span>`;
+        // Rinfresca il campo thumbprint nel form profilo (se aperto sullo stesso profilo) e lo
+        // stato connessioni (i messaggi "Non connesso" mostrano il thumbprint configurato).
+        const certField = document.getElementById('f-exchangecert');
+        if (certField) { certField.value = data.thumbprint; }
+        loadConnectionStatus();
+      }
+    } catch (e) {
+      msg.textContent = 'Errore di comunicazione: ' + e.message;
+    }
+    btn.disabled = false;
   });
 
   document.getElementById('exchange-test-btn').addEventListener('click', async (ev) => {

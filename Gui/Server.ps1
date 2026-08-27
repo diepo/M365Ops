@@ -1595,6 +1595,31 @@ try {
                     }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
+                "POST /api/generate-certificate" {
+                    # "Genera nuovo certificato" (27/08/2026, richiesto esplicitamente
+                    # dall'utente: prima bisognava copiare/incollare a mano i comandi della
+                    # sezione 5.1 della guida). Vedi New-M365OpsSelfSignedCertificate.ps1 per
+                    # il dettaglio completo - qui solo il trasporto verso la GUI: restituisce
+                    # il thumbprint (gia' salvato nel profilo attivo) e il contenuto PUBBLICO
+                    # del certificato in base64 (mai la chiave privata, che non lascia mai
+                    # questo processo), che la GUI trasforma in un download reale lato browser.
+                    $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                    $body = $reader.ReadToEnd() | ConvertFrom-Json
+                    try {
+                        $subjectName = if ($body.subjectName) { $body.subjectName } else { $null }
+                        $result = if ($subjectName) { New-M365OpsSelfSignedCertificate -SubjectName $subjectName } else { New-M365OpsSelfSignedCertificate }
+                        $json = (@{
+                            ok               = $true
+                            thumbprint       = $result.Thumbprint
+                            subject          = $result.Subject
+                            notAfter         = $result.NotAfter.ToString('yyyy-MM-dd')
+                            publicCertBase64 = $result.PublicCertBase64
+                        } | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ ok = $false; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
                 "GET /api/setup-status" {
                     try {
                         $items = @(Get-M365OpsSetupStatus)

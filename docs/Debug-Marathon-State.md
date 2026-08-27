@@ -2914,3 +2914,67 @@ serve chiederlo all'utente). Da verificare dal vivo prima di committare: paramet
 `-KeySpec KeyExchange -KeyLength 2048 -CertStoreLocation Cert:\CurrentUser\My -NotAfter
 (data futura ragionevole, es. +2 anni)` - verificare contro la documentazione Microsoft
 ufficiale per app-only auth, non a memoria), e se serve un formato subject/CN particolare.
+
+---
+
+## Seguito: generatore di certificato in GUI + fix etichetta Intune (v0.10.26, 27/08/2026)
+
+**Bug reale segnalato dal vivo dall'utente, indipendente dal resto**: "vedo nella sezione app
+che il testo Intune è 'connetti intune browser'. ma quel browser non dovrebbe essere specifico
+solo della modalità delegata?". Confermato leggendo il codice: `#intune-warning` (il paragrafo
+che spiega "si apre il browser") era gia' correttamente nascosto su App-only via
+`intuneWarning.style.display = isDelegated ? 'block' : 'none'`, ma l'etichetta del pulsante
+`#intune-test-btn` restava SEMPRE "Connetti Intune (browser)" a prescindere - incoerente col
+paragrafo nascosto. Corretto in `loadConnectionStatus` (`Gui/index.html`): etichetta ora
+condizionale sullo stesso `isDelegated` gia' calcolato li'. Verificato dal vivo: su vnsys-test
+(App-only) il pulsante mostra correttamente "Connetti Intune" senza "(browser)".
+
+**Generatore di certificato**: seguito diretto della domanda "che altre features possiamo
+aggiungere?" - durante l'implementazione dei punti scelti (v0.10.25), l'utente ha chiesto se
+fosse utile generare il certificato App Registration direttamente dalla GUI, immaginando un
+download+upload. **Correzione importante data prima di implementare**: va scaricato/caricato
+su Entra SOLO il certificato PUBBLICO (.cer) - la chiave privata non deve mai lasciare il PC.
+Proposte due opzioni: (1) generazione locale + un solo passaggio manuale (upload del .cer),
+zero permessi Graph nuovi; (2) upload automatico via Graph, richiederebbe
+`Application.ReadWrite.All` (permesso potente, mai concesso in questo progetto - contro la
+disciplina di minimo privilegio gia' seguita). L'utente ha confermato la (1): "sipoi implementa
+l'opzione 1 dove l'utente fa upload".
+
+**Implementato**: `New-M365OpsSelfSignedCertificate.ps1` (nuova) - stessi identici parametri
+gia' documentati in guida sezione 5.1 (mai indovinati ex-novo: `-KeySpec Signature`, non
+`KeyExchange` come inizialmente ipotizzato in una nota precedente di questo stesso file -
+corretto seguendo l'esempio gia' verificato e in uso da mesi per il certificato Exchange,
+invece di introdurre un parametro diverso senza motivo). Aggiorna il profilo tenant ATTIVO col
+nuovo thumbprint via `Set-M365OpsTenant`, ripassando esplicitamente OGNI altro campo gia'
+configurato (letto da `Get-M365OpsActiveTenantInfo`) - quella funzione sostituisce l'intero
+profilo, non fa un patch parziale, un'omissione avrebbe azzerato ClientId/SecretEnvVar/ecc.
+per sbaglio. Nuova route `POST /api/generate-certificate` (`Gui/Server.ps1`) e box
+"Certificato applicativo" nel tab Tenant (tra Exchange e SharePoint, condiviso da entrambi
+oltre a Intune/CLI365) - mostra thumbprint/scadenza, offre il download del `.cer` pubblico
+(Blob generato interamente lato browser dal base64 ricevuto via HTTP, MAI un file scritto sul
+server), e ricorda il passaggio manuale rimanente (upload su Entra ID).
+
+**Verifica esplicita sulla non-pubblicazione, richiesta diretta dell'utente** ("ovviamente la
+parte dei certificati generati non deve finire su github. confermamela questa cosa dopo
+attenta verifica"): confermato con `.gitignore` + `git ls-files` che `Config/` (dove finisce
+solo il thumbprint, mai la chiave) e `Logs/` sono entrambi ignorati e MAI tracciati da git;
+grep mirato su `New-M365OpsSelfSignedCertificate.ps1`/`Connect-M365OpsCliMicrosoft365.ps1`/
+`Invoke-M365OpsMcpRequest.ps1` conferma nessuna chiamata `Write-Host`/`Write-M365OpsLog` scrive
+mai il contenuto del certificato o la password effimera del PFX; la chiave privata non tocca
+mai il disco del progetto (resta nel certificate store di Windows, fuori dalla cartella del
+repo); il `.cer` pubblico si scarica interamente lato browser, mai scritto sul server.
+
+**Verificato dal vivo** su vnsys-test: generato un certificato reale via API diretta -
+`Config\tenants.json` aggiornato col nuovo thumbprint, confermato che ogni altro campo del
+profilo (ClientId, SecretEnvVar, AuthMode, ecc.) resta intatto; certificato confermato presente
+nel certificate store di Windows (`Get-Item Cert:\CurrentUser\My\<thumbprint>` ->
+`HasPrivateKey: True`); ripetuto dal browser reale - box risultato mostrato correttamente con
+thumbprint/scadenza/link di download funzionante (blob URL, nome file
+`M365Ops-vnsys-test.cer`). **Ripristinato subito dopo** il thumbprint originale del tenant di
+test (`688F9F32F2E28E6E2CBC780B00C05653E9D9A354`, quello realmente caricato su Entra ID e usato
+in tutta questa sessione) per non lasciare il tenant di test scollegabile dopo la verifica -
+generare un certificato di prova sovrascrive il thumbprint configurato, e quel nuovo
+certificato non e' mai stato caricato sul vero Entra ID, quindi qualunque connessione
+successiva con quello sarebbe fallita se non ripristinato.
+
+Versione modulo `0.10.26`, changelog in `docs/Guida-Configurazione.html`, PDF rigenerato.
