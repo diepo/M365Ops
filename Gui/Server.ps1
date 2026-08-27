@@ -1913,7 +1913,42 @@ try {
                         authMode               = $info.AuthMode
                         delegatedUpn           = $info.DelegatedUpn
                         delegatedSessionActive = $info.DelegatedSessionActive
+                        appOnlyTokenCached     = $info.AppOnlyTokenCached
                     } | ConvertTo-Json -Compress)
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/disconnect-all" {
+                    # "Disconnetti tutto" (27/08/2026, richiesto esplicitamente dall'utente):
+                    # reset radicale di OGNI connessione del tenant attivo, indipendentemente
+                    # da quale parte del progetto l'ha aperta - vedi Disconnect-
+                    # M365OpsAllConnections.ps1. Nessuna conferma richiesta (a differenza delle
+                    # scritture sul tenant, qui non si tocca nessun dato reale, solo stato di
+                    # sessione locale), ma resta un'azione esplicita a un click, mai automatica.
+                    try {
+                        Disconnect-M365OpsAllConnections
+                        $json = (@{ ok = $true; text = "Tutte le connessioni disattivate." } | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ ok = $false; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/reconnect-all" {
+                    # "Connetti tutto" (27/08/2026) - vedi Connect-M365OpsAllConnections.ps1 per
+                    # il comportamento completo (silenzioso su AppOnly, solo indicazioni su
+                    # Delegated). Risultati per-area riportati cosi' com'e' alla GUI, mai
+                    # riassunti: un fallimento su un'area (es. Intune senza consenso admin) non
+                    # deve nascondere il successo delle altre, ne' viceversa.
+                    try {
+                        $result = Connect-M365OpsAllConnections
+                        $json = (@{
+                            ok       = $true
+                            authMode = $result.AuthMode
+                            message  = $result.Message
+                            results  = @($result.Results | ForEach-Object { @{ name = $_.Name; ok = $_.Ok; message = $_.Message } })
+                        } | ConvertTo-Json -Compress -Depth 5)
+                    } catch {
+                        $json = (@{ ok = $false; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
                 "POST /api/lokka-reconnect" {

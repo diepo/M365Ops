@@ -2578,3 +2578,91 @@ strumento di verifica.
 Versione modulo `0.10.21`, changelog in `docs/Guida-Configurazione.html`, PDF rigenerato, 396 file
 `.ps1` sintatticamente puliti (nessuna modifica a file `.ps1` oltre `Invoke-M365OpsAgentTools.ps1`,
 gia' verificato singolarmente).
+
+---
+
+## Seguito: pulsante "Disconnetti tutto" / "Connetti tutto" (v0.10.22, 27/08/2026)
+
+Richiesto esplicitamente dall'utente: "implementa un tasto per riforzare la connessione
+applicativa, utile quando all'app reg vengono aggiornati i permessi". Prima di implementare,
+investigato COME i permessi Graph aggiornati influenzano davvero le connessioni esistenti:
+`Get-M365OpsToken.ps1` cachea un token app-only per tenant in `$script:M365OpsTokenCache`
+(nessun modo esistente di invalidarlo manualmente), e Lokka/Exchange/Teams/SharePoint/
+Compliance/Intune hanno ciascuno la propria sessione/token, nessuno dei quali si aggiorna da
+solo per riflettere un permesso appena concesso finche' non scade naturalmente o si
+riconnette da capo.
+
+Mentre spiegavo il piano, l'utente ha allargato la richiesta a meta' conversazione: "questo
+tasto dovrebbe essere utile anche per i tenant delegati dimmi tu cosa ne pensi. metterei cmq
+su tutto un tasto disconnetti per interrompere a prescindere qualunque connessone. magari un
+tasto disconnetti che diventa connetti una volta verificato non esserci piu nessuna
+connessione implmenta bene anche la richiesta precedente".
+
+**Risposta data sulla domanda Delegati** (verificata leggendo il codice, non assunta): il
+login Delegato usa un'app Microsoft di prima parte FISSA ("Microsoft Graph Command Line
+Tools", `$script:M365OpsDeviceCodeClientId` in `Invoke-M365OpsDeviceCodeFlow.ps1`), MAI
+l'App Registration del profilo tenant - un permesso aggiunto all'App Registration non tocca
+quindi in nessun modo il login Delegato. La meta' "rinforza permessi" si applica quindi SOLO
+ad App-only. La meta' "disconnetti/pulisci tutto" resta pero' utile per ENTRAMBE le modalita'
+(motivo diverso: reset di stato bloccato, non permessi) - da qui un solo pulsante con due
+comportamenti diversi in base a `AuthMode`, invece di duplicare l'interfaccia.
+
+**Implementato**:
+- `Public/Disconnect-M365OpsCompliance.ps1` (nuova) - mancava, stesso schema di
+  Disconnect-M365OpsExchange/Teams/SharePoint.
+- **Bug latente trovato e corretto durante l'implementazione**: `Connect-M365Ops.ps1`
+  disconnetteva gia' Exchange/Teams/SharePoint ad ogni cambio tenant, ma non aveva MAI
+  chiamato una disconnessione di Compliance (nessuna funzione dedicata esisteva prima) - il
+  flag `$script:M365OpsComplianceConnected` restava quindi "vero" anche a sessione reale gia'
+  morta (la sessione IPPS muore comunque insieme a quella Exchange, stesso modulo
+  `ExchangeOnlineManagement`). Aggiunta la chiamata mancante.
+- `Public/Disconnect-M365OpsAllConnections.ps1` (nuova) - reset radicale per il TENANT ATTIVO:
+  Exchange/Teams/SharePoint/Compliance (via le funzioni Disconnect-M365Ops* esistenti), flag
+  Intune, `Disconnect-M365OpsAllMcpServers -TenantName` (gia' esistente, supportava gia' lo
+  scope per singolo tenant), cache token Graph (`$script:M365OpsTokenCache.Remove`), eventuale
+  `$script:M365OpsPendingDeviceCode` lasciato a meta'. Nessun try/catch per passo necessario
+  qui (ogni Disconnect-M365Ops* e' gia' un no-op sicuro se non c'era nulla da chiudere).
+- `Public/Connect-M365OpsAllConnections.ps1` (nuova) - su Delegato non tenta NULLA in silenzio
+  (dopo un disconnect completo il refresh token e' scartato, ogni area dipenderebbe comunque
+  da un nuovo login interattivo - tentare avrebbe prodotto solo una raffica di errori identici
+  "serve login interattivo" invece di un'indicazione chiara), restituisce solo un messaggio
+  che rimanda al pulsante di login esistente. Su App-only, 8 passi tentati indipendentemente
+  (try/catch per passo, mai un fallimento che blocca i fratelli - stesso principio v0.10.17):
+  token Graph diretto, Exchange, Teams, SharePoint, Compliance, Intune, poi OGNI server MCP
+  configurato (`Get-M365OpsMcpServers`, non solo Lokka).
+- `Get-M365OpsActiveTenantInfo.ps1`: nuovo campo `AppOnlyTokenCached` - prima la GUI non aveva
+  NESSUN modo di sapere se esisteva gia' un token Graph diretto in cache (usato da
+  Invoke-M365OpsGraphRequest -> Intune/Copilot/ogni cmdlet Public\* che legge Graph), quindi
+  disconnettere SOLO quel token sarebbe rimasto invisibile nello stato "connesso" mostrato in
+  GUI - necessario perche' il calcolo "e' rimasto ancora qualcosa connesso?" del pulsante sia
+  corretto.
+- `Gui/Server.ps1`: nuove route `POST /api/disconnect-all` / `POST /api/reconnect-all` (nessuna
+  conferma richiesta - non si tocca nessun dato reale del tenant, solo stato di sessione
+  locale), `appOnlyTokenCached` aggiunto alla risposta di `GET /api/mcp-status`.
+- `Gui/index.html`: un solo pulsante in cima a "Stato connessioni" (tab Tenant), etichettato
+  "Disconnetti tutto" o "Connetti tutto" dal calcolo `anyConnected` dentro
+  `loadConnectionStatus` (mai un flag locale che potrebbe disallinearsi - stesso principio
+  "verificare dal vivo, mai fidarsi di un flag" gia' applicato per Intune). Dopo un "Connetti
+  tutto" riuscito su App-only, gli 8 risultati per-area sono mostrati singolarmente con pallino
+  verde/rosso (mai un riassunto unico che nasconderebbe un fallimento parziale). Aggiunta una
+  funzione di escape dedicata (`escapeHtmlReconnect`) per i messaggi d'errore per-area, stessa
+  convenzione "una funzione per feature" gia' in uso nel file (es. `escapeHtmlHeaders`).
+
+**Verificato dal vivo**, non solo per lettura del codice:
+- Sintassi: 399 file `.ps1` puliti, JS di `index.html` validato con `new Function` su entrambi
+  i blocchi `<script>`, tag HTML (div/p/span/section/button) bilanciati.
+- API dirette (`curl`) su vnsys-test (App-only): stato iniziale tutto scollegato
+  (`appOnlyTokenCached:false`) -> `POST /api/reconnect-all` -> 8/8 `ok:true` (token Graph,
+  Exchange, Teams, SharePoint, Compliance, Intune, CLI-Microsoft365, Lokka) -> `GET
+  /api/mcp-status` conferma tutto connesso con dati reali (Lokka 31 tool, SharePoint
+  `vnsysit-admin.sharepoint.com`, Intune tenant `vnsysit`) -> `POST /api/disconnect-all` ->
+  `GET /api/mcp-status` conferma tutto tornato a falso/vuoto.
+- GUI reale nel browser (non solo API): click "Connetti tutto" su vnsys-test -> "Riconnesso
+  8/8", pulsante passato a "Disconnetti tutto", lista risultati con 8 pallini verdi renderizzata
+  correttamente; click "Disconnetti tutto" -> messaggio ripulito, pulsante tornato a "Connetti
+  tutto", lista risultati nascosta di nuovo.
+- Tenant Delegato ("vnsys delegata"): click "Connetti tutto" -> nessun tentativo silenzioso,
+  messaggio di indicazione verso "Accedi con il mio utente" mostrato correttamente, pulsante
+  resta "Connetti tutto" (nulla e' stato davvero connesso, correttamente).
+
+Versione modulo `0.10.22`, changelog in `docs/Guida-Configurazione.html`, PDF rigenerato.

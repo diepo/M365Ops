@@ -6,6 +6,16 @@ function Get-M365OpsActiveTenantInfo {
     #>
     if (-not $script:M365OpsContext) { return $null }
     $delegatedSession = $script:M365OpsTokenCache[$script:M365OpsContext.Name].Delegated
+    # AppOnlyTokenCached (27/08/2026, per il pulsante "Disconnetti/Connetti tutto"): a
+    # differenza di ExchangeConnected/TeamsConnected/ecc., prima d'ora non esisteva NESSUN modo
+    # per la GUI di sapere se esiste gia' un token Graph app-only diretto in cache per questo
+    # tenant (usato da Invoke-M365OpsGraphRequest -> Get-M365OpsToken, quindi da Intune/Copilot/
+    # ogni cmdlet Public\* che legge Graph) - senza questo campo, disconnettere SOLO quel token
+    # (senza toccare Exchange/Teams/ecc.) sarebbe rimasto invisibile nello stato "connesso".
+    # Per AppOnly la cache e' un oggetto piatto {AccessToken;ExpiresAt} (vedi Get-M365OpsToken.ps1);
+    # .Delegated esiste solo per i tenant Delegated, quindi il controllo su .AccessToken basta a
+    # non confondere le due forme.
+    $appOnlyTokenCached = [bool]($script:M365OpsContext.AuthMode -ne 'Delegated' -and $script:M365OpsTokenCache[$script:M365OpsContext.Name].AccessToken)
 
     # 26/08/2026: i server MCP sono tracciati in dizionari a DUE livelli, per tenant poi per
     # nome server ($script:M365OpsMcpProcesses[$TenantName][$ServerName]/...McpTools), non
@@ -43,6 +53,7 @@ function Get-M365OpsActiveTenantInfo {
         AuthMode               = if ($script:M365OpsContext.AuthMode) { $script:M365OpsContext.AuthMode } else { 'AppOnly' }
         DelegatedUpn           = $script:M365OpsContext.DelegatedUpn
         DelegatedSessionActive = [bool]($delegatedSession -and $delegatedSession.ExpiresAt -gt (Get-Date))
+        AppOnlyTokenCached     = $appOnlyTokenCached
         ExchangeCertThumbprint = $script:M365OpsContext.ExchangeCertThumbprint
         EmailSender            = $script:M365OpsContext.EmailSender
         ExchangeConnected      = [bool]$script:M365OpsExchangeConnected

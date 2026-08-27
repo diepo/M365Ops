@@ -50,6 +50,15 @@ function Connect-M365Ops {
     Disconnect-M365OpsExchange
     Disconnect-M365OpsTeams
     Disconnect-M365OpsSharePoint
+    # BUG REALE trovato il 27/08/2026 durante l'implementazione di Disconnect-/Connect-
+    # M365OpsAllConnections: Compliance (Purview, Connect-IPPSSession) non veniva MAI
+    # disconnesso qui, nonostante la sua sessione reale muoia comunque insieme a quella
+    # Exchange (Disconnect-ExchangeOnline chiude tutte le sessioni remote del modulo, incluse
+    # le IPPS) - il flag $script:M365OpsComplianceConnected restava quindi "vero" anche a
+    # sessione gia' morta dopo un cambio tenant, uno stato mentito della stessa classe gia'
+    # corretta per Intune (vedi .NOTES di Connect-M365OpsIntune.ps1, verifica dal vivo invece
+    # di fidarsi del flag). Aggiunta la chiamata mancante.
+    Disconnect-M365OpsCompliance
     # IntuneWin32App non espone un vero "Disconnect" (nessuna sessione da chiudere come
     # Exchange) - resettiamo solo il nostro flag, cosi' Connect-M365OpsIntune richiede di
     # nuovo un connect esplicito (via -AllowInteractive) dopo un cambio tenant, invece di

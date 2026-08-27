@@ -424,6 +424,21 @@
 
     <div id="active-tenant-detail" style="display:none; margin-top:6px; margin-bottom:16px; padding-left:14px; border-left:3px solid var(--accent);">
       <h3 style="margin-top:6px;">Stato connessioni</h3>
+      <!-- Disconnetti/Connetti tutto (27/08/2026, richiesto esplicitamente dall'utente): un
+           solo pulsante che interrompe OGNI connessione del tenant attivo a prescindere da
+           quale parte del progetto l'ha aperta, e che diventa "Connetti tutto" una volta
+           verificato che non ne resta nessuna attiva - utile in particolare per rinforzare la
+           connessione applicativa subito dopo aver concesso un nuovo permesso Graph all'App
+           Registration (Grant admin consent): un token/una sessione gia' ottenuti riflettono i
+           permessi del momento in cui sono stati rilasciati, non quelli aggiunti dopo. Su
+           tenant Delegato il ramo "Connetti" non tenta nulla in silenzio (vedi Connect-
+           M365OpsAllConnections.ps1) - guida sempre al login interattivo invece di fallire in
+           modo confuso. -->
+      <div id="disconnect-all-box" style="margin:8px 0 4px;">
+        <button id="disconnect-all-btn">Disconnetti tutto</button>
+        <span id="disconnect-all-msg" class="hint"></span>
+        <div id="reconnect-all-results" class="hint" style="display:none; margin-top:6px;"></div>
+      </div>
       <div id="connection-status-panel" class="hint">Caricamento...</div>
 
       <div id="delegated-login-box" style="display:none; margin-top:10px; padding:12px 14px; background:var(--surface-alt); border-radius:var(--radius-sm);">
@@ -1618,6 +1633,25 @@
         }
       }
     }
+
+    // Disconnetti/Connetti tutto (27/08/2026): il pulsante riflette lo stato REALE appena
+    // caricato dal server, non uno stato locale che potrebbe disallinearsi (stesso principio
+    // "mai fidarsi di un flag, verificare dal vivo" gia' applicato altrove nel progetto, es.
+    // Connect-M365OpsIntune.ps1). "Connesso" copre anche il token Graph diretto
+    // (data.appOnlyTokenCached, prima invisibile alla GUI - vedi Get-M365OpsActiveTenantInfo.ps1)
+    // e OGNI server MCP configurato (non solo Lokka), non solo le cinque aree con un riquadro
+    // dedicato qui sopra.
+    const disconnectAllBtn = document.getElementById('disconnect-all-btn');
+    if (disconnectAllBtn) {
+      const anyConnected = !!(
+        (isDelegated ? data.delegatedSessionActive : data.appOnlyTokenCached) ||
+        data.exchangeConnected || data.sharePointConnected || data.teamsConnected ||
+        data.complianceConnected || data.intuneConnected ||
+        (data.mcpServers || []).some(s => s.connected)
+      );
+      disconnectAllBtn.textContent = anyConnected ? 'Disconnetti tutto' : 'Connetti tutto';
+      disconnectAllBtn.dataset.mode = anyConnected ? 'disconnect' : 'connect';
+    }
   }
   // Alias per compatibilità con chiamate esistenti nel resto dello script.
   const refreshDelegatedLoginBox = loadConnectionStatus;
@@ -2293,6 +2327,66 @@
       status.textContent = 'Errore di comunicazione: ' + e.message;
       btn.disabled = false;
     }
+  });
+
+  // Escape dedicato per i messaggi d'errore per-area di "Connetti tutto" (possono contenere
+  // testo arbitrario proveniente da un'eccezione .NET/PowerShell) - stessa convenzione gia'
+  // in uso nel resto del file (una funzione per ogni feature, es. escapeHtmlHeaders sopra),
+  // per non creare un accoppiamento accidentale tra feature scritte in momenti diversi.
+  function escapeHtmlReconnect(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // Disconnetti/Connetti tutto (27/08/2026, richiesto esplicitamente dall'utente): un solo
+  // pulsante per interrompere OGNI connessione del tenant attivo, che diventa "Connetti tutto"
+  // una volta verificato che non ne resta nessuna (vedi il calcolo di anyConnected dentro
+  // loadConnectionStatus). La modalita' viene letta da disconnectAllBtn.dataset.mode al
+  // momento del click, mai assunta dal testo visibile (piu' robusto se qualcosa disallinea i
+  // due, es. un refresh in corso) - impostata sempre dall'ultimo loadConnectionStatus reale.
+  document.getElementById('disconnect-all-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('disconnect-all-btn');
+    const msg = document.getElementById('disconnect-all-msg');
+    const resultsBox = document.getElementById('reconnect-all-results');
+    const mode = btn.dataset.mode || 'disconnect';
+    btn.disabled = true;
+    resultsBox.style.display = 'none';
+    resultsBox.innerHTML = '';
+    msg.textContent = mode === 'disconnect' ? 'Disconnessione in corso...' : 'Riconnessione in corso...';
+    try {
+      if (mode === 'disconnect') {
+        const res = await fetch('/api/disconnect-all', { method: 'POST' });
+        const data = await res.json();
+        msg.textContent = data.ok ? '' : ('Errore: ' + data.text);
+      } else {
+        const res = await fetch('/api/reconnect-all', { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) {
+          msg.textContent = 'Errore: ' + data.text;
+        } else if (data.authMode === 'Delegated') {
+          // Su Delegato non e' stato tentato nulla in silenzio (vedi Connect-
+          // M365OpsAllConnections.ps1) - il messaggio spiega perche' e guida al pulsante giusto,
+          // invece di lasciar credere che "Connetti tutto" abbia provato e fallito ovunque.
+          msg.textContent = data.message || '';
+        } else {
+          // Risultati per-area riportati cosi' come sono (mai riassunti in un unico
+          // successo/fallimento): un errore su un'area (es. Intune senza consenso admin) non
+          // deve nascondere il successo delle altre, ne' viceversa - stesso principio "un
+          // passo fallito non deve nascondere i fratelli" gia' applicato altrove (v0.10.17).
+          const okCount = (data.results || []).filter(r => r.ok).length;
+          const total = (data.results || []).length;
+          msg.textContent = `Riconnesso ${okCount}/${total}.`;
+          resultsBox.style.display = 'block';
+          resultsBox.innerHTML = (data.results || []).map(r =>
+            `${statusDot(r.ok)}${r.name}${r.ok ? '' : ' — ' + escapeHtmlReconnect(r.message || 'errore sconosciuto')}`
+          ).join('<br>');
+        }
+      }
+    } catch (e) {
+      msg.textContent = 'Errore di comunicazione: ' + e.message;
+    }
+    btn.disabled = false;
+    loadConnectionStatus();
   });
 
   let exchangePollTimer = null;
