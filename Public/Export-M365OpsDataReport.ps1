@@ -53,15 +53,30 @@ function Export-M365OpsDataReport {
 
     $slug = if ($FileSlug) { $FileSlug } else { ($Title -replace '[^a-zA-Z0-9]+', '-').Trim('-').ToLower() }
     if (-not $slug) { $slug = "report" }
+    # Nome file collision-resistant (26/08/2026, bug reale trovato dal vivo durante la maratona
+    # di stress-test): la cartella Reports\ e' CONDIVISA da tutti i tenant, e prima d'ora il nome
+    # file dipendeva SOLO dal Title/FileSlug e da un timestamp al secondo - due tenant diversi (o
+    # lo stesso tenant due volte in rapida successione, plausibile perche' la generazione di un
+    # report su un dataset piccolo puo' completarsi in ben meno di un secondo) che generano un
+    # report con lo stesso Title nello stesso secondo si sovrascrivevano a vicenda in silenzio,
+    # nel ramo xlsx via un Remove-Item incondizionato in Export-M365OpsReport, senza alcun
+    # controllo di proprieta'. Aggiunto (1) il tenant attivo nel nome file, sanificato con LO
+    # STESSO pattern gia' usato per lo storage per-tenant di Knowledge Base/diagramma
+    # (Get-M365OpsTenantStorageKey.ps1: `-replace '[^\w\-]', '_'`) invece di inventarne uno nuovo,
+    # e (2) un suffisso esadecimale casuale (da un GUID) accanto al timestamp, cosi' anche lo
+    # STESSO tenant con lo STESSO Title nello STESSO secondo non collide piu'.
+    $tenantRaw = if ($script:M365OpsContext -and $script:M365OpsContext.Name) { $script:M365OpsContext.Name } else { 'no-tenant' }
+    $tenantSlug = ($tenantRaw -replace '[^\w\-]', '_')
     $reportsDir = Join-Path $script:M365OpsModuleRoot 'Reports'
     New-Item -ItemType Directory -Force -Path $reportsDir | Out-Null
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $uniq = [Guid]::NewGuid().ToString('N').Substring(0, 6)
     $warnings = @()
 
     # --- Excel: un foglio per sezione ---
     $xlsxPath = $null
     if ('xlsx' -in $Formats) {
-        $candidatePath = Join-Path $reportsDir "$slug-$stamp.xlsx"
+        $candidatePath = Join-Path $reportsDir "$tenantSlug-$slug-$stamp-$uniq.xlsx"
         $xlsxSheets = @($Sections | ForEach-Object { @{ Name = $_.Name; Data = @($_.Data) } })
         try {
             Export-M365OpsReport -Sheets $xlsxSheets -Format xlsx -Path $candidatePath -Title $Title | Out-Null
@@ -140,7 +155,7 @@ function Export-M365OpsDataReport {
             }
         }
         $htmlBody = "<h1>$Title</h1>$($pdfSections -join '')"
-        $candidatePdfPath = Join-Path $reportsDir "$slug-$stamp.pdf"
+        $candidatePdfPath = Join-Path $reportsDir "$tenantSlug-$slug-$stamp-$uniq.pdf"
         try {
             # Bug reale (17/08/2026): un fallimento qui (es. "Edge non ha prodotto il file")
             # faceva perdere anche l'xlsx GIA' generato con successo poco sopra, perche' prima

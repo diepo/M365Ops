@@ -32,6 +32,17 @@ function Disconnect-M365OpsAllConnections {
 
     Disconnect-M365OpsAllMcpServers -TenantName $tenantName
 
+    # Bug reale trovato dalla maratona di stress-test (31/08/2026): questa chiamata mancava,
+    # nonostante la docstring sopra dichiari "TUTTE le connessioni... a prescindere da quale
+    # parte del progetto le abbia aperte" - Remove-M365OpsTenant.ps1 (stesso identico scopo di
+    # pulizia radicale, ma per un profilo che viene rimosso) chiama gia' correttamente ENTRAMBE
+    # Disconnect-M365OpsAllMcpServers e Disconnect-M365OpsAllIsolatedWorkers. Senza questa riga,
+    # un worker isolato (attivato dal conflitto .NET di sezione 6.6, con una sessione Exchange
+    # reale ancora autenticata al suo interno) restava vivo anche dopo "Disconnetti tutto" - la
+    # GUI mostrava "Tutte le connessioni disattivate" ma qualunque cmdlet proxato eseguito dopo
+    # avrebbe comunque colpito il tenant "supposto scollegato" in silenzio.
+    Disconnect-M365OpsAllIsolatedWorkers -TenantName $tenantName
+
     if ($script:M365OpsTokenCache) { $script:M365OpsTokenCache.Remove($tenantName) }
 
     # Un login delegato a codice dispositivo iniziato ma mai completato (utente non ha ancora

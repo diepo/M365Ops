@@ -79,6 +79,7 @@ function Get-M365OpsMessageTrace {
     }
 
     if ($allResults.Count -gt $maxTotalRows) { $allResults = $allResults[0..($maxTotalRows - 1)]; $truncated = $true }
+    if ($windowStart -lt $EndDate -and $allResults.Count -ge $maxTotalRows) { $truncated = $true }
     if ($truncated) {
         $warnings += "Risultato troncato a $maxTotalRows righe (o a una singola finestra da 1000, limite del servizio): il periodo/filtro scelto ha piu' messaggi di quelli mostrati. Restringi il periodo o aggiungi -SenderAddress/-RecipientAddress per un dato completo."
     }

@@ -32,10 +32,12 @@ function Get-M365OpsCopilotUsageReport {
 
     $raw = Invoke-M365OpsGraphRequest -Method GET -Path "/copilot/reports/getMicrosoft365CopilotUsageUserDetail(period='$Period')"
 
-    # La risposta e' un flusso CSV (application/octet-stream) - Invoke-RestMethod puo'
-    # restituirlo come stringa unica o come array di righe a seconda della versione di
-    # PowerShell/.NET, quindi normalizzato qui prima di passarlo a ConvertFrom-Csv.
-    $csvText = if ($raw -is [string]) { $raw } else { ($raw -join "`n") }
+    # La risposta e' un flusso CSV (application/octet-stream) - su PowerShell 7,
+    # Invoke-RestMethod restituisce un corpo octet-stream come byte[] grezzo, non come
+    # stringa, quindi va decodificato esplicitamente come testo UTF-8 prima di passarlo a
+    # ConvertFrom-Csv (un semplice -join su un byte[] unirebbe i valori numerici dei byte
+    # con "\n", producendo dati illeggibili invece del CSV reale).
+    $csvText = if ($raw -is [string]) { $raw } else { [System.Text.Encoding]::UTF8.GetString($raw) }
     if (-not $csvText -or -not $csvText.Trim()) { return @() }
 
     $rows = @(ConvertFrom-Csv -InputObject $csvText)

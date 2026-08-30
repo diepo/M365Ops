@@ -23,6 +23,14 @@ function Write-M365OpsWriteLog {
         scrittura riuscita, 'Error' per una fallita (cosi' anche il filtro "Tutti i livelli/
         Info/Warn/Error" gia' presente in GUI funziona su questo log senza modifiche).
         Non lancia mai eccezioni, stesso principio di Write-M365OpsLog.
+
+        REDAZIONE SEGRETI (31/08/2026, bug GRAVE trovato dalla maratona di stress-test):
+        $Command puo' contenere il corpo JSON completo di una scrittura Graph proposta
+        dall'IA (es. "POST /users {...\"passwordProfile\":{\"password\":\"...\"}...}") - senza
+        redazione, una password in chiaro finiva permanentemente in questo log (mai cancellato
+        automaticamente). Stessa identica redazione gia' applicata allo storico chat
+        (Add-M365OpsChatHistoryTurn.ps1), estratta in Protect-M365OpsSecretText.ps1 il
+        31/08/2026 apposta per chiudere questo buco senza duplicare la regex.
     .PARAMETER Source
         Etichetta della sorgente reale (vedi Get-M365OpsWriteActionSourceLabel) - es. "Lokka
         (MCP)", "CLI Microsoft 365 (MCP)", "moduli PowerShell interni di M365Ops".
@@ -47,8 +55,9 @@ function Write-M365OpsWriteLog {
         $logFile = Join-Path $logDir "writes-$(Get-Date -Format 'yyyyMMdd').log"
         $tenant = if ($script:M365OpsContext) { "$($script:M365OpsContext.Name)[$($script:M365OpsContext.AuthMode)]" } else { '(nessun tenant)' }
         $level = if ($Outcome -eq 'OK') { 'Info' } else { 'Error' }
-        $message = "[$Outcome] Fonte: $Source | Comando: $Command"
-        if ($Detail) { $message += " | Dettaglio: $Detail" }
+        $safeCommand = Protect-M365OpsSecretText -Text $Command
+        $message = "[$Outcome] Fonte: $Source | Comando: $safeCommand"
+        if ($Detail) { $message += " | Dettaglio: $(Protect-M365OpsSecretText -Text $Detail)" }
         $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`t[$level]`t$tenant`t$message"
         Add-Content -Path $logFile -Value $line -Encoding UTF8
     }

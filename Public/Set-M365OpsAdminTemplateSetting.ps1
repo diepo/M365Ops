@@ -14,11 +14,12 @@ function Set-M365OpsAdminTemplateSetting {
         [hashtable[]]$PresentationValues
     )
     $definitionValue = @{
+        "@odata.type"                  = "#microsoft.graph.groupPolicyDefinitionValue"
         "enabled"                      = $Enabled
         "definition@odata.bind"        = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyDefinitions('$DefinitionId')"
     }
-    $body = @{ added = @(@{ definitionValue = $definitionValue }); updated = @(); deleted = @() }
-    if ($PresentationValues) { $body.added[0].definitionValue.presentationValues = $PresentationValues }
+    $body = @{ added = @($definitionValue); updated = @(); deletedIds = @() }
+    if ($PresentationValues) { $body.added[0].presentationValues = $PresentationValues }
 
     Invoke-M365OpsGraphRequest -Method POST -Path "/deviceManagement/groupPolicyConfigurations/$Identity/updateDefinitionValues" -Body $body -Beta | Out-Null
     $state = if ($Enabled) { "abilitata" } else { "disabilitata" }

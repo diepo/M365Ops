@@ -19,7 +19,9 @@ function Get-M365OpsAppInstallStatus {
     $result.Assignments = (Invoke-M365OpsGraphRequest -Method GET -Path "/deviceAppManagement/mobileApps/$AppId/assignments" -Beta).value
 
     try {
-        $result.DeviceStatuses = (Invoke-M365OpsGraphRequest -Method GET -Path "/deviceAppManagement/mobileApps/$AppId/deviceStatuses" -Beta).value
+        $deviceStatusesPath = "/deviceAppManagement/mobileApps/$AppId/deviceStatuses"
+        if ($DeviceId) { $deviceStatusesPath += "?`$filter=deviceId eq '$DeviceId'" }
+        $result.DeviceStatuses = (Invoke-M365OpsGraphRequest -Method GET -Path $deviceStatusesPath -Beta).value
     }
     catch {
         # Verificato il 14/08/2026: questo endpoint ha fallito sia per un'app winGetApp

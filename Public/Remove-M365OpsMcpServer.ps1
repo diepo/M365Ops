@@ -32,6 +32,9 @@ function Remove-M365OpsMcpServer {
                 DelegatedUpn           = $prop.Value.DelegatedUpn
                 ExchangeCertThumbprint = $prop.Value.ExchangeCertThumbprint
                 EmailSender            = $prop.Value.EmailSender
+                # Stesso bug reale di Set-M365OpsMcpServer.ps1 (31/08/2026) - vedi li' per il
+                # dettaglio completo.
+                SharePointInteractiveClientId = $prop.Value.SharePointInteractiveClientId
                 McpServers              = $mcpServers
             }
         }

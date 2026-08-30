@@ -14,12 +14,15 @@ function Start-M365OpsMigrationBatch {
         [hashtable]$ExtraParams = @{}
     )
     Connect-M365OpsExchange
-    # -ErrorAction Stop: stesso bug di errore non terminante ignorato in silenzio gia' trovato
-    # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026) - mancava qui, trovato dal
-    # vivo in un bug-hunt successivo (26/08/2026).
-    $params = @{ Identity = $Identity; ErrorAction = 'Stop' }
+    $params = @{ Identity = $Identity }
     if ($StartAfter) { $params.StartAfter = $StartAfter }
     foreach ($key in $ExtraParams.Keys) { $params[$key] = $ExtraParams[$key] }
+    # -ErrorAction Stop impostato DOPO il merge di $ExtraParams (e non prima): $ExtraParams e'
+    # un passthrough generico esposto al livello tool dell'IA, quindi un chiamante potrebbe
+    # passare ExtraParams = @{ ErrorAction = 'SilentlyContinue' } - impostandolo prima del merge
+    # quel valore lo sovrascriverebbe silenziosamente, disabilitando la protezione. Stesso
+    # principio gia' applicato in New-M365OpsMigrationBatch.ps1 (bug-hunt 19/08/2026).
+    $params.ErrorAction = 'Stop'
     Start-MigrationBatch @params
     Write-Host "Batch di migrazione avviato: $Identity" -ForegroundColor Green
     Get-MigrationBatch -Identity $Identity | Select-Object Identity, Status, TotalCount, FinalizedCount

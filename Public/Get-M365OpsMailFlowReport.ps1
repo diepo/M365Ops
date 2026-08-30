@@ -22,7 +22,26 @@ function Get-M365OpsMailFlowReport {
     }
     catch {
         Write-Host "Get-MailTrafficSummaryReport non disponibile, fallback su Get-MessageTraceV2 (campione)." -ForegroundColor Yellow
-        Get-MessageTraceV2 -StartDate $StartDate -EndDate $EndDate -ResultSize 1000 |
-            Group-Object Status | Select-Object Name, Count
+        # Chunking in finestre da 10 giorni: Get-MessageTraceV2 accetta al massimo 10 giorni per
+        # singola chiamata (limite del servizio) - stesso approccio di Get-M365OpsMessageTrace.ps1.
+        $maxWindowDays = 10
+        $warnings = @()
+        $allResults = @()
+        $windowStart = $StartDate
+        while ($windowStart -lt $EndDate) {
+            $windowEnd = $windowStart.AddDays($maxWindowDays)
+            if ($windowEnd -gt $EndDate) { $windowEnd = $EndDate }
+
+            try {
+                $allResults += @(Get-MessageTraceV2 -StartDate $windowStart -EndDate $windowEnd -ResultSize 1000)
+            }
+            catch {
+                $warnings += "Finestra $($windowStart.ToString('dd/MM/yyyy'))-$($windowEnd.ToString('dd/MM/yyyy')): $($_.Exception.Message)"
+            }
+
+            $windowStart = $windowEnd
+        }
+        if ($warnings.Count -gt 0) { $script:M365OpsLastReportWarnings = $warnings }
+        $allResults | Group-Object Status | Select-Object Name, Count
     }
 }

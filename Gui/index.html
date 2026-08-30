@@ -1267,26 +1267,44 @@
     }
   });
 
+  // Escape dedicato per la Knowledge Base (stessa convenzione del resto del file: una funzione
+  // per feature, es. escapeHtmlHeaders/escapeHtmlReconnect/escapeHtmlInfra altrove, non una
+  // sola condivisa). Serve qui perche' doc.Title/doc.Summary sono generati dall'AI a partire
+  // dal contenuto REALE del documento caricato (catalogazione automatica della KB) - un
+  // documento creato ad arte potrebbe contenere markup che finiva prima direttamente
+  // nell'innerHTML senza nessun escaping.
+  function escapeHtmlKnowledge(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
   async function loadKnowledgeBase() {
     kbDocList.innerHTML = '<p class="hint">Caricamento...</p>';
     try {
       const res = await fetch('/api/kb/list');
       const data = await res.json();
-      if (data.error) { kbDocList.innerHTML = '<p class="hint">' + data.error + '</p>'; return; }
-      if (!data || data.length === 0) { kbDocList.innerHTML = '<p class="hint">Nessun documento caricato per questo tenant.</p>'; return; }
+      if (data.error) { kbDocList.innerHTML = '<p class="hint">' + escapeHtmlKnowledge(data.error) + '</p>'; return; }
+      // Stesso schema difensivo gia' in uso altrove nel file (es. loadProfiles/loadMcpServers)
+      // contro il comportamento noto di PowerShell: una collezione con UN solo elemento viene
+      // serializzata come oggetto singolo, non come array di un elemento - senza questo,
+      // data.forEach sotto lanciava un'eccezione silenziosa dentro il try (catturata piu' sotto)
+      // per un tenant con esattamente un documento in KB, mostrando un errore generico invece
+      // dell'unico documento reale.
+      const docs = Array.isArray(data) ? data : (data ? [data] : []);
+      if (docs.length === 0) { kbDocList.innerHTML = '<p class="hint">Nessun documento caricato per questo tenant.</p>'; return; }
       kbDocList.innerHTML = '';
-      data.forEach(doc => {
+      docs.forEach(doc => {
         const card = document.createElement('div');
         card.style.cssText = 'border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 14px; margin-bottom:8px;';
-        const topics = (doc.Topics && doc.Topics.length > 0) ? doc.Topics.join(', ') : '';
+        const topics = (doc.Topics && doc.Topics.length > 0) ? doc.Topics.map(escapeHtmlKnowledge).join(', ') : '';
         card.innerHTML = `
           <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
             <div>
-              <b>${doc.Title || doc.FileName}</b> <span class="hint">(${doc.FileName})</span>
+              <b>${escapeHtmlKnowledge(doc.Title || doc.FileName)}</b> <span class="hint">(${escapeHtmlKnowledge(doc.FileName)})</span>
               ${topics ? `<div class="hint">${topics}</div>` : ''}
-              <div style="margin-top:4px; font-size:13px;">${doc.Summary || ''}</div>
+              <div style="margin-top:4px; font-size:13px;">${escapeHtmlKnowledge(doc.Summary || '')}</div>
             </div>
-            <button class="kb-delete-btn" data-filename="${doc.FileName}" style="flex-shrink:0;">Rimuovi</button>
+            <button class="kb-delete-btn" data-filename="${escapeHtmlKnowledge(doc.FileName)}" style="flex-shrink:0;">Rimuovi</button>
           </div>
         `;
         kbDocList.appendChild(card);
@@ -1544,8 +1562,37 @@
     );
   }
 
+  // Traccia l'ultimo tenant per cui sono stati ripuliti i quattro elementi sotto (vedi blocco
+  // subito dentro loadConnectionStatus) - serve a distinguere un vero cambio tenant da una
+  // semplice richiamata di loadConnectionStatus() per lo STESSO tenant (es. dopo "Genera
+  // certificato" o "Disconnetti/Connetti tutto", che la richiamano subito per aggiornare i
+  // pallini di stato: pulire lì cancellerebbe all'istante il messaggio di successo appena
+  // mostrato per il tenant corrente).
+  let lastConnStatusTenant = null;
+
   async function loadConnectionStatus() {
     const panel = document.getElementById('connection-status-panel');
+    // Bug reale trovato in stress-test (30/08/2026): disconnect-all-msg, reconnect-all-results,
+    // generate-cert-msg e generate-cert-result vivono dentro #active-tenant-detail, un nodo DOM
+    // CONDIVISO che viene ri-agganciato (non ricreato) al tenant appena attivato (vedi
+    // loadProfiles/activateProfile) - questa funzione ripulisce gia' molti altri elementi di
+    // stato ad ogni cambio tenant qui sotto, ma questi quattro restavano "sporchi": un messaggio
+    // di successo di "Connetti tutto" o un thumbprint di certificato appena generato per il
+    // tenant precedente restava visibile sotto il pannello del tenant NUOVO, col rischio
+    // concreto di convincere l'utente a caricare su Entra ID il certificato del tenant
+    // sbagliato. Puliti SOLO quando currentTenantName e' davvero cambiato rispetto all'ultima
+    // volta (vedi lastConnStatusTenant sopra), non ad ogni chiamata.
+    if (currentTenantName !== lastConnStatusTenant) {
+      lastConnStatusTenant = currentTenantName;
+      const disconnectAllMsg = document.getElementById('disconnect-all-msg');
+      if (disconnectAllMsg) { disconnectAllMsg.textContent = ''; }
+      const reconnectAllResults = document.getElementById('reconnect-all-results');
+      if (reconnectAllResults) { reconnectAllResults.style.display = 'none'; reconnectAllResults.innerHTML = ''; }
+      const generateCertMsg = document.getElementById('generate-cert-msg');
+      if (generateCertMsg) { generateCertMsg.textContent = ''; }
+      const generateCertResult = document.getElementById('generate-cert-result');
+      if (generateCertResult) { generateCertResult.style.display = 'none'; generateCertResult.innerHTML = ''; }
+    }
     let data;
     // Un tentativo, poi un SOLO retry dopo una breve pausa (27/08/2026, bug reale segnalato
     // dal vivo dall'utente subito dopo "Connetti tutto": questa chiamata falliva UNA volta,
@@ -2071,7 +2118,14 @@
   async function loadMcpServers() {
     try {
       const [serversRes, statusRes] = await Promise.all([fetch('/api/mcp-servers'), fetch('/api/mcp-status')]);
-      const servers = await serversRes.json();
+      const serversData = await serversRes.json();
+      // Stesso schema difensivo gia' in uso altrove nel file (es. loadProfiles) contro il
+      // comportamento noto di PowerShell: una collezione con UN solo elemento viene
+      // serializzata come oggetto singolo, non come array di un elemento. Caso comune qui
+      // (tenant con solo Lokka configurato, nessun altro connettore) - senza questo, il
+      // .find/.filter sotto lanciava un'eccezione silenziosa dentro il try, mostrando un
+      // generico "Errore nel caricare i server MCP" invece dell'elenco reale.
+      const servers = Array.isArray(serversData) ? serversData : (serversData ? [serversData] : []);
       const statusData = await statusRes.json();
       const statusByName = {};
       (statusData.mcpServers || []).forEach(s => { statusByName[s.name] = s; });
@@ -2556,10 +2610,19 @@
         if (!data.ok) {
           msg.textContent = 'Errore: ' + data.text;
         } else if (data.authMode === 'Delegated') {
-          // Su Delegato non e' stato tentato nulla in silenzio (vedi Connect-
-          // M365OpsAllConnections.ps1) - il messaggio spiega perche' e guida al pulsante giusto,
-          // invece di lasciar credere che "Connetti tutto" abbia provato e fallito ovunque.
+          // Su Delegato le aree che dipendono dal token utente root non vengono tentate (vedi
+          // Connect-M365OpsAllConnections.ps1) - il messaggio spiega perche' e guida al
+          // pulsante giusto. I server MCP (es. CLI Microsoft 365, che puo' avere una propria
+          // connessione salvata indipendente) VENGONO pero' tentati anche qui (corretto il
+          // 31/08/2026, prima saltati del tutto su Delegato) - se data.results ne contiene,
+          // mostrali comunque, altrimenti solo il messaggio di indicazione.
           msg.textContent = data.message || '';
+          if ((data.results || []).length > 0) {
+            resultsBox.style.display = 'block';
+            resultsBox.innerHTML = (data.results || []).map(r =>
+              `${statusDot(r.ok)}${r.name}${r.ok ? '' : ' — ' + escapeHtmlReconnect(r.message || 'errore sconosciuto')}`
+            ).join('<br>');
+          }
         } else {
           // Risultati per-area riportati cosi' come sono (mai riassunti in un unico
           // successo/fallimento): un errore su un'area (es. Intune senza consenso admin) non
@@ -3162,6 +3225,15 @@
     }
   }
 
+  // Escape dedicato per gli script personalizzati (stessa convenzione del resto del file, vedi
+  // escapeHtmlKnowledge sopra) - s.Name/s.Synopsis/s.Reason vengono letti dai commenti/metadati
+  // dentro i file .ps1 in Scripts\Custom, non controllati dal server, quindi finivano prima
+  // direttamente nell'innerHTML senza nessun escaping.
+  function escapeHtmlCustomScripts(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
   async function loadCustomScripts() {
     const box = document.getElementById('custom-scripts-list');
     box.textContent = 'Caricamento...';
@@ -3175,9 +3247,9 @@
       box.innerHTML = scripts.map(s => {
         if (s.Valid) {
           const modeTag = s.Mode === 'Write' ? '<span style="color:var(--warn);">scrittura — richiede conferma</span>' : '<span style="color:var(--ok);">sola lettura</span>';
-          return `<div style="margin-bottom:8px;"><b>${s.Name}</b> (${modeTag})<br>${s.Synopsis}</div>`;
+          return `<div style="margin-bottom:8px;"><b>${escapeHtmlCustomScripts(s.Name)}</b> (${modeTag})<br>${escapeHtmlCustomScripts(s.Synopsis)}</div>`;
         }
-        return `<div style="margin-bottom:8px; color:var(--warn);"><b>${s.Name}</b> — non caricato: ${s.Reason}</div>`;
+        return `<div style="margin-bottom:8px; color:var(--warn);"><b>${escapeHtmlCustomScripts(s.Name)}</b> — non caricato: ${escapeHtmlCustomScripts(s.Reason)}</div>`;
       }).join('');
     } catch (e) {
       box.textContent = 'Errore nel caricare gli script personalizzati.';

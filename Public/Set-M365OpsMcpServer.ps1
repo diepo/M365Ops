@@ -37,6 +37,15 @@ function Set-M365OpsMcpServer {
                 DelegatedUpn           = $prop.Value.DelegatedUpn
                 ExchangeCertThumbprint = $prop.Value.ExchangeCertThumbprint
                 EmailSender            = $prop.Value.EmailSender
+                # Bug reale trovato dalla maratona di stress-test (31/08/2026): questo campo
+                # mancava dalla ricostruzione qui sotto (copiato prima che esistesse nello
+                # schema, mai aggiornato) - dato che questa funzione riscrive l'INTERO
+                # tenants.json, salvare/modificare un connettore MCP su QUALUNQUE tenant
+                # cancellava silenziosamente il client id SharePoint interattivo di OGNI
+                # profilo nel file, rompendo il login SharePoint su tenant Delegati che lo
+                # avevano gia' configurato (vedi Sync-M365OpsSharePointAppRegistration.ps1,
+                # guida sezione 17.10).
+                SharePointInteractiveClientId = $prop.Value.SharePointInteractiveClientId
                 McpServers             = $mcpServers
             }
         }

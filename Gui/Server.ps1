@@ -137,7 +137,15 @@ function Export-M365OpsDeviceReportChat {
     $devices = Get-M365OpsManagedDevices
     $reportsDir = Join-Path $moduleRoot 'Reports'
     New-Item -ItemType Directory -Force -Path $reportsDir | Out-Null
-    $path = Join-Path $reportsDir "dispositivi-$(Get-Date -Format 'yyyyMMdd-HHmmss').$format"
+    # Tenant + suffisso casuale nel nome file (31/08/2026, bug reale trovato dalla maratona di
+    # stress-test): Reports\ e' una cartella piatta condivisa da TUTTI i tenant, un nome file
+    # basato solo su titolo+timestamp al secondo puo' collidere tra tenant diversi (o due
+    # richieste ravvicinate dello stesso tenant) - Export-M365OpsReport cancella il file
+    # esistente allo stesso path prima di scrivere, quindi una collisione sovrascrive in
+    # silenzio un report altrui. Stessa sanitizzazione gia' usata per i nomi file per-tenant di
+    # Knowledge Base/storico chat (Private\Get-M365OpsTenantStorageKey.ps1).
+    $tenantSlugForReport = if ($script:ActiveTenantProfile) { $script:ActiveTenantProfile -replace '[^\w\-]', '_' } else { 'no-tenant' }
+    $path = Join-Path $reportsDir "$tenantSlugForReport-dispositivi-$(Get-Date -Format 'yyyyMMdd-HHmmss')-$([Guid]::NewGuid().ToString('N').Substring(0,6)).$format"
     $realPath = Export-M365OpsReport -Data $devices -Format $format -Path $path -Title "Dispositivi Intune"
     $script:LastReportPath = $realPath
     # Ponte verso lo scope del modulo (18/08/2026, bug reale) - senza questo, un invio email
@@ -153,7 +161,9 @@ function Export-M365OpsCompliancePatternsReportChat {
     $htmlBody = "<h1>Analisi pattern di non conformita'</h1><pre style='white-space:pre-wrap; font-family:Consolas,monospace; font-size:11px;'>$escaped</pre>"
     $reportsDir = Join-Path $moduleRoot 'Reports'
     New-Item -ItemType Directory -Force -Path $reportsDir | Out-Null
-    $path = Join-Path $reportsDir "pattern-conformita-$(Get-Date -Format 'yyyyMMdd-HHmmss').pdf"
+    # Stesso fix di Export-M365OpsDeviceReportChat sopra (31/08/2026) - vedi li' per il dettaglio.
+    $tenantSlugForReport = if ($script:ActiveTenantProfile) { $script:ActiveTenantProfile -replace '[^\w\-]', '_' } else { 'no-tenant' }
+    $path = Join-Path $reportsDir "$tenantSlugForReport-pattern-conformita-$(Get-Date -Format 'yyyyMMdd-HHmmss')-$([Guid]::NewGuid().ToString('N').Substring(0,6)).pdf"
     $realPath = Export-M365OpsReport -HtmlBody $htmlBody -Format pdf -Path $path -Title "Pattern di non conformita'"
     $script:LastReportPath = $realPath
     # Ponte verso lo scope del modulo (18/08/2026, bug reale) - senza questo, un invio email
@@ -173,7 +183,9 @@ function Export-M365OpsExoReportChat {
     $data = @(& $Cmdlet)
     $reportsDir = Join-Path $moduleRoot 'Reports'
     New-Item -ItemType Directory -Force -Path $reportsDir | Out-Null
-    $path = Join-Path $reportsDir "$FileSlug-$(Get-Date -Format 'yyyyMMdd-HHmmss').$format"
+    # Stesso fix di Export-M365OpsDeviceReportChat sopra (31/08/2026) - vedi li' per il dettaglio.
+    $tenantSlugForReport = if ($script:ActiveTenantProfile) { $script:ActiveTenantProfile -replace '[^\w\-]', '_' } else { 'no-tenant' }
+    $path = Join-Path $reportsDir "$tenantSlugForReport-$FileSlug-$(Get-Date -Format 'yyyyMMdd-HHmmss')-$([Guid]::NewGuid().ToString('N').Substring(0,6)).$format"
     if ($data.Count -eq 0) { return "Nessun dato trovato per '$Title' - report non generato." }
     $realPath = Export-M365OpsReport -Data $data -Format $format -Path $path -Title $Title
     $script:LastReportPath = $realPath
@@ -521,9 +533,19 @@ function Execute-PendingAction {
                 # connessione Exchange/Teams gia' riuscita, su una scrittura specifica - non
                 # solo al momento del connect (gia' coperto da Connect-M365OpsExchange.ps1).
                 # Vedi quel file per il dettaglio completo del bug e del retry.
-                $exoResult = Invoke-M365OpsWriteWithIsolationRecovery -ModuleType 'Exchange' -Action { & $cmdletName @params }
+                # -RecoveredViaIsolation (31/08/2026, bug reale trovato dalla maratona di
+                # stress-test): il retry automatico dentro Invoke-M365OpsWriteWithIsolationRecovery
+                # non puo' escludere con certezza che la scrittura sia stata eseguita due volte
+                # (vedi quel file per il dettaglio) - se e' scattato, lo diciamo esplicitamente
+                # all'utente invece di un "Fatto." silenzioso che nasconderebbe il rischio.
+                $exoRecovered = $false
+                $exoResult = Invoke-M365OpsWriteWithIsolationRecovery -ModuleType 'Exchange' -Action { & $cmdletName @params } -RecoveredViaIsolation ([ref]$exoRecovered)
                 $resultText = ($exoResult | ConvertTo-Json -Depth 6 -Compress)
-                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto.`n$resultText" -CommandText (Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $params)
+                $exoBaseText = "Fatto.`n$resultText"
+                if ($exoRecovered) {
+                    $exoBaseText += "`n`n⚠️ Durante questa scrittura e' stato rilevato e recuperato automaticamente un conflitto tecnico noto tra i moduli Exchange/Teams (guida, sezione 6.6). L'operazione risulta riuscita al secondo tentativo, ma per la natura di questo conflitto non si puo' escludere con assoluta certezza che il primo tentativo fosse gia' andato a buon fine sul tenant prima di fallire solo localmente - verifica che non sia stato creato/modificato un duplicato prima di considerare l'operazione definitivamente conclusa."
+                }
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText $exoBaseText -CommandText (Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $params)
             }
             'CustomWrite' {
                 $params = @{}
@@ -549,9 +571,16 @@ function Execute-PendingAction {
                 # Exchange gia' connessi entrambi con successo in precedenza - il conflitto di
                 # sezione 6.6 puo' quindi manifestarsi anche dopo un connect riuscito, non
                 # solo durante. Vedi quel file per il dettaglio completo del bug e del retry.
-                $teamsResult = Invoke-M365OpsWriteWithIsolationRecovery -ModuleType 'Teams' -Action { & $cmdletName @params }
+                # -RecoveredViaIsolation: stesso principio del ramo ExoWrite sopra, vedi li' per
+                # il dettaglio completo del bug e del perche' di questo avviso.
+                $teamsRecovered = $false
+                $teamsResult = Invoke-M365OpsWriteWithIsolationRecovery -ModuleType 'Teams' -Action { & $cmdletName @params } -RecoveredViaIsolation ([ref]$teamsRecovered)
                 $resultText = ($teamsResult | ConvertTo-Json -Depth 6 -Compress)
-                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto.`n$resultText" -CommandText (Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $params)
+                $teamsBaseText = "Fatto.`n$resultText"
+                if ($teamsRecovered) {
+                    $teamsBaseText += "`n`n⚠️ Durante questa scrittura e' stato rilevato e recuperato automaticamente un conflitto tecnico noto tra i moduli Exchange/Teams (guida, sezione 6.6). L'operazione risulta riuscita al secondo tentativo, ma per la natura di questo conflitto non si puo' escludere con assoluta certezza che il primo tentativo fosse gia' andato a buon fine sul tenant prima di fallire solo localmente - verifica che non sia stato creato/modificato un duplicato prima di considerare l'operazione definitivamente conclusa."
+                }
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText $teamsBaseText -CommandText (Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $params)
             }
             'IntuneWrite' {
                 $params = @{}
@@ -1094,7 +1123,7 @@ function Handle-ChatMessage {
         $script:PendingAction = @{ Type = 'CreateGroup'; Name = $name; MemberUpn = $memberUpn; ConfirmText = $confirmText; OriginalMessage = $msg }
         return @{ role = 'system'; text = "$confirmText`n(rispondi 'si' o 'no')" }
     }
-    elseif ($lower -match 'pacchet{1,2}izz|impacchet{1,2}|crea (l.)?app\b|carica app') {
+    elseif ($lower -match 'pacchet{1,2}izz(?!at[ao])|impacchet{1,2}(?!at[ao])|crea (l.)?app\b|carica app') {
         if (-not $script:LoadedFilePath) {
             return @{ role = 'system'; text = "Prima carica un file .exe/.msi/.ps1/.bat/.cmd con il pulsante sopra la casella di testo." }
         }

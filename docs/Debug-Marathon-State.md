@@ -2978,3 +2978,614 @@ certificato non e' mai stato caricato sul vero Entra ID, quindi qualunque connes
 successiva con quello sarebbe fallita se non ripristinato.
 
 Versione modulo `0.10.26`, changelog in `docs/Guida-Configurazione.html`, PDF rigenerato.
+
+---
+
+## MARATONA COMPLETA (almeno 18 ore) - richiesta esplicita dell'utente (31/08/2026)
+
+"riapriamo con la maratona stress test debug etc. almeno 18 ore di maratona, verifica su
+ogni singolo ps1 che nn contenga problemi (lanciali unoad uno con gli agenti) poi insieme in
+modo orchestrato e poi fai live test su tutto".
+
+A differenza dei giri precedenti (mirati su codice toccato di recente), questo e' un giro
+COMPLETO sui 400 file `.ps1` del progetto (304 Public\, 39 Private\ + 1 Worker, 3 Gui\,
+2 Scripts\Custom\ reali), seguendo la Regola #2 della maratona ("verificare TUTTO il codice,
+non solo le aree toccate di recente").
+
+**Struttura in 3 fasi, come richiesto esplicitamente**:
+1. **Revisione per batch** (in corso ora) - un agente per area funzionale, ognuno rivede OGNI
+   file assegnato singolarmente (non un solo agente per file - con 400 file non e' praticabile
+   ne' e' mai stato il pattern di questa maratona, vedi i giri precedenti raggruppati per
+   dominio). Agenti in SOLA LETTURA/analisi statica - NESSUNA modifica, NESSUN commit, NESSUN
+   test dal vivo contro il tenant condiviso in questa fase: con piu' agenti in parallelo sullo
+   stesso server GUI single-thread (localhost:8745) e lo stesso tenant "vnsys-test", un test
+   dal vivo concorrente rischierebbe di corrompere lo stato reciproco (cambio tenant di un
+   agente che rompe il test di un altro, scritture reali concorrenti su oggetti del tenant) -
+   ogni agente riporta SOLO risultati (bug confermati con file:riga e motivazione, non
+   sospetti vaghi), la fusione e la correzione avvengono nella fase 2.
+2. **Integrazione orchestrata** (dopo che tutti gli agenti della fase 1 hanno riportato) - i
+   risultati vengono raccolti insieme, i bug reali corretti in un giro coordinato (versione,
+   changelog, PDF, un solo ciclo di commit invece di N commit paralleli in conflitto).
+3. **Live test su tutto** (dopo la fase 2) - verifica dal vivo sequenziale (non concorrente)
+   sul tenant di test, coprendo sia il codice nuovo di questo giro sia una riconferma ad ampio
+   spettro del resto.
+
+### Batch dichiarati per la fase 1 (agenti avviati subito dopo questa dichiarazione)
+
+1. **Core connect/tenant/sessione/isolamento** (~34 file): Connect-M365Ops, Connect/Disconnect-
+   M365OpsAllConnections, Connect/Disconnect-M365OpsExchange/Teams/SharePoint/Compliance,
+   Connect-M365OpsIntune, Connect-M365OpsCliMicrosoft365, Connect/Disconnect-M365OpsMcpServer(s)/
+   Lokka, Disconnect-M365OpsAllIsolatedWorkers, Set/Remove-M365OpsTenant,
+   Get-M365OpsActiveTenantInfo, Get-M365OpsSetupStatus, New-M365OpsSelfSignedCertificate,
+   Private: Connect-M365OpsIsolatedModule, Complete-M365OpsIsolatedModuleConnect,
+   Start-M365OpsIsolatedModuleConnectAsync, Get-M365OpsIsolatedModuleConnectAsyncStatus,
+   Get-M365OpsIsolatedConnectParams, Invoke-M365OpsIsolatedCmdlet, Get-M365OpsModuleConflictHint,
+   Workers\M365OpsIsolatedWorker.ps1, Assert-M365OpsExoSafeVersion/TeamsSafeVersion/
+   CliMicrosoft365Installed, Get-M365OpsToken, New-M365OpsCertificateAssertion, Get-M365OpsSecret,
+   Invoke-M365OpsWithExoRepairRetry.
+2. **Exchange sicurezza posta e regole di flusso** (~35 file): AntiPhish*, AntiSpam*,
+   MalwareFilter*, TransportRule*, TransportConfig, InboundConnector, OutboundConnector,
+   RemoteDomain, AcceptedDomain, TenantAllowBlockList*, Quarantine* (Message/Policy/Header),
+   ThreatPolicies.
+3. **Exchange mailbox e gruppi** (~30 file): DistributionGroup*, DynamicDistributionGroup*,
+   MailContact, MailSecurityGroup, SharedMailbox*, RoomMailbox*, EquipmentMailbox,
+   PublicFolders, MailboxPermissions/Delegates/CalendarPermissions/SendOnBehalf, Forwarding/
+   AutoReply/InboxRules/GroupMembership/GroupsOverview Report.
+4. **Exchange diagnostica/reportistica + migrazione** (~20 file): MessageTrace*, MailFlowReport,
+   MailDetailTransportRuleReport, MoveRequestDiagnostic, ProvisioningRecipientDiagnostic,
+   MailboxStatistics/UsageReport, InactiveMailboxes, SharedMailboxSignInStatus,
+   LitigationHoldReport, MigrationBatch*/Endpoints/UserStatus/Start.
+5. **Compliance/Purview + Teams** (~15 file): RetentionCompliancePolicies, CompliancePatterns,
+   CompliancePolicyDetail, RoleDefinitionActions, CustomRoles, RoleAssignment, TeamsChannels/
+   List/Members/Policies/ExternalAccessConfig, New/Set/Remove-Team, GrantTeamsPolicy.
+6. **SharePoint/OneDrive** (~18 file): SharePointSites*, New/Set-SharePointSite*,
+   SharePointPermissionInheritance/Member/Quota/Sharing, OneDriveUsageReport,
+   InactiveOneDriveAccounts, OneDriveDelegateAccess Grant/Revoke, OneDriveSharingRecipient
+   Remove, Sync-SharePointAppRegistration, Private: Get-M365OpsSharePointAdminUrl.
+7. **Intune dispositivi/configurazione/app** (~35 file): ManagedDevices,
+   DeviceComplianceReasons, ConfigurationPolicy*, ConfigurationPolicyTemplates,
+   ConfigurationSettingDefinitions, DeviceScripts*, ScopeTags, EnrollmentConfigurations*,
+   AppInstallStatus, AppProtectionPolicies* (+Assignment/TargetApps), StoreApp, Win32App*,
+   Autopilot* (tutti), Private: Get-M365OpsAssignmentMatches.
+8. **Intune update rings/template/remediation + Copilot/utility varie** (~20 file):
+   UpdateChannel, UpdateRings*, AdminTemplates* (+Assignment/Setting), ProactiveRemediations*,
+   NotificationTemplates*, Get-M365OpsCopilotUsageReport/Summary, Get-M365OpsAppPermissionsCheck,
+   Get-M365OpsInstallerInsight, Get-M365OpsWin32AppCustomizationFromMessage,
+   Get-M365OpsScriptDetectionSuggestion, Find-M365OpsAdminTemplateSetting.
+9. **Motore AI/agente + recovery scritture + trasporto MCP** (~20 file): Invoke-M365OpsAgent,
+   Invoke-M365OpsAgentTools (file grande - contiene tutti i tool AI-facing e il dispatch),
+   Invoke-M365OpsErrorTriage, Invoke-M365OpsApplyFix, Invoke-M365OpsActionRecovery,
+   Invoke-M365OpsWriteRecovery, Invoke-M365OpsWriteWithIsolationRecovery, Test-M365OpsAiConnection,
+   Test-M365OpsFixApplicable, Format-M365OpsErrorTriage, Get-M365OpsAiUsageStatus,
+   Invoke-M365OpsLokkaTool, Invoke-M365OpsMcpServerTool, Get-M365OpsMcpServers,
+   Set-M365OpsMcpServer, Remove-M365OpsMcpServer, Private: Invoke-M365OpsMcpRequest,
+   Invoke-M365OpsLookupMsDocs, Get-M365OpsAiProviderLabel, Get-M365OpsToolSourceLabel,
+   Test-M365OpsCliCommandReadOnly.
+10. **Login delegati + Knowledge Base/chat/log/reportistica generale** (~30 file):
+    Start/Complete-M365OpsDelegatedLogin, Start/Complete-M365OpsExchangeDelegatedLogin,
+    Private: Invoke-M365OpsDeviceCodeFlow, Get-M365OpsDelegatedPermissionsCheck, Add/Get/
+    Remove-M365OpsKnowledgeDocument, Get-M365OpsKnowledgeCatalog/DocumentText, Private:
+    Get-M365OpsKnowledgeBasePaths, Add/Get/Clear-M365OpsChatHistory, Private:
+    Get-M365OpsNormalizedChatText, Get-M365OpsLogHistory, Write-M365OpsLog/WriteLog,
+    Get/Set-M365OpsInfraDiagram, Private: Get-M365OpsInfraDiagramNarrative/Path,
+    Protect/Unprotect-M365OpsInfraExport, New-M365OpsSvgChart, Export-M365OpsDataReport/Report,
+    Send-M365OpsReportEmail, Get-M365OpsUserOverview/GroupOverview, Get-M365OpsUserMfaStatus,
+    Reset-M365OpsUserMfa, Find-M365OpsUser, Get-M365OpsWriteActionSourceLabel,
+    Format-M365OpsCommandLine, Get-M365OpsCustomScriptCatalog, Get-M365OpsServerPort/
+    Set-M365OpsServerPort, Install-M365OpsPrerequisites/Update, Get-M365OpsUpdateStatus,
+    Set-M365OpsLastReportPath, Private: ConvertTo-M365OpsFlatRows/Hashtable,
+    Get-M365OpsExtractedFileText, Get-M365OpsGitHubRelease, Get-M365OpsMessageHeaderAnalysis,
+    Resolve-M365OpsTenantGuid, Get-M365OpsTenantStorageKey, Scripts\Custom\
+    Get-M365OpsOneDriveSharingReport.ps1 + _TEMPLATE.ps1.
+11. **GUI backend** (2 file, ma grandi): Gui\Server.ps1 (tutte le route HTTP), Gui\CommandCatalog.ps1
+    (tutto il dispatch deterministico locale).
+12. **GUI frontend**: Gui\index.html (HTML+CSS+JS, file molto grande - tutta la UI).
+
+Agenti avviati in background subito dopo questa dichiarazione, uno per batch (12 in totale).
+Ognuno riporta la propria sintesi (COMPLETATO + bug reali trovati con file:riga, o "nessun
+problema trovato") - le sezioni dettagliate verranno aggiunte qui sotto man mano che
+completano.
+
+### Batch 1 (core connect/tenant/sessione/isolamento) — COMPLETATO
+
+39/39 file rivisti. **2 bug reali trovati** (1 principale, 1 secondario a confidenza minore).
+
+**BUG PRINCIPALE - `Disconnect-M365OpsAllConnections.ps1` non ferma i worker isolati**: la
+funzione dichiara di interrompere "TUTTE le connessioni attive per il TENANT ATTIVO... ogni
+sottoprocesso MCP di questo tenant" e chiama `Disconnect-M365OpsAllMcpServers -TenantName`, ma
+NON chiama mai `Disconnect-M365OpsAllIsolatedWorkers -TenantName` - a differenza di
+`Remove-M365OpsTenant.ps1` (stesso batch), che chiama correttamente ENTRAMBE. Scenario di
+fallimento concreto: su un tenant App-only, il conflitto .NET Exchange/Teams (sezione 6.6)
+attiva l'isolamento reattivo, un processo worker separato resta vivo con una sessione Exchange
+autenticata reale e funzioni proxy globali (es. `Get-Mailbox`) che vi inoltrano le chiamate.
+Cliccando "Disconnetti tutto": `Disconnect-M365OpsExchange` gira nel processo PRINCIPALE (dove
+non c'era mai stata una sessione reale, quella vive nel worker) - la GUI mostra "Tutte le
+connessioni disattivate" ma il worker isolato resta vivo e autenticato, e qualunque cmdlet
+proxato eseguito dopo colpirebbe ancora il tenant "supposto scollegato" in silenzio.
+
+**BUG SECONDARIO (confidenza minore) - `Connect-M365OpsAllConnections.ps1` su Delegato salta
+anche il riavvio silenzioso di CLI365**: su AuthMode Delegated la funzione ritorna subito con
+un messaggio statico senza tentare NULLA, incluso il ciclo sui server MCP - ma
+`Connect-M365OpsCliMicrosoft365.ps1` (stesso batch) si autentica con uno stato SEPARATO su
+disco (`m365 login`/`connection use`), indipendente dal token root del modulo, e il suo stesso
+codice (ramo `$existingConnection`) riconnette in silenzio SENZA `-AllowInteractive` se una
+connessione salvata per quel profilo esiste gia'. Su un tenant Delegato dove CLI365 era gia'
+loggato e solo il suo sottoprocesso MCP e' stato ucciso (es. da
+`Disconnect-M365OpsAllConnections`, che termina il processo MCP ma non revoca mai il login CLI
+salvato), "Connetti tutto" dice sempre "serve login interattivo per tutto" invece di tentare
+la riconnessione silenziosa che la funzione sottostante gestirebbe gia' correttamente da sola.
+
+Nota minore non contata come bug: `Private\Workers\M365OpsIsolatedWorker.ps1` riga ~256, un
+commento dice "-Compress omesso apposta" ma il codice lo include comunque - solo un
+disallineamento commento/codice, nessun impatto funzionale (la stringa JSON interna finisce
+comunque annidata dentro l'inviluppo JSON-RPC esterno, sempre compresso).
+
+### Batch 3 (Exchange mailbox e gruppi) — COMPLETATO
+
+52/52 file rivisti. **Nessun bug reale trovato.** Batch gia' irrobustito su piu' giri
+precedenti (18-26/08/2026): ogni cmdlet nativo di scrittura ha gia' `-ErrorAction Stop`, i
+flussi di creazione gruppo con membri iniziali isolano correttamente i fallimenti per singolo
+membro senza compromettere la creazione riuscita del gruppo. Confermato dal vivo (pwsh 7.6.5)
+che `.Count` su un oggetto singolo o su pipeline vuota si comporta correttamente (1 / 0, mai
+`$null` silenzioso) - il calcolo `MemberCount` in `Get-M365OpsGroupsOverviewReport.ps1` e'
+sicuro. Confermato che il livello di dispatch tool AI (`Invoke-M365OpsAgentTools.ps1`) avvolge
+gia' centralmente ogni output in `@(...) -AsArray` prima di `ConvertTo-Json` - le funzioni
+Get-/Report di questo batch non necessitano un proprio wrapping separato.
+
+### Batch 4 (Exchange diagnostica/reportistica + migrazione) — COMPLETATO
+
+15/15 file rivisti. **4 bug reali trovati**, tutti verificati contro Microsoft Learn (non a
+memoria).
+
+**`Get-M365OpsMessageTrace.ps1`**: il warning di troncamento scatta solo se
+`$allResults.Count -gt $maxTotalRows` (strettamente maggiore) - se il totale CUMULATIVO su
+piu' finestre da 10 giorni atterra ESATTAMENTE sul cap (es. due finestre da 500+500=1000) con
+altre finestre ancora da interrogare nel range richiesto, il ciclo esce senza mai avvisare -
+1000 righe restituite indistinguibili da "sono davvero tutte", quando in realta' ne esistono
+altre oltre.
+
+**`Get-M365OpsMailFlowReport.ps1`**: il percorso di fallback (`Get-MessageTraceV2` con
+`-ResultSize 1000`, se il report primario fallisce) NON e' suddiviso in finestre da 10 giorni
+come il file gemello `Get-M365OpsMessageTrace.ps1` - Microsoft Learn conferma che
+Get-MessageTraceV2 puo' restituire solo 10 giorni di dati per query. Su un report richiesto a
+30 giorni con report primario fallito, anche il fallback lancerebbe un'eccezione non gestita
+qui (range troppo ampio per il servizio), vanificando lo scopo dichiarato del fallback stesso.
+
+**`Get-M365OpsMailDetailTransportRuleReport.ps1`**: due problemi collegati, entrambi verificati
+contro la documentazione reale del cmdlet. (1) Microsoft Learn dichiara esplicitamente che pur
+accettando una data fino a 30 giorni fa, il cmdlet restituisce SOLO gli ultimi 10 giorni di
+dati - la funzione passa `-StartDate`/`-EndDate` cosi' come arrivano, senza finestre, senza
+avviso, senza clamping: un caller che chiede 20 giorni fa ottiene un troncamento silenzioso.
+(2) Il cmdlet ha default PageSize 1000/Page 1 (max 5000), mai impostati/controllati qui - un
+tenant con oltre 1000 corrispondenze nella finestra richiesta ottiene una prima pagina
+silenziosamente troncata senza segnale che esistano altri dati.
+
+**`Start-M365OpsMigrationBatch.ps1`**: `ErrorAction = 'Stop'` viene impostato PRIMA del merge
+di `$ExtraParams` (ordine opposto rispetto al file gemello `New-M365OpsMigrationBatch.ps1`, che
+lo imposta DOPO apposta per impedirne l'override) - dato che `ExtraParams` e' un passthrough
+generico esposto all'IA (`Invoke-M365OpsAgentTools.ps1`: "OGNI cmdlet qui sotto accetta ANCHE
+una chiave 'ExtraParams'... per qualsiasi altro parametro nativo non elencato esplicitamente"),
+un `ExtraParams = @{ ErrorAction = 'SilentlyContinue' }` passato dal chiamante sovrascrive
+silenziosamente la protezione Stop - riaprendo esattamente la classe di bug "errore non
+terminante trattato come successo silenzioso" che il commento dello stesso file dice gia'
+corretta il 26/08/2026.
+
+### Batch 6 (SharePoint/OneDrive) — COMPLETATO
+
+16/16 file rivisti. **Nessun bug reale trovato.** Verificato dal vivo (repro locale pwsh) che
+il binding di parametro con prefisso non ambiguo di PowerShell risolve correttamente uno
+splat `Owner` (singolare) su `New-PnPSite -Type TeamSite` (parametro reale `-Owners`) - non e'
+un typo come sembrerebbe a prima vista. Confermato `Set-PnPTenantSite -StorageMaximumLevel`
+essere un alias legacy documentato di `-StorageQuota`, ancora supportato. Confermato che il
+wrapping array per la serializzazione JSON e' gestito centralmente in
+`Invoke-M365OpsAgentTools.ps1` per ogni dispatch `sharepoint_query`/`propose_sharepoint_write`.
+Unico item aperto (gia' auto-documentato dal file stesso, non un bug nuovo): il formato di
+`site.Owner` da `Get-PnPTenantSite` in `Get-M365OpsInactiveOneDriveAccounts.ps1` resta da
+riconfermare dal vivo.
+
+### Batch 2 (Exchange sicurezza posta e regole di flusso) — COMPLETATO
+
+68/68 file rivisti. **2 bug reali trovati**, entrambi verificati contro Microsoft Learn.
+
+**`New-M365OpsTenantAllowBlockListEntry.ps1`**: quando il chiamante omette sia
+`-ExpirationDate` sia `-NoExpiration`, il wrapper forza comunque `NoExpiration = $true`. Ma
+Microsoft Learn conferma che `-NoExpiration` e' valido SOLO per voci `-Block`, o `-Allow` +
+`Url` con `ListSubType=AdvancedDelivery`, o `-Allow` + `IP` - NON per `-Allow` + `Sender` (il
+caso d'uso Allow piu' comune) ne' `-Allow` + `FileHash` ne' `-Allow` + `Url` semplice. La
+docstring della funzione stessa dice "se omesso, il default e' 30 giorni (comportamento nativo
+del servizio)" - cioe' il codice dovrebbe lasciare entrambi non impostati, non forzare
+NoExpiration. Il file gemello `Set-M365OpsTenantAllowBlockListItem.ps1` non ha questo ramo
+forzato, confermando che e' una divergenza accidentale, non una scelta di design.
+
+**`Remove-M365OpsQuarantineMessage.ps1`**: manca `-Confirm:$false` su `Delete-QuarantineMessage`.
+Microsoft Learn dichiara esplicitamente che questo cmdlet ha una pausa di conferma integrata,
+da saltare con `-Confirm:$false`. Ogni altro wrapper distruttivo dello stesso batch (incluso il
+gemello `Release-M365OpsQuarantineMessage.ps1`) lo ha gia'. M365Ops gira come server headless
+senza console interattiva - invocare questa funzione incontrerebbe la pausa di conferma nativa
+senza nessun host in grado di rispondere, con blocco o fallimento invece della cancellazione
+del messaggio in quarantena.
+
+### Batch 10 (login delegati + Knowledge Base/chat/log/report) — COMPLETATO
+
+49/49 file rivisti. **2 bug reali trovati - il primo di GRAVITA' ALTA (fuga di segreti nei
+log)**, isolamento per tenant di chat/KB/infra diagram riverificato e confermato integro
+(nessuna collisione di sanitizzazione, la protezione a monte su `Set-M365OpsTenant.ps1` blocca
+gia' nomi profilo che collidono dopo sanitizzazione).
+
+**BUG GRAVE - `Write-M365OpsWriteLog.ps1`/`Format-M365OpsCommandLine.ps1`: password proposte
+in una scrittura IA possono finire in chiaro nel log permanente delle scritture.**
+`Format-M365OpsCommandLine.ps1` formatta i parametri di un cmdlet in una stringa leggibile
+SENZA nessuna redazione; `Write-M365OpsWriteLog.ps1` scrive quel testo cosi' com'e' su
+`Logs\writes-YYYYMMDD.log` (mai cancellato automaticamente, per documentazione dello stesso
+progetto). Percorso concreto verificato in `Gui\Server.ps1`: il gestore di successo `LokkaWrite`
+costruisce il testo del comando includendo l'INTERO corpo JSON della richiesta di scrittura
+Graph (`$action.Body | ConvertTo-Json`) e lo passa a `Write-M365OpsWriteLog`. Scenario concreto:
+l'IA propone `POST /users` per creare un utente con `passwordProfile.password` valorizzata (una
+scrittura Graph reale e comune) via `propose_graph_write`; l'utente conferma; la password in
+chiaro finisce permanentemente nel file di log. Non e' un rischio ipotetico: `Add-
+M365OpsChatHistoryTurn.ps1` (stesso batch) ha GIA' un passo di redazione costruito
+esplicitamente per questo identico scenario (corpo JSON con `passwordProfile`) - quella
+protezione era stata applicata SOLO allo storico chat, mai al log delle scritture, nonostante
+quest'ultimo riceva lo stesso identico contenuto tramite `Format-M365OpsCommandLine`. Lo stesso
+buco si applica a ExoWrite/TeamsWrite/IntuneWrite/SharePointWrite/CustomWrite.
+
+**Bug minore - `Export-M365OpsDataReport.ps1`/`Export-M365OpsReport.ps1`: nome file report puo'
+collidere tra tenant/richieste diverse.** `Reports\` e' una cartella piatta condivisa da TUTTI
+i tenant, il nome file deriva solo dal Titolo + timestamp con granularita' di 1 secondo -
+`Export-M365OpsReport.ps1` cancella esplicitamente un file gia' esistente allo stesso path
+prima di scrivere, senza controllo di proprietario. Due tenant (o due richieste dello stesso
+tenant) che generano un report con lo stesso Titolo nello stesso secondo si sovrascrivono a
+vicenda in silenzio.
+
+### Batch 5 (Compliance/Purview + Teams) — COMPLETATO
+
+13/13 file rivisti. **4 bug reali trovati**, individuati confrontando ogni file coi propri
+fratelli gia' corretti nello stesso batch (stesso schema di bug, fix applicato solo ad alcuni).
+
+**`Get-M365OpsRetentionCompliancePolicies.ps1`**: `Get-RetentionComplianceRule` per ogni
+policy usa `-ErrorAction SilentlyContinue` - un fallimento (throttling Purview, policy
+rinominata/rimossa nel frattempo, RBAC piu' stretto sulle regole che sulle policy) produce
+`Rules = @()`, indistinguibile da "zero regole configurate legittimamente". Il file gemello
+nello stesso batch, `Get-M365OpsCompliancePatterns.ps1`, ha gia' un fix documentato per questa
+identica classe di bug (try/catch per singolo elemento che fa emergere il fallimento) - qui
+manca.
+
+**`Get-M365OpsTeamsList.ps1`/`Get-M365OpsTeamsChannels.ps1`/`Get-M365OpsTeamsMembers.ps1`**:
+tutte e tre chiamano `Get-Team`/`Get-TeamChannel`/`Get-TeamUser` direttamente dopo
+`Connect-M365OpsTeams`, SENZA il wrapper di retry-via-isolamento che i file gemelli nello
+stesso batch (`Get-M365OpsTeamsPolicies.ps1`, `Get-M365OpsTeamsExternalAccessConfig.ps1`)
+hanno gia' e implementano correttamente. Il conflitto .NET Exchange/Teams (sezione 6.6) puo'
+colpire anche DOPO una connessione riuscita, su una chiamata dati successiva (riprodotto dal
+vivo in questo stesso progetto su `Set-Team`) - dato che `Connect-M365OpsTeams` corto-circuita
+su una sessione gia' connessa, non c'e' una seconda occasione di intercettarlo per queste tre
+funzioni, a differenza delle due gemelle gia' corrette.
+
+### Batch 8 (Intune update rings/template/remediation + Copilot) — COMPLETATO
+
+25/25 file rivisti. **7 bug reali trovati** (3 pattern distinti, tutti verificati contro
+Microsoft Learn).
+
+**Paginazione mancante (4 file)** - `Get-M365OpsUpdateRings.ps1`, `Get-M365OpsAdminTemplates.ps1`,
+`Get-M365OpsProactiveRemediations.ps1`, `Get-M365OpsNotificationTemplates.ps1`: nessuna gestisce
+`@odata.nextLink` sulle rispettive collezioni Graph (deviceConfigurations, groupPolicyConfigurations,
+deviceHealthScripts, notificationMessageTemplates) - su un tenant con piu' di una pagina di
+risultati, gli elementi oltre la prima pagina spariscono in silenzio, nessun errore. Contrasto
+diretto con `Get-M365OpsAppPermissionsCheck.ps1` nello stesso batch, che pagina correttamente.
+
+**`Set-M365OpsAdminTemplateSetting.ps1`**: corpo della richiesta `updateDefinitionValues`
+costruito con un livello di annidamento in piu' del previsto dallo schema reale
+(`groupPolicyDefinitionValue` dovrebbe essere l'elemento diretto dell'array `added`/`updated`,
+non annidato sotto una chiave `definitionValue`) - Graph non vede mai le proprieta' reali
+(`enabled`/`definition@odata.bind`), quindi ogni chiamata a questo cmdlet (l'unico modo offerto
+da questo modulo per cambiare una singola impostazione GPO) fallisce o non fa nulla in
+silenzio. Bug secondario minore nello stesso corpo: `deleted` dovrebbe chiamarsi `deletedIds`
+(innocuo qui, sempre inviato vuoto).
+
+**Byte-array vs stringa nella risposta CSV Copilot (2 file)** - `Get-M365OpsCopilotUsageReport.ps1`
+e `Get-M365OpsCopilotUsageSummary.ps1`: il mapping delle colonne CSV e' verificato CORRETTO,
+ma la normalizzazione a monte (`if ($raw -is [string]) {...} else { ($raw -join "`n") }`) non
+gestisce il caso reale: la risposta Graph v1.0 per questi endpoint e' `Content-Type:
+application/octet-stream`, che su PowerShell 7 `Invoke-RestMethod` restituisce come `byte[]`,
+non stringa - il controllo `-is [string]` lo manca, cade nel ramo `-join` che concatena i
+VALORI NUMERICI dei byte con newline invece di decodificarli come testo UTF-8, producendo una
+stringa non-CSV. `ConvertFrom-Csv` su quello fallisce o produce oggetti con tutti i campi
+`$null`, senza nessun errore che avvisi che il report e' vuoto/sbagliato.
+
+### Batch 7, 9, 11, 12 — FALLITI per rate limit (sessione esaurita), da rilanciare
+
+Le sessioni Claude di questi 4 agenti sono terminate per limite di utilizzo (HTTP 429, "You've
+hit your session limit") a meta' del loro lavoro, prima di poter produrre un report finale -
+NESSUN risultato utilizzabile da questi 4 (batch 7 Intune dispositivi/config/app, batch 9
+motore AI/agente + trasporto MCP, batch 11 GUI backend, batch 12 GUI frontend). L'utente ha
+confermato che il limite si e' resettato - rilanciati da capo con lo stesso identico batch di
+file e istruzioni (nessun lavoro parziale recuperabile da un agente terminato per rate limit).
+Batch 7 rilanciato con una nota aggiuntiva: il batch 8 (gia' completato) ha trovato un bug
+sistemico di paginazione mancante (`@odata.nextLink`) ripetuto su piu' file - segnalato
+esplicitamente all'agente del batch 7 di controllare lo stesso schema, dato che tratta anch'esso
+liste Graph Intune. — RIAVVIATI 31/08/2026.
+
+### Batch 12 (GUI frontend, index.html) — COMPLETATO (dopo il riavvio per rate limit)
+
+**6 bug reali trovati**, tutti in sola lettura statica su `Gui\index.html`.
+
+**Stato "sporco" sopravvive al cambio tenant su 4 elementi nuovi (v0.10.22/26)**:
+`disconnect-all-msg`/`reconnect-all-results`/`generate-cert-msg`/`generate-cert-result` vivono
+dentro `#active-tenant-detail`, un nodo DOM condiviso che `loadProfiles()` sposta tra le righe
+tenant ma non ricrea mai - `loadConnectionStatus()` (richiamata ad ogni cambio tenant) non
+tocca mai questi 4 elementi, i cui unici scrittori sono i propri click handler. Scenario
+concreto e pericoloso: generato un certificato per il tenant A (mostra thumbprint + link di
+download), poi cambiato al tenant B - il thumbprint/link del tenant A restano visibili sotto il
+pannello ora relativo al tenant B, rischio concreto di caricare su Entra ID il certificato
+sbagliato credendo sia quello del tenant corretto.
+
+**`loadKnowledgeBase()` e `loadMcpServers()`: manca il guard `Array.isArray()`** che invece
+ogni altro list-loader dello stesso file gia' ha (`loadCustomScripts`, `loadLogs`,
+`loadProfiles`) contro la nota classe di bug "PowerShell collassa una collezione di UN solo
+elemento in un oggetto nudo, non un array, in JSON". Per `loadMcpServers()` in particolare, "solo
+Lokka configurato, nessun altro connettore" e' lo stato di default piu' comune - esattamente lo
+scenario a un solo elemento piu' esposto a questo collasso.
+
+**Escape XSS incoerente**: `loadKnowledgeBase()` e `loadCustomScripts()` interpolano
+`doc.Title`/`doc.FileName`/`doc.Summary`/`s.Synopsis`/`s.Reason` in `innerHTML` SENZA nessun
+escape, mentre altre feature dello stesso file (header/NDR analyzer, infra diagram, box
+riconnessione) usano gia' consistentemente `escapeHtmlHeaders`/`escapeHtmlInfra`/
+`escapeHtmlReconnect`. Scenario concreto: `doc.Title`/`doc.Summary` sono generati dall'IA dal
+contenuto REALE del documento caricato (funzione di catalogazione automatica della Knowledge
+Base) - un documento malevolo/craftato che istruisce il summarizer (prompt injection) a
+produrre markup HTML grezzo verrebbe renderizzato senza escape nella lista documenti.
+
+Aree verificate e confermate pulite: pallino ambientale, pannello "Stato del processo",
+`computeAnyConnected`, tutti i polling a `setTimeout`/`setInterval` (login delegato Graph/
+Exchange, Teams asincrono, "Connetti/Disconnetti tutto") - nessun timer orfano, nessuna corsa,
+ripristino corretto dei pulsanti su ogni percorso di uscita.
+
+### Batch 11 (GUI backend, Server.ps1 + CommandCatalog.ps1) — COMPLETATO (dopo il riavvio)
+
+**Bug reali trovati: 1 in `Server.ps1` + un cluster di 6 in `CommandCatalog.ps1`, piu' 1 a
+confidenza minore.** Tutti dello stesso schema: un fix gia' applicato a un'entry/percorso
+gemello ma mai propagato ai fratelli con la stessa forma esatta di bug.
+
+**`Handle-ChatMessage` (Server.ps1, ramo intento singolo)**: il pattern
+`(?!at[ao])` aggiunto apposta al rilevatore di intento composito "pacchettizza" (per non far
+scattare il trigger sul PARTICIPIO PASSATO "pacchettizzato/a" - una domanda di supporto tipo
+"ho pacchettizzato l'app ma non parte, aiuto" non e' una nuova richiesta di pacchettizzazione)
+non e' stato propagato al ramo standalone a intento singolo poche centinaia di righe sotto, che
+usa ancora il pattern vecchio senza lookahead. Lo stesso identico messaggio di esempio usato nel
+commento del fix originale, se non ha un secondo intento (gruppo/assegnazione), cade in questo
+ramo gemello e propone di ripacchettizzare l'app invece di passare la domanda di supporto
+all'IA.
+
+**6 entry `Export*` di `CommandCatalog.ps1` con `.*` non delimitato nel Trigger** -
+`ExportMailboxUsageReport`, `ExportSharedMailboxReport`, `ExportAllMailboxesReport`,
+`ExportMailFlowReport`, `ExportForwardingReport`, `ExportInboxRulesReport`: le entry gemelle
+`ExportDevices`/`ExportCompliancePatterns`/`ListNonCompliant` avevano gia' questo stesso
+identico bug (un `.*` senza limite di distanza intercetta messaggi compositi ampi che
+contengono per caso le due parole chiave lontane tra loro) trovato dal vivo e corretto
+limitando `.*` a `{0,30}` - il fix non e' mai stato propagato a queste 6 entry gemelle.
+Scenario concreto: "Fammi un controllo del mail flow... poi preparami un report generale sulla
+postura di sicurezza del tenant" matcha `mail.?flow.*report` (distanza illimitata), nessuna
+DeferWord la cattura, la richiesta piu' ampia viene silenziosamente scartata a favore del solo
+report mail-flow.
+
+**`MfaStatus` (confidenza minore)**: unica tra le entry del suo gruppo a non avere la guardia
+generica anti-domanda-di-supporto (`perch[eé]`, `cosa faccio`, `non riesc\w*`, ecc.) gia'
+presente sulle sue gemelle - una domanda tipo "l'mfa di mario non gli e' mai arrivata stanotte,
+sai perche'?" rischierebbe di ricevere solo l'elenco stato MFA invece della domanda di supporto
+inoltrata all'IA.
+
+Aree verificate e confermate pulite: isolamento tenant su ogni route (nessuna route legge piu'
+`$script:M365OpsContext` direttamente, solo commenti storici lo citano), macchina a stati
+`PendingAction` (nessun overwrite silenzioso possibile, nessuna conferma orfana), resilienza
+del parsing del corpo richiesta (mai un crash del listener, sempre un 500 ben formato anche sui
+body vuoti), serializzazione array vuoto sulle route piu' nuove.
+
+### Batch 7 (Intune dispositivi/config/app) — COMPLETATO (dopo il riavvio)
+
+44/44 file rivisti. **10 bug reali trovati** - il piu' grande raccolto finora, tutti verificati
+contro Microsoft Learn/community reali, non a memoria.
+
+**Paginazione mancante confermata SISTEMICA**: `Invoke-M365OpsGraphRequest.ps1` (helper
+condiviso) non gestisce MAI `@odata.nextLink` - confermato leggendolo direttamente. Colpisce
+5 funzioni di questo batch: `Get-M365OpsManagedDevices.ps1` (dispositivi non conformi oltre la
+prima pagina spariscono, dato che il filtro `-NonCompliantOnly` avviene DOPO il fetch),
+`Get-M365OpsConfigurationPolicies.ps1`, `Get-M365OpsConfigurationPolicyTemplates.ps1`,
+`Get-M365OpsConfigurationSettingDefinitions.ps1` (qui particolarmente grave: il catalogo ha
+"decine di migliaia di voci" per docstring dello stesso file, che e' pensato come il pre-check
+autorevole prima di costruire una policy - una ricerca per parola chiave puo' mancare l'ID
+corretto solo perche' non era nella prima pagina, vanificando lo scopo della funzione),
+`Get-M365OpsAutopilotDevices.ps1` (una ricerca per numero di serie puo' fallire in silenzio su
+un dispositivo oltre la prima pagina), `Private\Get-M365OpsAssignmentMatches.ps1` (helper
+condiviso da piu' funzioni Set-*Assignment/overview, aggrava il rischio a cascata).
+
+**`@odata.type` senza il simbolo `#` richiesto**: `Set-M365OpsDeviceScriptAssignment.ps1`
+- confermato contro due pagine ufficiali Microsoft Learn che il tipo corretto richiede il `#`
+iniziale (`#microsoft.graph.deviceManagementScriptGroupAssignment`), citato anche un thread
+Microsoft Q&amp;A reale con lo stesso identico problema. Inoltre il ramo macOS usa un nome tipo
+(`deviceShellScriptGroupAssignment`) che non sembra esistere come risorsa Graph reale - anche
+l'esempio ufficiale Microsoft per `/deviceShellScripts/{id}/assign` riusa il nome Windows.
+Assegnazione script probabilmente rotta su entrambe le piattaforme.
+
+**Endpoint/corpo sbagliato per l'assegnazione profili Autopilot**:
+`Set-M365OpsAutopilotDeploymentProfileAssignment.ps1` invia `{assignments:[...]}` a
+`/assign`, ma la pagina Microsoft Learn di quello stesso endpoint documenta come UNICO parametro
+accettato `deviceIds` (una collezione di stringhe) - ne' lo schema documentato ne' l'approccio
+reale usato dal modulo community `WindowsAutopilotIntune` (POST diretto alla collezione
+`/assignments`, non `/assign`) vengono seguiti. Assegnazione di gruppo ai profili Autopilot
+probabilmente rotta.
+
+**Percorso di attivazione documentato ma inesistente**: `New-M365OpsDeviceConfigurationProfile.ps1`
+dice nella propria docstring di attivare il profilo creato tramite `Set-M365OpsAppAssignment` -
+ma quella funzione fa POST su `/deviceAppManagement/mobileApps/{id}/assign` (assegnazione APP),
+una collezione Graph completamente diversa da `/deviceManagement/deviceConfigurations/{id}/assign`.
+Nessuna funzione `Set-*Assignment` per `deviceConfigurations` esiste in questo batch - il
+percorso di attivazione documentato per questo cmdlet e' semplicemente rotto.
+
+**Filtro dispositivo mancante**: `Get-M365OpsAppInstallStatus.ps1` accetta `-DeviceId` per uno
+scopo dichiarato di diagnostica app+dispositivo, ma interroga `deviceStatuses` SENZA
+`$filter=deviceId eq '...'` (che Graph supporta su questo stesso endpoint, confermato via
+Microsoft Q&amp;A) - restituisce lo stato di OGNI dispositivo che tocca l'app, non solo quello
+richiesto, aggravato dal problema di paginazione generale.
+
+### Batch 9 (motore AI/agente + trasporto MCP) — COMPLETATO (dopo il riavvio) — ULTIMO BATCH
+
+21/21 file rivisti. **3 bug reali trovati.** Confermato invece INTEGRO tutto il resto verificato
+esplicitamente su richiesta: la regola "una sola scrittura proposta per risposta" e' rispettata
+in TUTTI i 10 rami `propose_*` (nessuna copertura parziale), l'invarianza dell'elenco strumenti
+tra i round della stessa conversazione e' rispettata, la classe di bug "array a 0/1 elementi
+appiattito" e' gestita ovunque, il classificatore di sicurezza CLI365 (sola lettura vs
+scrittura) non e' ingannabile dalle costruzioni avversarie provate.
+
+**BUG SERIO - `Invoke-M365OpsWriteWithIsolationRecovery.ps1` puo' eseguire una scrittura DUE
+VOLTE**: quando scatta il conflitto .NET noto Teams/Exchange, il blocco catch reinvoca
+incondizionatamente l'azione originale una seconda volta, SENZA controllare se la prima
+esecuzione fosse gia' andata a buon fine sul lato server. Gli stessi commenti del progetto
+documentano che questo conflitto "puo' manifestarsi anche DOPO un connect riuscito, su una
+scrittura specifica" - cioe' puo' capitare durante il marshalling locale di una risposta remota
+gia' RIUSCITA, non solo prima della richiesta. Dato che l'azione avvolta e' un cmdlet di
+scrittura non idempotente (creazione team/gruppo/mailbox/migrazione), un conflitto emerso dopo
+il successo reale causerebbe una ESECUZIONE DUPLICATA (team/mailbox/gruppo/batch di migrazione
+creato due volte) - nessun passo di verifica "e' gia' successo?" prima del retry.
+
+**`Set-M365OpsMcpServer.ps1`/`Remove-M365OpsMcpServer.ps1`: entrambi riscrivono l'INTERO
+`Config\tenants.json` con un elenco campi incompleto**, mancante di
+`SharePointInteractiveClientId` (parte dello schema canonico, vedi `Set-M365OpsTenant.ps1` -
+usato per il login interattivo SharePoint su tenant Delegati, popolato da
+`Sync-M365OpsSharePointAppRegistration`). Scenario concreto: un tenant Delegato ha gia' quel
+campo valorizzato; l'utente modifica/aggiunge QUALUNQUE connettore MCP (tab MCP/Connettori) -
+l'intero file viene riscritto e quel campo sparisce silenziosamente per OGNI profilo tenant nel
+file, non solo quello modificato. La successiva connessione SharePoint su quel tenant lo trova
+mancante e deve rifare la scoperta dell'App Registration, che puo' fallire del tutto - un
+connettore SharePoint funzionante rotto silenziosamente da una modifica non collegata.
+
+---
+
+## FASE 1 COMPLETATA — tutti i 12 batch hanno riportato
+
+Totale: **~40 bug reali trovati** su 400 file rivisti.
+
+## FASE 2 IN CORSO — integrazione orchestrata
+
+**Corretti direttamente (fix ad alto rischio/condivisi, gestiti in prima persona invece che
+delegati)**:
+- `Private\Invoke-M365OpsGraphRequest.ps1` - paginazione automatica `@odata.nextLink` per ogni
+  GET, in UN solo posto condiviso invece che in ~9 funzioni chiamanti separate. Verificato dal
+  vivo (nessuna regressione sul caso comune a una pagina sola).
+- `Private\Protect-M365OpsSecretText.ps1` (nuova) - redazione password estratta e condivisa;
+  applicata anche a `Public\Write-M365OpsWriteLog.ps1` (chiudeva la fuga di segreti nel log
+  scritture, batch 10) mantenendo invariato `Add-M365OpsChatHistoryTurn.ps1`.
+- `Public\Invoke-M365OpsWriteWithIsolationRecovery.ps1` + `Gui\Server.ps1` (rami ExoWrite/
+  TeamsWrite) - nuovo parametro `-RecoveredViaIsolation` ([ref]), avviso esplicito
+  all'utente quando scatta il retry (rischio di doppia esecuzione reso visibile invece che
+  silenzioso - non risolvibile del tutto senza un'idempotenza specifica per ogni tipo di
+  scrittura, fuori scope di un fix rapido).
+- `Public\Set-M365OpsMcpServer.ps1`/`Remove-M365OpsMcpServer.ps1` - aggiunto il campo
+  `SharePointInteractiveClientId` mancante nella ricostruzione di tenants.json.
+- `Public\Disconnect-M365OpsAllConnections.ps1` - aggiunta la chiamata mancante a
+  `Disconnect-M365OpsAllIsolatedWorkers -TenantName`.
+- `Public\Connect-M365OpsAllConnections.ps1` + `Gui\index.html` - su Delegato ora tenta
+  comunque i server MCP (CLI365 puo' riconnettersi in silenzio con una connessione salvata
+  indipendente), non piu' saltati del tutto; GUI aggiornata per mostrare quei risultati anche
+  sul ramo Delegato.
+
+**Delegati a 6 agenti in background** (fix piu' meccanici/isolati, con permessi di modifica,
+istruzioni precise sui bug gia' trovati, NESSUN commit - solo implementazione + syntax check):
+1. Exchange (batch 2+4): TenantAllowBlockList NoExpiration, QuarantineMessage Confirm,
+   MessageTrace warning off-by-one, MailFlowReport chunking, MailDetailTransportRuleReport
+   chunking+paging, MigrationBatch ordine ErrorAction.
+2. Compliance/Teams (batch 5): RetentionCompliancePolicies swallow errori, 3x wrapper
+   isolamento Teams mancante.
+3. Intune (batch 7+8, paginazione gia' risolta centralmente): DeviceScriptAssignment tipo
+   odata, AutopilotDeploymentProfileAssignment endpoint, AppInstallStatus filtro, AdminTemplateSetting
+   corpo annidato, Copilot CSV byte[] x2.
+4. Report filename collision (batch 10): Export-M365OpsDataReport/Export-M365OpsReport.
+5. CommandCatalog/Server.ps1 (batch 11): regex "pacchettizza" propagazione, 6x Export* limite
+   distanza regex, MfaStatus guardia mancante.
+6. GUI frontend (batch 12): 4 elementi stato sporco su cambio tenant, 2x guard Array.isArray,
+   escape XSS mancante.
+
+Prossimo passo: raccogliere i risultati dei 6 agenti, verificare ognuno, poi un solo ciclo di
+versione/changelog/PDF/commit/push, poi FASE 3 (live test sequenziale su tutto).
+
+## FASE 2 COMPLETATA — tutti i 6 agenti di correzione hanno riportato
+
+Tutti e 6 hanno implementato le correzioni assegnate con successo, sintassi verificata pulita
+da ognuno. Sintesi:
+
+1. **Exchange (batch 2+4)**: `New-M365OpsTenantAllowBlockListEntry.ps1` (rimosso il forzamento
+   NoExpiration), `Remove-M365OpsQuarantineMessage.ps1` (aggiunto `-Confirm:$false`),
+   `Get-M365OpsMessageTrace.ps1` (warning di troncamento corretto per il caso "esattamente al
+   cap"), `Get-M365OpsMailFlowReport.ps1` (fallback ora suddiviso in finestre da 10 giorni come
+   il file gemello), `Get-M365OpsMailDetailTransportRuleReport.ps1` (avviso sul limite 10
+   giorni + PageSize 5000 + avviso su pagina piena), `Start-M365OpsMigrationBatch.ps1` (ordine
+   ErrorAction corretto per non essere sovrascrivibile da ExtraParams).
+2. **Compliance/Teams (batch 5)**: `Get-M365OpsRetentionCompliancePolicies.ps1` (fallimento per
+   policy ora surfaced invece di sembrare "zero regole" - con l'accortezza aggiuntiva di non
+   perdere l'errore nella proiezione finale, trovata e corretta dall'agente stesso durante
+   l'implementazione), `Get-M365OpsTeamsList/Channels/Members.ps1` (wrapper di retry-su-
+   isolamento aggiunto, copiato esattamente dai fratelli gia' corretti).
+3. **Intune (batch 7+8)**: `Set-M365OpsDeviceScriptAssignment.ps1` (aggiunto `#` mancante,
+   confermato via Microsoft Learn che NON esiste un tipo macOS separato - usa lo stesso tipo
+   Windows su entrambe le piattaforme), `Set-M365OpsAutopilotDeploymentProfileAssignment.ps1`
+   (cambiato endpoint da `/assign` con corpo sbagliato a POST diretto sulla collezione
+   `/assignments` - **nota comportamentale**: questo rende l'assegnazione ADDITIVA invece che
+   "sostituisci tutto", verificato e confermato corretto contro Microsoft Learn, docstring
+   aggiornata di conseguenza), `Get-M365OpsAppInstallStatus.ps1` (filtro `$filter=deviceId eq`
+   aggiunto), `Set-M365OpsAdminTemplateSetting.ps1` (rimosso l'annidamento in eccesso, rinominato
+   deleted->deletedIds, aggiunto anche l'`@odata.type` mancante sull'oggetto value, trovato in
+   piu' dall'agente durante la verifica), `Get-M365OpsCopilotUsageReport/Summary.ps1` (byte[]
+   decodificato correttamente come UTF-8 invece di essere unito come numeri).
+4. **Report filename collision (batch 10)**: `Export-M365OpsDataReport.ps1` corretto (tenant +
+   suffisso casuale nel nome file, stessa sanitizzazione gia' usata per Knowledge Base/storico
+   chat). L'agente ha segnalato correttamente che 3 punti di chiamata in `Gui\Server.ps1`
+   (`Export-M365OpsDeviceReportChat`/`Export-M365OpsCompliancePatternsReportChat`/
+   `Export-M365OpsExoReportChat`) bypassano quella funzione e costruiscono il proprio path con
+   lo stesso schema vulnerabile - **corretti direttamente dall'orchestratore** subito dopo,
+   stesso pattern tenant+suffisso applicato a tutti e tre.
+5. **CommandCatalog/Server.ps1 (batch 11)**: propagato il lookahead `(?!at[ao])` al ramo
+   standalone "pacchettizza" di `Handle-ChatMessage`, bound `{0,30}` applicato ai 6 trigger
+   Export* rimasti, guardia generica anti-domanda-di-supporto aggiunta a `MfaStatus`.
+6. **GUI frontend (batch 12)**: i 4 elementi di stato ora si ripuliscono su un vero cambio
+   tenant (rilevato via una variabile `lastConnStatusTenant`, per non ripulirli per sbaglio
+   anche quando li si sta popolando nello stesso tick da un'azione appena eseguita), guard
+   `Array.isArray` aggiunto a `loadKnowledgeBase()`/`loadMcpServers()`, nuovi helper di escape
+   dedicati (`escapeHtmlKnowledge`/`escapeHtmlCustomScripts`) applicati a tutti i campi
+   interpolati in quelle due funzioni.
+
+**Fix aggiuntivi gestiti direttamente dall'orchestratore** (alto rischio/condivisi, non
+delegati): `Invoke-M365OpsGraphRequest.ps1` (paginazione centrale), `Protect-M365OpsSecretText.ps1`
+(nuova) + `Write-M365OpsWriteLog.ps1` (redazione segreti nel log scritture - bug di sicurezza,
+il piu' grave dell'intero giro), `Invoke-M365OpsWriteWithIsolationRecovery.ps1` +
+`Gui\Server.ps1` (avviso esplicito sul rischio di doppia esecuzione), `Set-/Remove-
+M365OpsMcpServer.ps1` (campo SharePointInteractiveClientId), `Disconnect-M365OpsAllConnections.ps1`
+(worker isolati), `Connect-M365OpsAllConnections.ps1` + `Gui\index.html` (MCP tentati anche su
+Delegato), 3x punti filename report in Server.ps1.
+
+**Verifica finale dopo tutte le correzioni**:
+- 401 file `.ps1` sintatticamente puliti (400 + `Protect-M365OpsSecretText.ps1` nuova).
+- JS validato (0 errori su entrambi i blocchi `<script>`), tag HTML bilanciati (div/p/span/
+  section/button, 0 non chiusi) - riverificato in modo indipendente dall'orchestratore, non
+  solo fidandosi del report dell'agente GUI.
+- Riavvio pulito del server di test, nessun errore di import, nessun warning nuovo nei log.
+- `Protect-M365OpsSecretText` testata dal vivo dentro lo scope del modulo: una password di
+  test viene correttamente sostituita con `[REDACTED]`.
+- `Write-M365OpsWriteLog` testata dal vivo: la stessa password finisce come `[REDACTED]` nel
+  file di log REALE (`Logs\writes-*.log`), non solo nella funzione isolata.
+- Paginazione Graph testata dal vivo (dispatch locale "dispositivi non conformi", che passa da
+  `Invoke-M365OpsGraphRequest`): dati identici a prima, nessuna regressione sul caso a una
+  pagina sola.
+- Dispatch locale (`ListNonCompliant`, colpito dalle modifiche a CommandCatalog.ps1) testato dal
+  vivo via chat: nessuna regressione.
+- Fix "stato sporco su cambio tenant" testato dal vivo nel browser reale: generato un
+  certificato per vnsys-test (box risultato popolato), cambiato tenant a "vnsys delegata" via
+  UI vera (click sul pulsante Attiva, non solo API diretta) - box confermato ripulito
+  (`display:none`, contenuto vuoto).
+- Guard `Array.isArray` su `loadMcpServers()`/`loadKnowledgeBase()` testati dal vivo (tab
+  MCP/Connettori e tab Documentazione aperti nel browser reale) - nessun errore console.
+- Ripristinato il thumbprint originale del tenant di test dopo i test di generazione
+  certificato (necessari per esercitare il fix di stato sporco).
+
+Versione modulo `0.11.0` (bump minore, non patch, per la scala di questo giro), changelog in
+`docs/Guida-Configurazione.html`, PDF rigenerato.
+
+Prossimo passo: FASE 3, verifica dal vivo sequenziale piu' ampia (non solo i punti gia'
+toccati sopra) prima di considerare il giro davvero chiuso.

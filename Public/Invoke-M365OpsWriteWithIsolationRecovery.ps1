@@ -21,15 +21,39 @@ function Invoke-M365OpsWriteWithIsolationRecovery {
         Attivazione SEMPRE E SOLO reattiva (stesso principio del meccanismo esistente): mai
         un tentativo di isolamento preventivo, solo in risposta a un'eccezione reale gia'
         avvenuta che corrisponde al pattern noto.
+
+        RISCHIO DI DOPPIA ESECUZIONE (31/08/2026, bug reale trovato dalla maratona di
+        stress-test, non ancora completamente risolvibile qui): il commento sopra dice gia'
+        che questo conflitto "puo' manifestarsi anche DOPO un connect riuscito" - per lo
+        stesso motivo puo' manifestarsi anche DOPO che la scrittura remota e' gia' riuscita
+        davvero (es. durante il marshalling locale di una risposta remota GIA' arrivata con
+        successo, non durante la richiesta stessa). $Action avvolge cmdlet di scrittura NON
+        idempotenti (New-M365OpsTeam, New-M365OpsDistributionGroup, ecc.) - un retry alla
+        cieca in quello scenario eseguirebbe la stessa creazione/scrittura una SECONDA volta
+        sul tenant reale. Non esiste un modo GENERICO per questa funzione di verificare "e'
+        gia' successo?" per un $Action arbitrario (richiederebbe una verifica specifica per
+        ogni tipo di cmdlet, fuori scope di un fix in questo wrapper condiviso). Mitigato
+        invece rendendo il rischio VISIBILE invece che silenzioso: il parametro opzionale
+        -RecoveredViaIsolation (se fornito) viene valorizzato a $true SOLO quando il recupero
+        reattivo e' scattato ed e' andato a buon fine al secondo tentativo - i chiamanti
+        (Gui\Server.ps1, rami ExoWrite/TeamsWrite) lo usano per aggiungere un avviso esplicito
+        nella risposta mostrata all'utente, invece di un "Fatto." che nasconderebbe il rischio
+        di duplicato.
     .PARAMETER Action
         Scriptblock che esegue la scrittura vera (es. { & $action.Cmdlet @params }).
     .PARAMETER ModuleType
         'Exchange' o 'Teams' - quale dei due moduli sta eseguendo $Action, usato per scegliere
         quale worker isolato attivare e per il messaggio d'errore se anche l'isolamento fallisce.
+    .PARAMETER RecoveredViaIsolation
+        [ref] opzionale - se fornito, viene impostato a $true quando (e SOLO quando) il
+        recupero reattivo e' scattato e la riprova e' andata a buon fine, cosi' il chiamante
+        puo' avvisare l'utente del rischio di doppia esecuzione (vedi sopra). Ignorato se non
+        fornito - il percorso normale (nessun conflitto) resta invariato in ogni caso.
     #>
     param(
         [Parameter(Mandatory)] [scriptblock]$Action,
-        [Parameter(Mandatory)] [ValidateSet('Exchange', 'Teams')] [string]$ModuleType
+        [Parameter(Mandatory)] [ValidateSet('Exchange', 'Teams')] [string]$ModuleType,
+        [ref]$RecoveredViaIsolation
     )
 
     try {
@@ -65,6 +89,7 @@ function Invoke-M365OpsWriteWithIsolationRecovery {
             # resta comunque utile (l'azione confermata dall'utente va a buon fine), ma non
             # e' una garanzia di stabilita' per il resto della sessione.
             Write-M365OpsLog "Scrittura $ModuleType riuscita al secondo tentativo tramite isolamento reattivo (processo separato). Il conflitto rilevato puo' pero' aver lasciato un'instabilita' residua nel processo per operazioni successive non correlate (vedi guida sezione 6.6) - se compaiono altri errori insoliti (es. decodifica token JWT), un riavvio completo del server resta la soluzione piu' sicura." -Level Warn
+            if ($RecoveredViaIsolation) { $RecoveredViaIsolation.Value = $true }
             return $result
         }
         catch {

@@ -24,7 +24,6 @@ function New-M365OpsTenantAllowBlockListEntry {
     $params[$Action] = $true
     if ($NoExpiration) { $params.NoExpiration = $true }
     elseif ($ExpirationDate) { $params.ExpirationDate = $ExpirationDate }
-    else { $params.NoExpiration = $true }
     if ($Notes) { $params.Notes = $Notes }
 
     New-TenantAllowBlockListItems @params

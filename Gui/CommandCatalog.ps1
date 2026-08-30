@@ -222,7 +222,7 @@ function Get-M365OpsCommandCatalog {
         [pscustomobject]@{
             Name         = "ExportMailboxUsageReport"
             Description  = "Esporta il report di utilizzo/quota di tutte le mailbox (CSV/Excel/PDF). Uso: 'esporta report utilizzo mailbox in excel'"
-            Triggers     = @('report.*(utilizzo|usage|spazio|quota).*mailbox', 'mailbox.*(utilizzo|usage|spazio|quota)')
+            Triggers     = @('report.{0,30}(utilizzo|usage|spazio|quota).{0,30}mailbox', 'mailbox.{0,30}(utilizzo|usage|spazio|quota)')
             # @\S+\.\S+/responsabile/capo/collega (18/08/2026): stesso schema trovato dal vivo su
             # ExportMailFlowReport - "report su X ... e inoltralo/mandalo a persona Y" va all'AI
             # (che genera il report POI propone l'invio), non a un export diretto senza invio.
@@ -246,7 +246,7 @@ function Get-M365OpsCommandCatalog {
         [pscustomobject]@{
             Name         = "ExportSharedMailboxReport"
             Description  = "Esporta il report completo delle mailbox condivise (dimensione, permessi) in CSV/Excel/PDF. Uso: 'esporta report mailbox condivise in pdf'"
-            Triggers     = @('report.*mailbox.*condivis', 'esporta.*mailbox.*condivis', 'report.*shared.*mailbox')
+            Triggers     = @('report.{0,30}mailbox.{0,30}condivis', 'esporta.{0,30}mailbox.{0,30}condivis', 'report.{0,30}shared.{0,30}mailbox')
             # 'utente' in piu': questo report copre SOLO le condivise - un messaggio che chiede
             # anche le mailbox utente vuole piu' di quanto questa voce sappia fare (bug reale
             # del 17/08/2026, insieme a tab/gruppo/gruppi/distribuzione).
@@ -262,7 +262,7 @@ function Get-M365OpsCommandCatalog {
         [pscustomobject]@{
             Name         = "ExportAllMailboxesReport"
             Description  = "Esporta l'elenco di tutte le mailbox del tenant (ogni tipo) in CSV/Excel/PDF. Uso: 'esporta report mailbox totali'"
-            Triggers     = @('report.*mailbox.*total', 'elenco.*tutte.*mailbox', 'tutte le mailbox', 'report.*tutte.*casell')
+            Triggers     = @('report.{0,30}mailbox.{0,30}total', 'elenco.{0,30}tutte.{0,30}mailbox', 'tutte le mailbox', 'report.{0,30}tutte.{0,30}casell')
             # 'invia'/'manda'/'spedisci' aggiunti il 19/08/2026 (bug-hunt mirato): senza,
             # "invia via mail il report delle mailbox condivise" (nessun indirizzo email
             # letterale, solo l'intento "via mail") veniva risposto col solo report grezzo in
@@ -283,7 +283,7 @@ function Get-M365OpsCommandCatalog {
         [pscustomobject]@{
             Name         = "ExportMailFlowReport"
             Description  = "Esporta il report del flusso posta (mail flow) in CSV/Excel/PDF. Uso: 'esporta report mail flow'"
-            Triggers     = @('report.*mail.?flow', 'report.*flusso.*posta', 'mail.?flow.*report')
+            Triggers     = @('report.{0,30}mail.?flow', 'report.{0,30}flusso.{0,30}posta', 'mail.?flow.{0,30}report')
             # Bug reale trovato dal vivo il 18/08/2026: "prepara un report della configurazione
             # mail flow e poi inoltralo al mio responsabile diego@contoso.com" veniva intercettato
             # qui (prima ancora di arrivare a ExportForwardingReport), rispondendo "nessun dato
@@ -303,7 +303,7 @@ function Get-M365OpsCommandCatalog {
         [pscustomobject]@{
             Name         = "ExportForwardingReport"
             Description  = "Esporta il report delle mailbox con inoltro automatico configurato (sicurezza) in CSV/Excel/PDF. Uso: 'esporta report inoltri'"
-            Triggers     = @('report.*inoltr', 'forwarding.*report', 'mailbox.*inoltr')
+            Triggers     = @('report.{0,30}inoltr', 'forwarding.{0,30}report', 'mailbox.{0,30}inoltr')
             # Bug reale trovato dal vivo il 18/08/2026 durante un giro di stress-test: 'report.*
             # inoltr' intercettava anche "prepara un report [su TUTT'ALTRO] e poi inoltralo al mio
             # responsabile diego@contoso.com" - "inoltralo" (forward IT, a una persona) e non
@@ -329,7 +329,7 @@ function Get-M365OpsCommandCatalog {
         [pscustomobject]@{
             Name         = "ExportInboxRulesReport"
             Description  = "Esporta il report delle regole posta in arrivo, con evidenza di quelle sospette (sicurezza) in CSV/Excel/PDF. Uso: 'esporta report regole sospette'"
-            Triggers     = @('regole.*sospett', 'inbox rule', 'report.*regole.*posta')
+            Triggers     = @('regole.{0,30}sospett', 'inbox rule', 'report.{0,30}regole.{0,30}posta')
             # Bug reale trovato dal vivo il 18/08/2026: 'regole.*sospett' intercettava anche una
             # domanda di spiegazione/formazione ("ho letto della policy su regole sospette,
             # spiegami come funziona la formazione utenti") invece di una richiesta di export -
@@ -502,7 +502,7 @@ function Get-M365OpsCommandCatalog {
             # almeno un indirizzo email, quello del soggetto - farebbe scattare il defer anche
             # sull'uso normale) - serve invece un verbo di invio SEGUITO da un indirizzo email
             # piu' avanti nella frase: '(invia|manda|spedisci)\w*.*@\S+\.\S+'.
-            DeferWords   = @('report', 'tutti', 'tenant', 'conditional', 'access', 'zone', 'policy', 'criteri', 'e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'reset\w*', 'rimuov\w*', 'cancell\w*', 'elimin\w*', 'disattiv\w*', 'sblocc\w*', '(invia|manda|spedisci)\w*.*@\S+\.\S+')
+            DeferWords   = @('report', 'tutti', 'tenant', 'conditional', 'access', 'zone', 'policy', 'criteri', 'e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'reset\w*', 'rimuov\w*', 'cancell\w*', 'elimin\w*', 'disattiv\w*', 'sblocc\w*', '(invia|manda|spedisci)\w*.*@\S+\.\S+', 'cosa faccio', 'perch[eé]', 'puoi (controllare|verificare|aiutarmi|dirmi)', 'non riesc\w*')
             CaptureRegex = '([\w\.\-]+@[\w\-]+(?:\.[\w\-]+)+)'
             RequiresAI   = $false
             Handler      = {

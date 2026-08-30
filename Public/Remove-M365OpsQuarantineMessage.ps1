@@ -11,6 +11,6 @@ function Remove-M365OpsQuarantineMessage {
     # su Add-M365OpsDistributionGroupMember (bug-hunt 19/08/2026) - mancava qui, trovato dal
     # vivo in un bug-hunt successivo (26/08/2026) - vedi Release-M365OpsQuarantineMessage.ps1
     # per il perche' una prima scansione sistematica del progetto lo aveva mancato.
-    Delete-QuarantineMessage -Identity $Identity -ErrorAction Stop
+    Delete-QuarantineMessage -Identity $Identity -Confirm:$false -ErrorAction Stop
     Write-Host "Messaggio eliminato dalla quarantena: $Identity" -ForegroundColor Green
 }

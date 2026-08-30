@@ -6,10 +6,12 @@ function Set-M365OpsDeviceScriptAssignment {
         deviceManagementScript (Windows) il 19/08/2026 - forma semplice
         deviceManagementScriptGroupAssignments (targetGroupId diretto, non il target annidato
         piu' recente usato altrove in questo modulo, ma quella documentata come valida per
-        questa specifica risorsa). La forma per macOS (deviceShellScriptGroupAssignments) segue
-        per coerenza la stessa convenzione di naming Microsoft gia' verificata per Windows, non
-        verificata dal vivo separatamente - se dovesse differire, l'errore Graph lo segnalerebbe
-        chiaramente (nome proprieta' non riconosciuto), mai un fallimento silenzioso.
+        questa specifica risorsa). La pagina ufficiale Microsoft Learn per
+        deviceShellScripts: assign (macOS) e' stata verificata separatamente il 31/08/2026 e
+        il suo esempio JSON riusa VERBATIM lo stesso tipo e la stessa chiave di Windows
+        (#microsoft.graph.deviceManagementScriptGroupAssignment /
+        deviceManagementScriptGroupAssignments) - non esiste una risorsa
+        deviceShellScriptGroupAssignment separata in Graph.
     #>
     param(
         [Parameter(Mandatory)] [ValidateSet('Windows', 'macOS')] [string]$Platform,
@@ -17,8 +19,11 @@ function Set-M365OpsDeviceScriptAssignment {
         [Parameter(Mandatory)] [string[]]$TargetGroupIds
     )
     $base = if ($Platform -eq 'Windows') { "/deviceManagement/deviceManagementScripts" } else { "/deviceManagement/deviceShellScripts" }
-    $odataType = if ($Platform -eq 'Windows') { "microsoft.graph.deviceManagementScriptGroupAssignment" } else { "microsoft.graph.deviceShellScriptGroupAssignment" }
-    $bodyKey = if ($Platform -eq 'Windows') { "deviceManagementScriptGroupAssignments" } else { "deviceShellScriptGroupAssignments" }
+    # Entrambe le piattaforme usano lo stesso @odata.type e la stessa chiave body - confermato
+    # dal vivo sulla pagina Microsoft Learn "deviceShellScripts: assign", che riusa il tipo
+    # Windows verbatim invece di una risorsa deviceShellScriptGroupAssignment (inesistente).
+    $odataType = "#microsoft.graph.deviceManagementScriptGroupAssignment"
+    $bodyKey = "deviceManagementScriptGroupAssignments"
 
     $assignments = @($TargetGroupIds | ForEach-Object { @{ "@odata.type" = $odataType; targetGroupId = $_ } })
     $body = @{ $bodyKey = $assignments }

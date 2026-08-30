@@ -27,8 +27,10 @@ function Get-M365OpsCopilotUsageSummary {
     $raw = Invoke-M365OpsGraphRequest -Method GET -Path "/copilot/reports/getMicrosoft365CopilotUserCountSummary(period='$Period')"
 
     # Stessa normalizzazione CSV di Get-M365OpsCopilotUsageReport - vedi li' per il dettaglio
-    # del perche' (risposta v1.0 sempre CSV, mai JSON, indipendentemente da $format).
-    $csvText = if ($raw -is [string]) { $raw } else { ($raw -join "`n") }
+    # del perche' (risposta v1.0 sempre CSV, mai JSON, indipendentemente da $format). Su
+    # PowerShell 7 un corpo octet-stream arriva come byte[] grezzo e va decodificato come
+    # UTF-8 esplicitamente (un -join unirebbe i valori numerici dei byte, non il testo).
+    $csvText = if ($raw -is [string]) { $raw } else { [System.Text.Encoding]::UTF8.GetString($raw) }
     if (-not $csvText -or -not $csvText.Trim()) { return @() }
 
     $rows = @(ConvertFrom-Csv -InputObject $csvText)

@@ -35,22 +35,18 @@ function Add-M365OpsChatHistoryTurn {
 
     $maxPairs = 8
 
-    $redact = {
-        param($s)
-        if (-not $s) { return $s }
-        $s = $s -replace '("password"\s*:\s*")[^"]*(")', '$1[REDACTED]$2'
-        return $s
-    }
-
+    # Redazione estratta in Protect-M365OpsSecretText.ps1 (31/08/2026) - stessa regex, stesso
+    # comportamento, ora condivisa anche con Write-M365OpsWriteLog.ps1 (vedi quel file per il
+    # bug reale che questa estrazione ha chiuso).
     $history = @(Get-M365OpsChatHistory -TenantName $TenantName)
     $now = Get-Date -Format 'o'
-    if ($UserText) { $history += [pscustomobject]@{ role = 'user'; text = (& $redact $UserText); timestamp = $now } }
+    if ($UserText) { $history += [pscustomobject]@{ role = 'user'; text = (Protect-M365OpsSecretText -Text $UserText); timestamp = $now } }
     if ($AssistantText) {
         # Bug reale (18/08/2026): senza salvare gli allegati, un report generato in un turno
         # perdeva per sempre i pulsanti di download non appena la pagina veniva ricaricata (la
         # cronologia veniva ridisegnata solo con testo) - il file restava sul disco ma
         # diventava irraggiungibile dalla chat, l'utente doveva andare a cercarselo a mano.
-        $entry = [pscustomobject]@{ role = 'assistant'; text = (& $redact $AssistantText); timestamp = $now }
+        $entry = [pscustomobject]@{ role = 'assistant'; text = (Protect-M365OpsSecretText -Text $AssistantText); timestamp = $now }
         if ($Attachments -and $Attachments.Count -gt 0) { $entry | Add-Member -NotePropertyName 'attachments' -NotePropertyValue $Attachments }
         $history += $entry
     }

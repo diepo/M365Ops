@@ -20,7 +20,21 @@ function Get-M365OpsRetentionCompliancePolicies {
     Connect-M365OpsCompliance
     $policies = @(Get-RetentionCompliancePolicy)
     foreach ($policy in $policies) {
-        $rules = @(Get-RetentionComplianceRule -Policy $policy.Name -ErrorAction SilentlyContinue)
+        # Try/catch per policy (bug reale, stesso schema gia' corretto piu' volte in questo
+        # progetto - vedi Get-M365OpsCompliancePatterns.ps1): -ErrorAction SilentlyContinue
+        # inghiottiva qualunque fallimento reale nel recupero delle regole (throttling
+        # transitorio di Purview, una policy rinominata/rimossa durante il ciclo, RBAC piu'
+        # ristretto sulle regole rispetto alle policy) producendo silenziosamente Rules = @(),
+        # indistinguibile da una policy che legittimamente non ha regole. Ora un fallimento
+        # resta locale a questa policy (segnalato in "Rules" invece di sparire), le altre
+        # policy proseguono comunque.
+        try {
+            $rules = @(Get-RetentionComplianceRule -Policy $policy.Name -ErrorAction Stop)
+        }
+        catch {
+            Write-M365OpsLog "Get-M365OpsRetentionCompliancePolicies: impossibile recuperare le regole per la policy $($policy.Name): $($_.Exception.Message)" -Level Warn
+            $rules = @([pscustomobject]@{ error = "Regole non recuperabili per questa policy: $($_.Exception.Message)" })
+        }
         [pscustomobject]@{
             Name              = $policy.Name
             Enabled           = $policy.Enabled
@@ -40,12 +54,17 @@ function Get-M365OpsRetentionCompliancePolicies {
             TeamsChannelLocation = ($policy.TeamsChannelLocation -join ', ')
             TeamsChatLocation    = ($policy.TeamsChatLocation -join ', ')
             WhenCreated       = $policy.WhenCreated
+            # La mappatura sotto normalizzava tutte le voci di $rules sullo stesso schema fisso,
+            # il che avrebbe scartato silenziosamente la proprieta' "error" prodotta dal catch
+            # sopra (stesso bug, un passo piu' in la') - preservata qui passando "Error" nel
+            # risultato mappato.
             Rules             = @($rules | ForEach-Object {
                 [pscustomobject]@{
                     Name             = $_.Name
                     RetentionDuration = $_.RetentionDuration
                     RetentionComplianceAction = $_.RetentionComplianceAction
                     ExpirationDateOption = $_.ExpirationDateOption
+                    Error            = $_.error
                 }
             })
         }
