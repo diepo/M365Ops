@@ -1200,6 +1200,23 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
             # messaggio bianco silenzioso).
             if ($azureUseMaxCompletionTokens) { $azureBodyObj.max_completion_tokens = 4000 } else { $azureBodyObj.max_tokens = 4000 }
 
+            # reasoning_effort: VALUTATO ma NON impostato (31/08/2026, indagine costi richiesta
+            # esplicitamente dall'utente dopo spese Azure concentrate nella maratona
+            # 23-27/08/2026). Testato dal vivo, direttamente contro l'endpoint Azure reale di
+            # questo tenant, con una chiamata minima fuori dal ciclo dell'app: il deployment
+            # attuale rifiuta ESPLICITAMENTE "low" con 400 "Unsupported value: 'reasoning_effort'
+            # does not support 'low' with this model. Supported values are: 'medium'." - l'UNICO
+            # valore accettato e' gia' "medium" (con ogni probabilita' gia' il default quando il
+            # parametro e' del tutto omesso, come oggi). Impostarlo esplicitamente qui avrebbe
+            # solo aggiunto un round-trip fallito garantito su OGNI messaggio (non solo il primo
+            # tentativo in assoluto - $azureReasoningEffortSupported e' locale a questa funzione,
+            # richiamata da capo ad ogni nuovo messaggio utente), senza alcun risparmio reale:
+            # nessun beneficio, solo latenza persa. Lasciato deliberatamente non impostato -
+            # nessuna leva di risparmio disponibile su QUESTO deployment specifico per questo
+            # parametro. Se in futuro il deployment cambia verso un modello reasoning piu' recente
+            # con un range di reasoning_effort piu' ampio (vedi Microsoft Learn, sezione
+            # "Reasoning effort"), rivalutare da capo con lo stesso test diretto, non a memoria.
+
             # Normalizzazione endpoint: stesso bug reale di Invoke-M365OpsAgent.ps1 - il
             # portale Azure mostra sia l'endpoint "classico" della risorsa
             # (https://risorsa.openai.azure.com/) sia il piu' recente "Project endpoint" di
@@ -1255,6 +1272,19 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                 $cachePct = [math]::Round(100 * $cachedTok / $promptTok, 1)
                 Write-M365OpsLog "Azure OpenAI cache: $cachedTok/$promptTok token dalla cache ($cachePct%)"
             }
+            # Visibilita' sui token di ragionamento interno (31/08/2026, stessa richiesta
+            # dell'utente sui costi vista sopra per reasoning_effort): su un modello reasoning
+            # questi sono fatturati come output pur non comparendo MAI nella risposta visibile -
+            # prima venivano loggati SOLO nel caso di fallimento (risposta vuota per budget
+            # esaurito), mai sul percorso normale, quindi non c'era modo di vedere quanto
+            # pesassero davvero round dopo round finche' non arrivava un caso di errore. Loggato
+            # SOLO quando il campo esiste ed e' maggiore di zero (un modello non-reasoning non lo
+            # restituisce affatto - null, non zero - niente rumore nei log per un deployment che
+            # non fa ragionamento interno).
+            $reasoningTok = $response.usage.completion_tokens_details.reasoning_tokens
+            if ($reasoningTok -gt 0) {
+                Write-M365OpsLog "Azure OpenAI: $reasoningTok token di ragionamento interno (fatturati come output, mai mostrati) su $($response.usage.completion_tokens) token di output totali."
+            }
             # Accumulo token di questo round (25/08/2026, vedi $totalInputTokens sopra per il
             # motivo) - $promptTok/$cachedTok gia' estratti qui sopra per il log cache, riusati
             # anche per il totale invece di rileggerli due volte dalla stessa risposta.
@@ -1307,17 +1337,48 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
             })
         }
         else {
-            # --- Ramo Claude (Anthropic Messages API, invariato) ---
+            # --- Ramo Claude (Anthropic Messages API) ---
             # Stessa rete di sicurezza del ramo Azure sopra (vedi commento li'): mai lasciar
             # passare un messaggio con 'role' mancante/nullo.
             $sanitizedMessages = @($messages | Where-Object { $_.role })
+
+            # Prompt caching ABILITATO per davvero qui il 31/08/2026 - richiesto esplicitamente
+            # dall'utente ("verifica che non ci sia un modo migliore per passare i dati alla IA
+            # per risparmiare") dopo aver notato spese IA concentrate nel periodo di maratona
+            # (23-27/08/2026). Bug/gap REALE gia' diagnosticato e documentato allora
+            # (Debug-Marathon-State.md, sezione "elenco strumenti reso identico... per il prompt
+            # caching") ma MAI corretto: a differenza di Azure OpenAI (cache automatica, nessun
+            # marcatore richiesto), l'API Messages di Anthropic richiede un `cache_control`
+            # esplicito per cache-are qualunque cosa - senza, il prefisso ERA gia' stabile round
+            # per round (fix di allora), ma non veniva mai davvero scritto in cache: ogni round
+            # pagava il prezzo pieno per l'intero system prompt + tutti i tool, verificato allora
+            # (`cache_read_input_tokens` sempre 0 per Claude, confermato via agente di regressione
+            # il 25/08/2026) e mai risolto. Verificato dal vivo su Microsoft Learn/Anthropic il
+            # 31/08/2026 (non a memoria): servono DUE marcatori distinti - uno sull'ULTIMO
+            # elemento di `tools` (cache-a tutti i tool fino a li') e uno sull'unico blocco di
+            # `system` (che deve diventare un array di blocchi testo, non piu' una stringa nuda,
+            # per poter portare `cache_control`) - la gerarchia dei prefissi e' tools -> system ->
+            # messages, quindi questi due marcatori coprono insieme l'intero blocco stabile che
+            # si ripete IDENTICO su ogni round della stessa conversazione. Copie separate
+            # (`.Clone()` sull'ultimo tool, nuovo array per system) per non mutare $currentTools/
+            # $lokkaTools/$fallbackTools condivisi con il ramo Azure sopra. Requisito minimo 1024
+            # token per blocco cache-abile su claude-sonnet-4-5 (verificato dal vivo) - il system
+            # prompt di questo file da solo e' ben oltre quella soglia.
+            $claudeTools = @($currentTools | ForEach-Object { $_ })
+            if ($claudeTools.Count -gt 0) {
+                $lastToolCached = $claudeTools[-1].Clone()
+                $lastToolCached.cache_control = @{ type = "ephemeral" }
+                $claudeTools[-1] = $lastToolCached
+            }
+            $claudeSystem = @(@{ type = "text"; text = $systemPrompt; cache_control = @{ type = "ephemeral" } })
+
             $body = @{
                 model      = "claude-sonnet-4-5"
                 # 4000, non 2000: propose_new_custom_script puo' dover generare il codice
                 # completo di uno script PowerShell come argomento, non solo un breve JSON.
                 max_tokens = 4000
-                system     = $systemPrompt
-                tools      = $currentTools
+                system     = $claudeSystem
+                tools      = $claudeTools
                 messages   = $sanitizedMessages
             } | ConvertTo-Json -Depth 20
 
@@ -1330,7 +1391,20 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
             } -Body $body
             $script:M365OpsAiCallCount.Claude++
             # Accumulo token di questo round (25/08/2026, vedi $totalInputTokens sopra).
-            $totalInputTokens += $response.usage.input_tokens
+            # cache_creation_input_tokens E cache_read_input_tokens inclusi qui dal 31/08/2026
+            # (prompt caching appena abilitato, vedi sopra) - bug reale trovato dal vivo appena
+            # implementato: Anthropic documenta "Total input = cache_read_input_tokens +
+            # cache_creation_input_tokens + input_tokens" (i tre si SOMMANO, cache_read non e'
+            # un sottoinsieme del solo input_tokens) - un primo test dal vivo ha infatti mostrato
+            # $totalCachedTokens (61796) MAGGIORE di $totalInputTokens (32420) quando
+            # quest'ultimo sommava solo input_tokens+cache_creation, rendendo falsa la frase
+            # "X token inviati, di cui Y dalla cache" (Y > X e' privo di senso per un
+            # sottoinsieme). Corretto includendo anche cache_read_input_tokens nel totale, cosi'
+            # $totalCachedTokens torna un vero sottoinsieme di $totalInputTokens come la frase
+            # gia' implica (comportamento identico a prompt_tokens/cached_tokens di Azure OpenAI
+            # nel ramo sopra, dove cached e' gia' un sottoinsieme di prompt_tokens per
+            # definizione dell'API).
+            $totalInputTokens += $response.usage.input_tokens + $response.usage.cache_creation_input_tokens + $response.usage.cache_read_input_tokens
             $totalOutputTokens += $response.usage.output_tokens
             $totalCachedTokens += $response.usage.cache_read_input_tokens
 
