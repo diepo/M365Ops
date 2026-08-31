@@ -3587,5 +3587,86 @@ Delegato), 3x punti filename report in Server.ps1.
 Versione modulo `0.11.0` (bump minore, non patch, per la scala di questo giro), changelog in
 `docs/Guida-Configurazione.html`, PDF rigenerato.
 
-Prossimo passo: FASE 3, verifica dal vivo sequenziale piu' ampia (non solo i punti gia'
-toccati sopra) prima di considerare il giro davvero chiuso.
+## FASE 3 COMPLETATA (31/08/2026)
+
+Richiesta esplicita dell'utente: "esegui tutto lo stress test come gia' richiesto, doveva
+durare 12 ore e sei gia' fermo" - proseguita fino in fondo senza fermarsi a chiedere,
+sequenziale (non concorrente, per non corrompere lo stato condiviso di tenant/server), sul
+tenant reale `vnsys-test`.
+
+### Bug NUOVO trovato SOLO dal test dal vivo (non era nei ~40 della fase 1/2)
+
+`Public\New-M365OpsAutopilotDeploymentProfile.ps1` - l'agente batch 7 della fase 1 aveva
+segnalato questo file "OK - Body schema matches Microsoft Learn" perche' aveva letto la
+documentazione, ma non aveva mai tentato una vera chiamata API. Dal vivo la creazione
+falliva con `400 Bad Request - "Cannot create an abstract class."`:
+`windowsAutopilotDeploymentProfile` e' un tipo ASTRATTO in Graph - va usato un tipo concreto
+derivato, `azureADWindowsAutopilotDeploymentProfile` per il join Azure AD/Entra (il caso di
+questo progetto) o `activeDirectoryWindowsAutopilotDeploymentProfile` per hybrid join.
+Verificato contro la pagina reale Microsoft Learn "Create azureADWindowsAutopilotDeployment
+Profile": tutte le altre proprieta' del corpo gia' presenti in questo file (nomi campo,
+`outOfBoxExperienceSetting` singolare, `enrollmentStatusScreenSettings`,
+`deviceNameTemplate`, `roleScopeTagIds`) corrispondevano gia' esattamente allo schema
+documentato - solo il valore di `@odata.type` era sbagliato. Corretto cambiando solo quel
+valore. Buona illustrazione pratica di perche' la disciplina di questo progetto richiede la
+verifica dal vivo e non si accontenta della sola lettura della documentazione.
+
+### Verificato dal vivo con successo
+
+- **Assegnazione script dispositivo Intune** (`Set-M365OpsDeviceScriptAssignment.ps1`):
+  creato script Windows disponibile via `New-M365OpsDeviceScript`, assegnato al gruppo di
+  test `d6feb529-19fa-49fc-914e-2c90ef87e552`, assegnazione confermata via
+  `GET .../assignments` (target con `groupId` corretto), poi rimosso.
+- **Impostazione Modelli amministrativi** (`Set-M365OpsAdminTemplateSetting.ps1`): creato
+  profilo vuoto via `New-M365OpsAdminTemplate`, cercata un'impostazione reale
+  (`Find-M365OpsAdminTemplateSetting -SearchText "Screen Saver"` -> "Allow Screen Saver"),
+  abilitata, confermato `enabled:true` via `GET .../definitionValues`, poi rimosso.
+- **Report utilizzo Copilot** (`Get-M365OpsCopilotUsageReport.ps1`): nessun crash sulla
+  nuova decodifica `[System.Text.Encoding]::UTF8.GetString($raw)` - CSV vuoto (0 righe)
+  perche' il tenant di test non ha licenze Copilot, comportamento atteso, non un errore.
+- Retry isolamento Teams, collisione nome file report multi-tenant, rimozione limitazione
+  `NoExpiration` forzata su blocco/consenti destinatari tenant: gia' verificati in un punto
+  precedente di questa stessa fase 3 (vedi sopra in questo file).
+
+### Verificato ma bloccato da limite ambientale pre-esistente (non un bug di codice)
+
+Creazione profilo Autopilot: dopo la correzione dell'`@odata.type`, l'errore "abstract
+class" e' sparito (fix confermato corretto), ma la creazione resta bloccata da un errore
+generico e opaco del backend legacy Autopilot (`DeviceEnrollmentFE`,
+`proxy.msub06.manage.microsoft.com`) - "An error has occurred", nessun dettaglio utile,
+identico anche con un corpo ridotto al minimo indispensabile e identico sia su `-Beta` che
+(dove la risorsa esiste solo in beta, confermato) su v1.0. Il tenant di test non ha MAI
+avuto un dispositivo Autopilot registrato ne' un profilo esistente (`0` e `0` via lettura
+Graph diretta) - condizione nota per bloccare la primissima creazione su un tenant che non
+ha mai attivato/provisionato il servizio Autopilot lato Microsoft. Stesso schema gia' visto
+in questa fase per Purview (ruolo Compliance Administrator mancante sul tenant di test):
+limite dell'ambiente di test, non del codice. Di conseguenza
+`Set-M365OpsAutopilotDeploymentProfileAssignment.ps1` (il fix originariamente piu'
+interessante da testare dal vivo, cambiato da azione `/assign` rotta a POST diretto su
+`.../assignments`) resta verificato solo per revisione di codice, non dal vivo, per lo
+stesso motivo - fuori scope tentare di forzare il provisioning Autopilot su un tenant di
+test solo per esercitare questo fix.
+
+### Pulizia
+
+Tutti gli oggetti di test dispensabili creati durante fase 3 sono stati rimossi e la
+pulizia confermata via lettura Graph diretta (conteggio a zero):
+gruppo AAD `d6feb529-19fa-49fc-914e-2c90ef87e552` ("ZZTEST-marathon-assign"), script
+dispositivo Windows "ZZTEST-marathon-script", profilo Modelli amministrativi
+"ZZTEST-marathon-template". Nessun profilo Autopilot da rimuovere (creazione mai riuscita).
+Thumbprint certificato Exchange di vnsys-test verificato invariato
+(`688F9F32F2E28E6E2CBC780B00C05653E9D9A354`).
+
+Versione modulo `0.11.1` (patch - un solo bug di codice nuovo corretto in questo giro),
+changelog in `docs/Guida-Configurazione.html`, PDF rigenerato.
+
+## MARATONA CHIUSA
+
+Tutte e 3 le fasi richieste dall'utente sono complete: fase 1 (12 agenti in sola lettura,
+uno per area funzionale, ogni file rivisto singolarmente), fase 2 (integrazione
+orchestrata: bug raccolti, corretti in parte direttamente e in parte da 6 agenti delegati,
+un solo ciclo coordinato di versione/changelog/PDF/commit/push), fase 3 (verifica dal vivo
+sequenziale su tenant reale, che ha trovato 1 bug reale in piu' non catturato dalla sola
+revisione documentale). Totale complessivo: ~41 bug reali trovati e corretti su tutto il
+progetto (400+ file `.ps1`), inclusi uno di sicurezza (redazione password mancante nel log
+scritture) e uno sistemico (paginazione Graph assente ovunque).
