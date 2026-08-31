@@ -805,7 +805,7 @@
     <div id="ai-costs-daily-table" class="hint" style="margin-top:10px;">Caricamento...</div>
 
     <h2 style="margin-top:20px;">Configurazione prezzi (per milione di token, USD)</h2>
-    <p class="hint">Claude ha un prezzo reale gia' precaricato (pubblico, verificato). I deployment Azure OpenAI vanno rilevati o inseriti a mano: il nome del deployment e' un alias scelto da te, non identifica da solo quale modello reale ci sia dietro - "Rileva automaticamente" tenta una corrispondenza contro il listino pubblico Microsoft (prices.azure.com) sulla regione reale della tua risorsa, ma se il nome non e' riconoscibile (es. un alias come "gpt-chat-latest") non trova nulla: in quel caso inserisci i valori a mano, li trovi sul portale Azure AI Foundry alla pagina del tuo deployment.</p>
+    <p class="hint">Claude ha un prezzo reale gia' precaricato (pubblico, verificato). I deployment Azure OpenAI vanno rilevati o inseriti a mano: il nome del deployment e' un alias scelto da te, non identifica da solo quale modello reale ci sia dietro - "Rileva automaticamente" tenta prima una corrispondenza diretta col nome (es. "gpt-5.4-mini"), e se il nome non basta (es. un alias "mobile" come "gpt-chat-latest") fa una chiamata minima e reale al deployment per scoprire il modello effettivamente servito in questo momento, poi cerca quello nel listino pubblico Microsoft (prices.azure.com) sulla regione reale della tua risorsa. Se anche questo non trova nulla (modello non ancora nel listino pubblico), inserisci i valori a mano - li trovi sul portale Azure AI Foundry alla pagina del tuo deployment.</p>
     <div id="ai-pricing-table" class="hint">Caricamento...</div>
     <div class="actions" style="margin-top:10px;">
       <input type="text" id="ai-pricing-deployment-input" placeholder="nome deployment Azure (es. gpt-5.4-mini)" style="flex:1; min-width:200px; padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
@@ -2309,7 +2309,8 @@
         document.getElementById('ai-pricing-cached-rate').value = data.CachedInputPer1M ?? '';
         document.getElementById('ai-pricing-output-rate').value = data.OutputPer1M ?? '';
         aiPricingLastAutodetected = true;
-        status.textContent = `Trovato (${data.Confidence}, regione: ${data.RegionUsed || '—'}) - verifica i valori prima di salvare, poi premi "Salva prezzo".`;
+        const modelNote = (data.ServedModel && data.ServedModel !== deployment) ? ` - modello reale dietro l'alias: ${data.ServedModel}` : '';
+        status.textContent = `Trovato (${data.Confidence}, regione: ${data.RegionUsed || '—'})${modelNote} - verifica i valori prima di salvare, poi premi "Salva prezzo".`;
       } else {
         aiPricingLastAutodetected = false;
         status.textContent = data.Reason + ' Inserisci i valori a mano qui sotto.';

@@ -2068,20 +2068,36 @@ try {
                     # nessuna chiave Azure configurata in questo momento), l'auto-detect
                     # prosegue comunque senza filtro di regione, ripiegando sulla tariffa
                     # Global se disponibile (vedi Find-M365OpsAzureModelPricing).
+                    #
+                    # Stessa chiamata usata anche per risolvere un ALIAS (31/08/2026, scoperto
+                    # dal vivo su "gpt-chat-latest": il nome del deployment non basta, ma la
+                    # risposta include l'header 'x-ms-served-model' col modello REALE dietro
+                    # l'alias, es. "gpt-chat-latest-2026-08-06") - passato come
+                    # -ServedModelHint a Find-M365OpsAzureModelPricing, che lo usa come termine
+                    # di ricerca PRIMA di ripiegare sul solo nome deployment.
+                    # Get-M365OpsSecret e' una funzione PRIVATA del modulo (mai esportata) - non
+                    # richiamabile da qui (Server.ps1 non e' parte del modulo, vedi la nota
+                    # ricorrente su Get-M365OpsActiveTenantInfo/$script: altrove in questo
+                    # file). Bug pre-esistente scoperto dal vivo il 31/08/2026 (questa rotta
+                    # non era mai stata esercitata end-to-end prima d'ora): stesso pattern
+                    # diretto gia' in uso in GET/POST /api/ai-settings piu' sopra in questo
+                    # file, non Get-M365OpsSecret.
                     $deploymentToDetect = $request.QueryString["deployment"]
-                    if (-not $deploymentToDetect) { $deploymentToDetect = Get-M365OpsSecret -Name 'AZURE_OPENAI_DEPLOYMENT' }
+                    if (-not $deploymentToDetect) { $deploymentToDetect = [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_DEPLOYMENT', 'User') }
                     $detectedRegion = $null
+                    $detectedServedModel = $null
                     try {
-                        $azureKeyDetect = Get-M365OpsSecret -Name 'AZURE_OPENAI_KEY'
-                        $azureEndpointDetect = Get-M365OpsSecret -Name 'AZURE_OPENAI_ENDPOINT'
+                        $azureKeyDetect = [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_KEY', 'User')
+                        $azureEndpointDetect = [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_ENDPOINT', 'User')
                         if ($azureKeyDetect -and $azureEndpointDetect -and $deploymentToDetect) {
                             $detectUri = "$($azureEndpointDetect.TrimEnd('/'))/chat/completions"
                             $detectBody = @{ model = $deploymentToDetect; messages = @(@{ role = "user"; content = "hi" }); max_completion_tokens = 5 } | ConvertTo-Json
                             $detectResp = Invoke-WebRequest -Method POST -Uri $detectUri -Headers @{ "api-key" = $azureKeyDetect; "Content-Type" = "application/json" } -Body $detectBody -TimeoutSec 15 -ErrorAction Stop
                             $detectedRegion = $detectResp.Headers['x-ms-region'] | Select-Object -First 1
+                            $detectedServedModel = $detectResp.Headers['x-ms-served-model'] | Select-Object -First 1
                         }
                     } catch { }
-                    $result = Find-M365OpsAzureModelPricing -DeploymentName $deploymentToDetect -Region $detectedRegion
+                    $result = Find-M365OpsAzureModelPricing -DeploymentName $deploymentToDetect -Region $detectedRegion -ServedModelHint $detectedServedModel
                     $json = ($result | ConvertTo-Json -Compress -Depth 4)
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
