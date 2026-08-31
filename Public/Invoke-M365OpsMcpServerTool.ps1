@@ -37,7 +37,20 @@ function Invoke-M365OpsMcpServerTool {
     if ($script:M365OpsMcpProcesses -and $script:M365OpsMcpProcesses[$tenantName] -and $script:M365OpsMcpProcesses[$tenantName][$ServerName]) {
         $needsConnect = $script:M365OpsMcpProcesses[$tenantName][$ServerName].HasExited
     }
+    $script:M365OpsCliJustInstalled = $false
     if ($needsConnect) { Connect-M365OpsMcpServer -Name $ServerName | Out-Null }
+    # Visibilita' sull'auto-installazione silenziosa di CLI Microsoft 365 (31/08/2026,
+    # richiesta esplicitamente dall'utente dopo averla vista scattare senza preavviso durante
+    # un test IA - vedi Assert-M365OpsCliMicrosoft365Installed.ps1 per il dettaglio completo).
+    # L'installazione stessa resta invariata (comportamento gia' richiesto in precedenza), solo
+    # resa visibile: se e' appena scattata un vero "npm install -g" (non solo una connessione
+    # a un server gia' pronto), lo anteponiamo al risultato del tool - l'UNICO punto in cui
+    # questo turno di conversazione puo' ancora spiegare all'utente, dentro la risposta finale,
+    # perche' e' stato piu' lento del solito, invece di scoprirlo solo nei log del server.
+    $cliInstallNote = ""
+    if ($ServerName -eq 'CLI-Microsoft365' -and $script:M365OpsCliJustInstalled) {
+        $cliInstallNote = "[Nota: CLI Microsoft 365 non era ancora installata su questo PC - installata ora automaticamente (npm install -g, ~1-2 minuti), la prima volta soltanto. Le richieste successive non ne risentiranno piu'.]`n`n"
+    }
 
     $process = $script:M365OpsMcpProcesses[$tenantName][$ServerName]
 
@@ -54,8 +67,12 @@ function Invoke-M365OpsMcpServerTool {
         } | Out-Null
     }
 
-    Invoke-M365OpsMcpRequest -Process $process -Method "tools/call" -Params @{
+    $toolResult = Invoke-M365OpsMcpRequest -Process $process -Method "tools/call" -Params @{
         name      = $ToolName
         arguments = $Arguments
     }
+    if ($cliInstallNote -and $toolResult.content -and $toolResult.content.Count -gt 0) {
+        $toolResult.content[0].text = $cliInstallNote + $toolResult.content[0].text
+    }
+    $toolResult
 }

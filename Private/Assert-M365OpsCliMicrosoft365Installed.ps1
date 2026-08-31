@@ -30,6 +30,19 @@ function Assert-M365OpsCliMicrosoft365Installed {
         funziona correttamente subito dopo, senza alcun riavvio, nello stesso processo server
         che ha appena eseguito l'installazione.
     #>
+    # Bandierina di visibilita' (31/08/2026, richiesta esplicitamente dall'utente dopo aver
+    # notato dal vivo, durante un test IA, un'installazione da ~2 minuti scattata in silenzio
+    # a meta' di una domanda in chat, senza alcun preavviso): l'auto-installazione qui sotto
+    # resta INVARIATA (richiesta esplicitamente dall'utente il 26/08/2026, "installala al
+    # primo avvio esattamente come Lokka") - questa bandierina non la impedisce, la rende solo
+    # VISIBILE quando scatta durante una conversazione reale invece che solo nei log del
+    # server. Azzerata ad ogni chiamata: riflette solo l'ultima chiamata, non uno stato
+    # persistente. Letta da Invoke-M365OpsMcpServerTool.ps1, che la usa per anteporre una nota
+    # al risultato del primo tool cli_m365_* di una conversazione, cosi' l'utente vede scritto
+    # nella risposta finale PERCHE' quel turno e' stato piu' lento del solito, invece di
+    # scoprirlo solo controllando i log.
+    $script:M365OpsCliJustInstalled = $false
+
     $m365Cmd = (Get-Command 'm365.cmd' -ErrorAction SilentlyContinue).Source
     if (-not $m365Cmd) { $m365Cmd = (Get-Command 'm365' -ErrorAction SilentlyContinue).Source }
     if ($m365Cmd) { return }
@@ -103,4 +116,5 @@ function Assert-M365OpsCliMicrosoft365Installed {
         throw "CLI Microsoft 365 installato ora per la prima volta su questo PC (npm install -g @pnp/cli-microsoft365 completato con successo), ma il comando 'm365' non risulta ancora risolvibile nemmeno dopo aver ricostruito il PATH di questo processo - possibile configurazione npm non standard. Chiudi ogni finestra/terminale e riapri dal collegamento M365Ops sul Desktop, poi riprova."
     }
     Write-M365OpsLog "CLI Microsoft 365 installato con successo (npm install -g @pnp/cli-microsoft365) - PATH ricostruito, subito utilizzabile senza riavvio."
+    $script:M365OpsCliJustInstalled = $true
 }
