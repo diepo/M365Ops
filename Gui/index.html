@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>M365 Ops Assistant</title>
+<!-- Favicon: stesso logo "rete neurale" usato in header (vedi #app-logo piu' sotto), versione
+     statica (no animazione, non necessaria in una tab minuscola) incorporata come data URI -
+     coerente con la scelta gia' fatta per il logo stesso di zero asset esterni. Colori
+     chiaro/scuro allineati alle stesse variabili --accent/--accent-strong via
+     prefers-color-scheme, dato che un favicon non puo' leggere le CSS custom property della
+     pagina che lo referenzia. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0MCA0MCI+CjxzdHlsZT4KLmx7c3Ryb2tlOiMxNDYxOEY7c3Ryb2tlLXdpZHRoOjIuNjtzdHJva2UtbGluZWNhcDpyb3VuZH0KLm57ZmlsbDojMEU0QTZFfQpAbWVkaWEgKHByZWZlcnMtY29sb3Itc2NoZW1lOiBkYXJrKXsubHtzdHJva2U6IzRGQTNEOH0ubntmaWxsOiM3RUMyRUF9fQo8L3N0eWxlPgo8ZyBmaWxsPSJub25lIj4KPGxpbmUgY2xhc3M9ImwiIHgxPSI2IiB5MT0iMTMiIHgyPSIyMCIgeTI9IjciLz4KPGxpbmUgY2xhc3M9ImwiIHgxPSI2IiB5MT0iMTMiIHgyPSIyMCIgeTI9IjIwIi8+CjxsaW5lIGNsYXNzPSJsIiB4MT0iNiIgeTE9IjI3IiB4Mj0iMjAiIHkyPSIyMCIvPgo8bGluZSBjbGFzcz0ibCIgeDE9IjYiIHkxPSIyNyIgeDI9IjIwIiB5Mj0iMzMiLz4KPGxpbmUgY2xhc3M9ImwiIHgxPSIyMCIgeTE9IjciIHgyPSIzNCIgeTI9IjEzIi8+CjxsaW5lIGNsYXNzPSJsIiB4MT0iMjAiIHkxPSIyMCIgeDI9IjM0IiB5Mj0iMTMiLz4KPGxpbmUgY2xhc3M9ImwiIHgxPSIyMCIgeTE9IjIwIiB4Mj0iMzQiIHkyPSIyNyIvPgo8bGluZSBjbGFzcz0ibCIgeDE9IjIwIiB5MT0iMzMiIHgyPSIzNCIgeTI9IjI3Ii8+CjwvZz4KPGNpcmNsZSBjbGFzcz0ibiIgY3g9IjYiIGN5PSIxMyIgcj0iMy42Ii8+CjxjaXJjbGUgY2xhc3M9Im4iIGN4PSI2IiBjeT0iMjciIHI9IjMuNiIvPgo8Y2lyY2xlIGNsYXNzPSJuIiBjeD0iMjAiIGN5PSI3IiByPSIzLjYiLz4KPGNpcmNsZSBjbGFzcz0ibiIgY3g9IjIwIiBjeT0iMjAiIHI9IjMuNiIvPgo8Y2lyY2xlIGNsYXNzPSJuIiBjeD0iMjAiIGN5PSIzMyIgcj0iMy42Ii8+CjxjaXJjbGUgY2xhc3M9Im4iIGN4PSIzNCIgY3k9IjEzIiByPSIzLjYiLz4KPGNpcmNsZSBjbGFzcz0ibiIgY3g9IjM0IiBjeT0iMjciIHI9IjMuNiIvPgo8L3N2Zz4K">
 <script>
   // Applicato PRIMA che il resto della pagina renderizzi, per evitare un lampo del tema
   // sbagliato ad ogni caricamento (il resto del wiring del pulsante e' in fondo alla pagina).
