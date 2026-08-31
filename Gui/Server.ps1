@@ -1931,7 +1931,23 @@ try {
                 "GET /api/ai-settings" {
                     $hasClaudeKey = [bool]([System.Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY', 'User'))
                     $hasAzureKey = [bool]([System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_KEY', 'User'))
-                    $json = (@{ provider = $script:ActiveAIProvider; hasClaudeKey = $hasClaudeKey; hasAzureKey = $hasAzureKey } | ConvertTo-Json -Compress)
+                    # endpoint/deployment/reasoningEffort restituiti qui dal 31/08/2026 (bug reale
+                    # segnalato dall'utente durante un confronto tra deployment Azure diversi: il
+                    # form li mostrava sempre vuoti anche quando gia' salvati, impossibile vedere
+                    # cosa fosse davvero configurato senza indovinare o riaprire una shell) - MAI
+                    # la chiave API, quella resta sempre nascosta (solo hasClaudeKey/hasAzureKey
+                    # booleani, come gia' prima).
+                    $azureEndpointValue = [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_ENDPOINT', 'User')
+                    $azureDeploymentValue = [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_DEPLOYMENT', 'User')
+                    $azureReasoningEffortValue = [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_REASONING_EFFORT', 'User')
+                    $json = (@{
+                        provider        = $script:ActiveAIProvider
+                        hasClaudeKey    = $hasClaudeKey
+                        hasAzureKey     = $hasAzureKey
+                        endpoint        = $azureEndpointValue
+                        deployment      = $azureDeploymentValue
+                        reasoningEffort = $azureReasoningEffortValue
+                    } | ConvertTo-Json -Compress)
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
                 "POST /api/ai-settings" {
@@ -1950,6 +1966,21 @@ try {
                     }
                     if ($body.endpoint) { [System.Environment]::SetEnvironmentVariable('AZURE_OPENAI_ENDPOINT', $body.endpoint, [System.EnvironmentVariableTarget]::User) }
                     if ($body.deployment) { [System.Environment]::SetEnvironmentVariable('AZURE_OPENAI_DEPLOYMENT', $body.deployment, [System.EnvironmentVariableTarget]::User) }
+                    # reasoningEffort (31/08/2026, richiesto esplicitamente dall'utente: "non c'e'
+                    # modo di introdurre queste customizzazioni in GUI? se facciamo hardcoded e uno
+                    # cambia modello non funziona piu' nulla") - a differenza di endpoint/deployment
+                    # sopra, un valore VUOTO qui e' uno stato legittimo e comune (la maggior parte
+                    # dei deployment non-reasoning non ne ha bisogno affatto), quindi va gestito
+                    # sia il salvataggio SIA la cancellazione esplicita (proprieta' presente nel body
+                    # con stringa vuota = "torna al comportamento di default, nessun parametro
+                    # inviato"), non solo "se valorizzato" come i due campi sopra.
+                    if ($null -ne $body.reasoningEffort) {
+                        if ($body.reasoningEffort) {
+                            [System.Environment]::SetEnvironmentVariable('AZURE_OPENAI_REASONING_EFFORT', $body.reasoningEffort, [System.EnvironmentVariableTarget]::User)
+                        } else {
+                            [System.Environment]::SetEnvironmentVariable('AZURE_OPENAI_REASONING_EFFORT', $null, [System.EnvironmentVariableTarget]::User)
+                        }
+                    }
                     $json = (@{ text = "Impostazioni AI salvate (provider attivo: $($script:ActiveAIProvider))." } | ConvertTo-Json -Compress)
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }

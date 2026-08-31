@@ -643,6 +643,11 @@
         <label>Nome deployment</label>
         <input type="text" id="ai-deployment" placeholder="es. gpt-4o">
       </div>
+      <div id="ai-azure-extra3" style="display:none;">
+        <label>Reasoning effort (opzionale)</label>
+        <input type="text" id="ai-reasoning-effort" placeholder="lascia vuoto se non serve - es. low, medium, none...">
+        <span class="hint" style="display:block; margin-top:3px;">Solo per deployment su modelli "reasoning" (o1/o3/gpt-5.x) - controlla quanto il modello "ragiona" internamente prima di rispondere, un costo reale anche se mai mostrato in chat (fatturato come token di output). I valori accettati dipendono dal modello dietro il deployment - se quello scelto non lo supporta, l'app lo rileva da sola e ripiega sul comportamento di default senza bisogno di modificare nulla qui. Lascia vuoto per un modello non-reasoning o per lasciare il default del modello.</span>
+      </div>
       <div class="actions">
         <button id="save-ai-btn">Salva impostazioni AI</button>
         <span id="ai-settings-status"></span>
@@ -823,8 +828,10 @@
   const aiApiKeyInput = document.getElementById('ai-apikey');
   const aiAzureExtra = document.getElementById('ai-azure-extra');
   const aiAzureExtra2 = document.getElementById('ai-azure-extra2');
+  const aiAzureExtra3 = document.getElementById('ai-azure-extra3');
   const aiEndpointInput = document.getElementById('ai-endpoint');
   const aiDeploymentInput = document.getElementById('ai-deployment');
+  const aiReasoningEffortInput = document.getElementById('ai-reasoning-effort');
   const saveAiBtn = document.getElementById('save-ai-btn');
   const aiSettingsStatus = document.getElementById('ai-settings-status');
   const restartServerBtn = document.getElementById('restart-server-btn');
@@ -2041,6 +2048,7 @@
     aiKeyLabel.textContent = isAzure ? 'Azure OpenAI API key' : 'Claude API key (console.anthropic.com)';
     aiAzureExtra.style.display = isAzure ? 'block' : 'none';
     aiAzureExtra2.style.display = isAzure ? 'block' : 'none';
+    aiAzureExtra3.style.display = isAzure ? 'block' : 'none';
   }
   aiProviderSelect.addEventListener('change', updateAiFieldVisibility);
 
@@ -2052,6 +2060,12 @@
       updateAiFieldVisibility();
       const hasKey = data.provider === 'AzureOpenAI' ? data.hasAzureKey : data.hasClaudeKey;
       aiApiKeyInput.placeholder = hasKey ? 'gia\' impostata (lascia vuoto per non toccarla)' : 'chiave API';
+      // Precompilati dal 31/08/2026 (bug reale segnalato dall'utente: il form mostrava sempre
+      // endpoint/deployment vuoti anche quando gia' salvati, impossibile vedere cosa fosse
+      // davvero configurato senza indovinare) - MAI la chiave API, quella resta sempre nascosta.
+      aiEndpointInput.value = data.endpoint || '';
+      aiDeploymentInput.value = data.deployment || '';
+      aiReasoningEffortInput.value = data.reasoningEffort || '';
     } catch (e) {
       aiSettingsStatus.textContent = 'Errore nel caricare le impostazioni AI.';
     }
@@ -2062,12 +2076,13 @@
     const apiKey = aiApiKeyInput.value;
     const endpoint = aiEndpointInput.value.trim();
     const deployment = aiDeploymentInput.value.trim();
+    const reasoningEffort = aiReasoningEffortInput.value.trim();
 
     aiSettingsStatus.textContent = 'salvataggio...';
     try {
       const res = await fetch('/api/ai-settings', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, apiKey, endpoint, deployment })
+        body: JSON.stringify({ provider, apiKey, endpoint, deployment, reasoningEffort })
       });
       const data = await res.json();
       aiSettingsStatus.textContent = data.text || 'Salvato.';

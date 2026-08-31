@@ -46,10 +46,112 @@ function Invoke-M365OpsAgentTools {
         [array]$History = @()
     )
 
+    # Bug reale trovato dal vivo il 31/08/2026, durante una valutazione comparativa di
+    # deployment Azure OpenAI: sia gpt-5.4-mini SIA il deployment gia' in uso hanno risposto
+    # "nessun dispositivo non conforme" su un tenant con 5 dispositivi non conformi su 7 -
+    # NON un bug di paginazione (verificato dal vivo: Lokka restituisce gia' tutti e 7 i
+    # record, con `@odata.count`:7 corretto e nessun `@odata.nextLink` - i dati completi
+    # arrivano gia' al modello) ma un bug di LETTURA: il modello ha semplicemente scontato
+    # male gli stati di conformita' dentro un blob JSON grezzo, verboso e non filtrato
+    # (36.845 caratteri per 7 soli dispositivi, ogni record con decine di campi mai
+    # richiesti). Stessa causa profonda del secondo bug trovato nella stessa valutazione: un
+    # report a piu' sezioni su dati non filtrati esauriva l'intero budget di
+    # max_completion_tokens nel ragionamento prima di riuscire a generare il report - in
+    # entrambi i casi il modello non applica mai da solo `$select` nonostante il system
+    # prompt lo chieda gia' esplicitamente (vedi piu' sotto), e un payload grande/non
+    # filtrato e' proprio dove un modello perde piu' facilmente il conto. Il prompt da solo
+    # si e' gia' dimostrato insufficiente (verificato dal vivo, due volte, su due modelli
+    # diversi) - corretto quindi a livello di codice, non solo di prompt: ogni risultato di
+    # graph_api_call che e' un elenco Graph (`value` + `@odata.count`) viene ora preceduto da
+    # una nota automatica con il conteggio ESATTO dichiarato dal server, cosi' il modello ha
+    # un ancoraggio difficile da ignorare invece di dover contare a occhio in un muro di
+    # testo - oltre a un promemoria su `$select`/`@odata.nextLink` quando rilevanti. Fallisce
+    # in modo silenzioso e innocuo (ritorna il testo originale invariato) se il risultato non
+    # e' JSON pienamente valido o non ha la forma di un elenco Graph - non deve mai poter
+    # rompere una risposta che prima funzionava.
+    function Add-M365OpsGraphListCountHint {
+        param([string]$RawText)
+        if (-not $RawText) { return $RawText }
+        try {
+            $jsonStart = $RawText.IndexOf('{')
+            if ($jsonStart -lt 0) { return $RawText }
+            $parsed = $RawText.Substring($jsonStart) | ConvertFrom-Json -ErrorAction Stop
+            if ($null -eq $parsed.value) { return $RawText }
+            $items = @($parsed.value)
+            $actualCount = $items.Count
+            $declaredCount = $parsed.'@odata.count'
+            $hasNextLink = [bool]$parsed.'@odata.nextLink'
+            $countPart = if ($declaredCount) { " (il server dichiara anche @odata.count=$declaredCount)" } else { "" }
+            $selectHint = if ($actualCount -gt 15) { " Il payload e' ampio: se non ti servono tutti i campi, valuta di rifare la chiamata con `$select in queryParams per un risultato piu' leggero e piu' facile da leggere con precisione." } else { "" }
+            $nextLinkHint = if ($hasNextLink) { " ATTENZIONE: e' presente @odata.nextLink - ci sono ALTRE pagine oltre questa, non e' il quadro completo se ti serve il totale reale." } else { "" }
+
+            # Riepilogo automatico per campo "a stato" (31/08/2026, aggiunto DOPO che la sola
+            # nota sul conteggio totale, sopra, si e' rivelata INSUFFICIENTE dal vivo: sapere
+            # che ci sono 7 elementi non ha impedito al modello di leggere male il campo
+            # 'complianceState' dentro il blob e rispondere comunque "0 non conformi" invece
+            # di 5 - il problema vero non era il totale, era enumerare correttamente un campo
+            # specifico attraverso un elenco lungo. Invece di continuare a fidarsi che il
+            # modello legga bene un campo tra tanti, lo si CALCOLA qui in PowerShell (sempre
+            # corretto per costruzione, mai soggetto a distrazione) per ogni campo che si
+            # comporta come uno stato: valori stringa/booleani con poche varianti distinte
+            # rispetto al totale (2-8) - scarta per costruzione campi identificativi ad alta
+            # cardinalita' (id, GUID, date, nomi) che non sarebbero comunque un "conteggio"
+            # sensato. Limitato ai primi 6 campi qualificanti per non gonfiare troppo il
+            # risultato su oggetti con molte proprieta' booleane.
+            # Soglia di cardinalita' RELATIVA al totale, non solo assoluta (bug trovato subito
+            # dopo la prima stesura di questa funzione, testato dal vivo sui 7 device reali
+            # sopra descritti): un campo id/GUID su un elenco piccolo (es. 7 elementi) ha quasi
+            # sempre <=8 valori distinti solo perche' ce ne sono pochi in totale, quindi
+            # passava il solo controllo assoluto e affollava le prime posizioni (id, userId,
+            # deviceName, easDeviceId) prima ancora di arrivare a 'complianceState', il campo
+            # davvero utile - su un elenco piu' grande col limite di 6 campi qualificanti
+            # avrebbe potuto escluderlo del tutto. Corretto in due modi: (1) i valori distinti
+            # devono essere una FRAZIONE piccola del totale (<=40%, non solo <=8 in assoluto -
+            # un vero campo "a stato" si ripete parecchio, un identificativo no), (2) esclusi
+            # per nome i campi che sono quasi certamente identificativi (`id` esatto, o
+            # terminano in `Id`) indipendentemente dalla cardinalita' osservata.
+            $breakdownLines = @()
+            if ($actualCount -gt 1 -and $items[0].PSObject) {
+                $propNames = @($items[0].PSObject.Properties.Name)
+                $maxDistinct = [Math]::Min(8, [Math]::Max(2, [Math]::Ceiling($actualCount * 0.4)))
+                foreach ($prop in $propNames) {
+                    if ($breakdownLines.Count -ge 6) { break }
+                    if ($prop -eq 'id' -or $prop -match 'Id$') { continue }
+                    $values = @($items | ForEach-Object { $_.$prop } | Where-Object { $null -ne $_ -and $_ -ne '' })
+                    if ($values.Count -lt $actualCount * 0.6) { continue }
+                    $isSimpleType = ($values[0] -is [string]) -or ($values[0] -is [bool])
+                    if (-not $isSimpleType) { continue }
+                    $distinct = @($values | Select-Object -Unique)
+                    if ($distinct.Count -lt 2 -or $distinct.Count -gt $maxDistinct) { continue }
+                    $grouped = $values | Group-Object | Sort-Object Count -Descending | ForEach-Object { "$($_.Name)=$($_.Count)" }
+                    $breakdownLines += "'$prop': $($grouped -join ', ')"
+                }
+            }
+            $breakdownText = if ($breakdownLines.Count -gt 0) {
+                "`nConteggi automatici per campo, calcolati dal sistema sui $actualCount elementi REALI di questa risposta (non stimati, non dal modello) - usa direttamente questi numeri se la domanda riguarda uno di questi campi, invece di ricontare a mano:`n- " + ($breakdownLines -join "`n- ")
+            } else { "" }
+
+            $note = "NOTA AUTOMATICA (generata dal sistema, non dal modello, verificata sui dati reali): questa risposta contiene ESATTAMENTE $actualCount elementi nel campo 'value'$countPart. Prima di scrivere la tua risposta finale, verifica che ogni numero/conteggio che riporti corrisponda davvero a questi $actualCount elementi - non stimare a occhio su un elenco lungo.$selectHint$nextLinkHint$breakdownText`n`n"
+            if ($env:M365OPS_DEBUG_HINT) { Write-Host "[DEBUG HINT] actualCount=$actualCount breakdownLines=$($breakdownLines.Count) `n$note" -ForegroundColor Magenta }
+            return $note + $RawText
+        } catch {
+            return $RawText
+        }
+    }
+
     if ($Provider -eq 'AzureOpenAI') {
         $azureKey = Get-M365OpsSecret -Name 'AZURE_OPENAI_KEY'
         $azureEndpoint = Get-M365OpsSecret -Name 'AZURE_OPENAI_ENDPOINT'
         $azureDeployment = Get-M365OpsSecret -Name 'AZURE_OPENAI_DEPLOYMENT'
+        # Opzionale (31/08/2026, richiesto esplicitamente dall'utente: "non c'e' modo di
+        # introdurre queste customizzazioni in GUI? se facciamo hardcoded e uno cambia modello
+        # non funziona piu' nulla") - configurabile dal tab Impostazioni > Motore AI, MAI
+        # hardcoded qui: modelli diversi accettano range diversi di reasoning_effort (verificato
+        # dal vivo: il deployment usato fino ad ora accettava SOLO "medium", "gpt-5.4-mini"
+        # accetta anche "low") - imporre un valore fisso nel codice si romperebbe silenziosamente
+        # ad ogni cambio di deployment. Vuoto/non impostato (default) = comportamento invariato,
+        # nessun parametro inviato.
+        $azureReasoningEffort = Get-M365OpsSecret -Name 'AZURE_OPENAI_REASONING_EFFORT'
         # Nota "consulta la guida su .../guida" aggiunta il 21/08/2026 (richiesto esplicitamente
         # dall'utente su un PC pulito: "quando l'app parte e non e' configurata la sua guida deve
         # essere raggiungibile... o non fa perche' manca l'IA?"): prima di questo fix, senza
@@ -178,6 +280,7 @@ LIMITI NOTI di Microsoft Graph - riconoscili subito invece di continuare a ripro
 - Permessi mailbox (FullAccess/SendAs/SendOnBehalf), regole di trasporto, message trace, distribution list, mailbox risorsa, contatti, statistiche mailbox, migrazioni, criteri anti-spam/anti-phishing/threat, Tenant Allow/Block List, quarantena: NON sono disponibili tramite Graph REST, sono dati esclusivi di Exchange Online. Se la domanda riguarda uno di questi argomenti, non perdere piu' di un tentativo con graph_api_call - passa SUBITO a exo_query (elenco completo delle query disponibili nella sua descrizione).
 - Siti SharePoint (elenco/storage/condivisione esterna/permessi) e OneDrive personali (utilizzo/account inattivi): NON con graph_api_call ne' exo_query, passa SUBITO a sharepoint_query.
 - Se dopo 2-3 tentativi su percorsi diversi non trovi un dato ne' con Graph ne' con exo_query, e' piu' probabile che il dato non sia esposto che un tuo errore di percorso - fermati e spiega il limite invece di continuare a riprovare.
+- `/deviceManagement/managedDevices`: NON usare mai `$filter` su `complianceState` (bug reale confermato dal vivo il 31/08/2026, non un'ipotesi: `$filter=complianceState ne 'compliant'` restituisce l'INVERSO di quanto richiesto lato server Graph - se lo usi comunque, questo sistema lo rimuove automaticamente prima di eseguire la chiamata). Richiedi sempre l'elenco COMPLETO (con `$select` per i soli campi che ti servono, es. `id,deviceName,complianceState`, per un payload piu' leggero) - ogni risposta di questo endpoint include gia' un riepilogo automatico dei conteggi per campo (vedi la nota che precede i dati): usa DIRETTAMENTE quei numeri per rispondere a domande di conteggio/conformita', non contare a mano dentro l'elenco.
 
 REGOLA CRITICA su pacchettizzazione app Win32 (bug reale osservato il 19/08/2026: "pacchettizza e distribuisci l'app GIT, crea un gruppo X e assegnalo come available" ha eseguito SOLO la creazione del gruppo, saltando in silenzio il passo di pacchettizzazione - nessuno strumento qui sotto puo' farla - per poi fallire in modo confuso all'assegnazione con "nessuna app disponibile", senza mai spiegare la causa reale): NON hai NESSUNO strumento per pacchettizzare o caricare un'app Win32 su Intune - richiede un file installer locale reale (.exe/.msi/.ps1/.bat/.cmd), che solo l'utente puo' fornire dal proprio PC tramite il pulsante "Carica file..." della GUI, che pacchettizza e carica in un solo passaggio quando premuto. Se l'utente chiede di "pacchettizzare"/"distribuire"/"deployare" un'app: (1) verifica PRIMA con graph_api_call su GET /deviceAppManagement/mobileApps se un'app con quel nome esiste gia' (potrebbe essere gia' stata caricata da un passaggio GUI precedente) - se esiste, procedi pure con gruppo/assegnazione usando quella; (2) se NON esiste, DILLO CHIARAMENTE nella risposta ("non posso pacchettizzare X da qui, usa il pulsante Carica file nel tab Manutenzione, poi te la assegno") invece di procedere silenziosamente solo con le altre parti della richiesta (gruppo/assegnazione) lasciando l'utente a scoprire il problema solo alla fine con un errore fuorviante.
 
@@ -1190,32 +1293,35 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
             # nome del deployment (bug reale con gpt-5.4-mini). $azureUseMaxCompletionTokens
             # ricorda la scelta giusta tra un giro di tool-calling e il successivo, cosi' non
             # si ritenta e fallisce ad ogni round dello stesso ciclo.
-            # 4000, non 2000: da quando propose_new_custom_script esiste, un round puo' dover
-            # generare il codice completo di uno script PowerShell come argomento di un tool
-            # call, non solo un breve JSON - sui modelli reasoning (gpt-5.x) i token di
-            # ragionamento interno condividono lo stesso budget di max_completion_tokens, quindi
-            # con 2000 il modello poteva esaurirlo TUTTO in ragionamento e restituire un
-            # contenuto vuoto senza errore (bug reale osservato il 17/08/2026 - vedi il
-            # controllo su content vuoto piu' sotto, che lo rende visibile invece di un
-            # messaggio bianco silenzioso).
-            if ($azureUseMaxCompletionTokens) { $azureBodyObj.max_completion_tokens = 4000 } else { $azureBodyObj.max_tokens = 4000 }
+            # 8000, non 4000 (alzato il 31/08/2026, bug reale trovato dal vivo durante una
+            # valutazione comparativa di deployment): un report a piu' sezioni su dati non
+            # filtrati (55 utenti + 66 gruppi, nessun `$select`) esauriva SEMPRE l'intero
+            # budget di 4000 nel ragionamento interno, prima ancora di poter chiamare
+            # generate_report - risposta vuota silenziosa, riprodotto 4 volte su 2 deployment
+            # diversi. Alzare il tetto non aumenta il costo dei round brevi/normali (si paga
+            # solo cio' che viene DAVVERO generato, il tetto e' solo un limite di sicurezza),
+            # serve solo a dare margine reale ai round di sintesi piu' pesanti. Non risolve da
+            # solo il problema (la causa vera resta il payload non filtrato - vedi
+            # Add-M365OpsGraphListCountHint piu' sopra, che nudges verso `$select`), ma
+            # riduce il rischio che l'ultimo passo di un compito legittimo fallisca comunque
+            # per mancanza di margine. Storia precedente invariata: 4000, non 2000, per lo
+            # stesso motivo (propose_new_custom_script puo' dover generare uno script
+            # PowerShell completo come argomento).
+            if ($azureUseMaxCompletionTokens) { $azureBodyObj.max_completion_tokens = 8000 } else { $azureBodyObj.max_tokens = 8000 }
 
-            # reasoning_effort: VALUTATO ma NON impostato (31/08/2026, indagine costi richiesta
-            # esplicitamente dall'utente dopo spese Azure concentrate nella maratona
-            # 23-27/08/2026). Testato dal vivo, direttamente contro l'endpoint Azure reale di
-            # questo tenant, con una chiamata minima fuori dal ciclo dell'app: il deployment
-            # attuale rifiuta ESPLICITAMENTE "low" con 400 "Unsupported value: 'reasoning_effort'
-            # does not support 'low' with this model. Supported values are: 'medium'." - l'UNICO
-            # valore accettato e' gia' "medium" (con ogni probabilita' gia' il default quando il
-            # parametro e' del tutto omesso, come oggi). Impostarlo esplicitamente qui avrebbe
-            # solo aggiunto un round-trip fallito garantito su OGNI messaggio (non solo il primo
-            # tentativo in assoluto - $azureReasoningEffortSupported e' locale a questa funzione,
-            # richiamata da capo ad ogni nuovo messaggio utente), senza alcun risparmio reale:
-            # nessun beneficio, solo latenza persa. Lasciato deliberatamente non impostato -
-            # nessuna leva di risparmio disponibile su QUESTO deployment specifico per questo
-            # parametro. Se in futuro il deployment cambia verso un modello reasoning piu' recente
-            # con un range di reasoning_effort piu' ampio (vedi Microsoft Learn, sezione
-            # "Reasoning effort"), rivalutare da capo con lo stesso test diretto, non a memoria.
+            # reasoning_effort (31/08/2026): inviato SOLO se l'utente lo ha configurato in GUI
+            # ($azureReasoningEffort, vedi sopra) - mai un valore hardcoded qui, per il motivo
+            # spiegato li'. Indagine costi originale: il primo deployment provato
+            # ("gpt-chat-latest") accettava SOLO "medium" (verificato dal vivo, 400 su "low"),
+            # mentre un deployment diverso ("gpt-5.4-mini") accetta anche "low" - impossibile
+            # sapere in anticipo cosa accetti un deployment futuro, da qui la scelta di renderlo
+            # configurabile invece di indovinare un valore fisso.
+            # $azureReasoningEffortRejected: come $azureUseMaxCompletionTokens sopra, impostata
+            # SOLO dentro il catch (piu' sotto) se questo deployment rifiuta il valore - persiste
+            # tra i round di questa stessa conversazione (variabile di funzione, non ricreata ad
+            # ogni giro del ciclo), cosi' un valore gia' scoperto non supportato non viene
+            # ritentato e rifiutato di nuovo ad ogni round successivo.
+            if ($azureReasoningEffort -and -not $azureReasoningEffortRejected) { $azureBodyObj.reasoning_effort = $azureReasoningEffort }
 
             # Normalizzazione endpoint: stesso bug reale di Invoke-M365OpsAgent.ps1 - il
             # portale Azure mostra sia l'endpoint "classico" della risorsa
@@ -1252,7 +1358,20 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                 if (-not $azureUseMaxCompletionTokens -and $azureErrDetail -match 'max_tokens' -and $azureErrDetail -match 'max_completion_tokens') {
                     $azureUseMaxCompletionTokens = $true
                     $azureBodyObj.Remove('max_tokens')
-                    $azureBodyObj.max_completion_tokens = 4000
+                    $azureBodyObj.max_completion_tokens = 8000
+                    $response = Invoke-RestMethod -Method POST -Uri $azureUri -TimeoutSec 120 -Headers $azureHeaders -Body ($azureBodyObj | ConvertTo-Json -Depth 20) -ErrorAction Stop
+                } elseif ($azureBodyObj.ContainsKey('reasoning_effort') -and $azureErrDetail -match 'reasoning_effort') {
+                    # Il valore configurato in GUI (vedi $azureReasoningEffort sopra) non e'
+                    # accettato dal deployment attualmente attivo - es. l'utente ha cambiato
+                    # deployment senza aggiornare questo campo, o il valore scelto non e' nel
+                    # range supportato da questo modello specifico (verificato dal vivo: modelli
+                    # diversi accettano range diversi, es. "medium" soltanto vs "low/medium/high").
+                    # Non blocca la risposta: ritenta SENZA il parametro (torna al default del
+                    # modello) e lo ricorda per il resto di questa conversazione, cosi' non si
+                    # ripete un tentativo destinato a fallire ad ogni round.
+                    Write-M365OpsLog "Azure OpenAI: reasoning_effort='$azureReasoningEffort' non accettato da questo deployment, ignorato per il resto di questa conversazione ($azureErrDetail)." -Level Error
+                    $azureReasoningEffortRejected = $true
+                    $azureBodyObj.Remove('reasoning_effort')
                     $response = Invoke-RestMethod -Method POST -Uri $azureUri -TimeoutSec 120 -Headers $azureHeaders -Body ($azureBodyObj | ConvertTo-Json -Depth 20) -ErrorAction Stop
                 } else {
                     throw "Azure OpenAI: richiesta fallita: $($_.Exception.Message)`n$azureErrDetail"
@@ -1374,9 +1493,14 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
 
             $body = @{
                 model      = "claude-sonnet-4-5"
-                # 4000, non 2000: propose_new_custom_script puo' dover generare il codice
-                # completo di uno script PowerShell come argomento, non solo un breve JSON.
-                max_tokens = 4000
+                # 8000, non 4000 (alzato il 31/08/2026 insieme al ramo Azure sopra, stesso
+                # motivo: un report a piu' sezioni su dati non filtrati puo' produrre un
+                # testo finale/argomento tool genuinamente grande - stesso margine di
+                # sicurezza applicato per coerenza tra i due provider). Storia precedente
+                # invariata: 4000, non 2000, perche' propose_new_custom_script puo' dover
+                # generare il codice completo di uno script PowerShell come argomento, non
+                # solo un breve JSON.
+                max_tokens = 8000
                 system     = $claudeSystem
                 tools      = $claudeTools
                 messages   = $sanitizedMessages
@@ -1686,12 +1810,40 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                                 $block.input.queryParams.PSObject.Properties | ForEach-Object { $qp += "$([uri]::EscapeDataString($_.Name))=$([uri]::EscapeDataString([string]$_.Value))" }
                                 if ($qp.Count -gt 0) { $directPath = "$directPath`?$($qp -join '&')" }
                             }
-                            Invoke-M365OpsGraphRequest -Method GET -Path $directPath | ConvertTo-Json -Depth 8 -Compress
+                            Add-M365OpsGraphListCountHint -RawText (Invoke-M365OpsGraphRequest -Method GET -Path $directPath | ConvertTo-Json -Depth 8 -Compress)
                         } else {
+                            $lokkaQueryParams = $block.input.queryParams
+                            $filterStrippedNote = ""
+                            # Bug REALE di Microsoft Graph confermato dal vivo il 31/08/2026, non
+                            # un'ipotesi: `$filter=complianceState ne 'compliant'` su
+                            # /deviceManagement/managedDevices restituisce l'INVERSO di quanto
+                            # richiesto - riprodotto con una chiamata diretta isolata, fuori dal
+                            # ciclo IA, stessa identica queryParams: la risposta conteneva SOLO i
+                            # dispositivi DAVVERO compliant (2 su 7), non i non-compliant come il
+                            # filtro chiedeva. Causa la radice del bug reale osservato durante una
+                            # valutazione comparativa di modelli ("nessun dispositivo non
+                            # conforme" su un tenant con 5 su 7 non conformi): il modello aveva
+                            # costruito un `$filter` per altro verso corretto (sintassi OData
+                            # valida), ma questo specifico endpoint/campo lo applica in modo
+                            # inaffidabile lato server - non un errore del modello ne' un problema
+                            # di lettura. Rilevato e rimosso QUI, a livello di codice: la nota nel
+                            # prompt (vedi $systemPrompt) da sola si e' gia' dimostrata
+                            # insufficiente per due bug diversi in questa stessa indagine - un
+                            # controllo deterministico e' l'unico modo affidabile di evitare che
+                            # si ripresenti. Il resto dei queryParams ($select/$top) resta intatto
+                            # - solo il filtro su complianceState per QUESTO endpoint specifico
+                            # viene tolto, mai per altri endpoint/campi non ancora verificati come
+                            # inaffidabili.
+                            if ($block.input.path -match '^/deviceManagement/managedDevices(/|\?|$)' -and $lokkaQueryParams -and $lokkaQueryParams.PSObject.Properties.Name -contains '$filter' -and $lokkaQueryParams.'$filter' -match 'complianceState') {
+                                $strippedFilter = $lokkaQueryParams.'$filter'
+                                $lokkaQueryParams = [pscustomobject]($lokkaQueryParams.PSObject.Properties | Where-Object { $_.Name -ne '$filter' } | ForEach-Object -Begin { $h = @{} } -Process { $h[$_.Name] = $_.Value } -End { $h })
+                                $filterStrippedNote = "NOTA AUTOMATICA (generata dal sistema): il filtro `$filter=`"$strippedFilter`" e' stato RIMOSSO prima di eseguire questa chiamata. Motivo verificato dal vivo: su /deviceManagement/managedDevices, filtrare per complianceState via `$filter restituisce risultati INVERTITI/inaffidabili lato server Graph (bug Microsoft confermato con un test diretto, non un'ipotesi) - richiesto l'elenco COMPLETO invece, usa i conteggi automatici per 'complianceState' qui sotto per rispondere con precisione, mai un `$filter su questo campo per questo endpoint.`n`n"
+                            }
                             $lokkaArgs = @{ apiType = "graph"; method = "get"; path = $block.input.path }
-                            if ($block.input.queryParams) { $lokkaArgs.queryParams = $block.input.queryParams }
+                            if ($lokkaQueryParams) { $lokkaArgs.queryParams = $lokkaQueryParams }
+                            if ($env:M365OPS_DEBUG_HINT) { Write-Host "[DEBUG QUERYPARAMS] path=$($block.input.path) queryParams=$($lokkaQueryParams | ConvertTo-Json -Compress -Depth 5) filterStripped=$([bool]$filterStrippedNote)" -ForegroundColor Magenta }
                             $lokkaResult = Invoke-M365OpsLokkaTool -ToolName "Lokka-Microsoft" -Arguments $lokkaArgs
-                            (($lokkaResult.content | ForEach-Object { $_.text }) -join "`n")
+                            $filterStrippedNote + (Add-M365OpsGraphListCountHint -RawText ((($lokkaResult.content | ForEach-Object { $_.text }) -join "`n")))
                         }
                     }
                     "propose_graph_write" {
