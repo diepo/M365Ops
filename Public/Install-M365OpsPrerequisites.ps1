@@ -165,6 +165,20 @@ function Install-M365OpsPrerequisites {
     # viene saltata.
     $hasNode = (Get-Command 'npx.cmd' -ErrorAction SilentlyContinue) -or (Get-Command 'npx' -ErrorAction SilentlyContinue)
     $hasM365 = (Get-Command 'm365.cmd' -ErrorAction SilentlyContinue) -or (Get-Command 'm365' -ErrorAction SilentlyContinue)
+    if (-not $hasM365) {
+        # Stesso bug/fix gia' presente qualche riga sopra per winget, mai propagato qui - bug
+        # REALE trovato dal vivo il 31/08/2026 (non teorico): un cold start ha rieseguito un
+        # intero `npm install -g @pnp/cli-microsoft365` (~2 minuti misurati) su
+        # un'installazione gia' presente su disco, solo perche' m365.cmd non era nel PATH
+        # ereditato da QUESTO specifico processo (Server.ps1, avviato da Launch-M365Ops.ps1) -
+        # stessa classe di problema gia' documentata sopra per winget ("un processo separato
+        # eredita il PATH del proprio genitore al momento in cui e' stato creato, non
+        # necessariamente aggiornato"). Controllo diretto sul percorso standard dei pacchetti
+        # globali npm (confermato dal vivo con "npm config get prefix") prima di concludere che
+        # manchi per davvero, invece di fidarsi solo di Get-Command.
+        $npmGlobalM365 = Join-Path $env:APPDATA 'npm\m365.cmd'
+        if (Test-Path $npmGlobalM365) { $hasM365 = $true }
+    }
     if ($hasM365) {
         $results += [pscustomobject]@{ Name = 'CLI Microsoft 365 (connettore AI CLI-Microsoft365)'; Status = 'OK'; Action = 'Gia'' presente, nessuna installazione necessaria.'; Detail = $null }
     } elseif (-not $hasNode) {

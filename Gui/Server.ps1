@@ -6,6 +6,30 @@ param(
 $moduleRoot = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $moduleRoot 'M365Ops.psd1') -Force
 . (Join-Path $PSScriptRoot 'CommandCatalog.ps1')
+
+# Controllo prerequisiti (Node.js, Microsoft Edge, moduli PowerShell) PRIMA di connettersi al
+# tenant, in modo silenzioso - nessun click richiesto. Spostato qui da Launch-M365Ops.ps1 il
+# 31/08/2026 (richiesto esplicitamente dall'utente dopo aver segnalato dal vivo un avvio a
+# volte molto lento): Launch-M365Ops.ps1 importava PRIMA l'intero modulo (350+ file, ~4.7s
+# misurati dal vivo) solo per richiamare questa funzione, per poi avviare QUESTO script che
+# importa di nuovo l'intero modulo per conto proprio - un secondo Import-Module completo, in
+# serie, per lo stesso identico lavoro. Spostando il controllo qui (che il modulo lo ha gia'
+# importato comunque, riga sopra) si elimina l'import doppio senza cambiare cosa viene
+# controllato ne' quando rispetto a Connect-M365Ops sotto - solo DOVE gira. Il pulsante
+# "Installa automaticamente" nel banner Impostazioni resta come fallback manuale invariato
+# (richiama la stessa Install-M365OpsPrerequisites da dentro una richiesta HTTP, non da qui).
+try {
+    $prereqResults = Install-M365OpsPrerequisites
+    $prereqResults | ForEach-Object {
+        if ($_.Status -eq 'Failed') {
+            Write-Host "Prerequisito non installato automaticamente: $($_.Name) - $($_.Detail)" -ForegroundColor Yellow
+        }
+    }
+} catch {
+    # Non bloccante di proposito: un fallimento qui non deve impedire l'avvio del server -
+    # si registra solo per diagnosi, esattamente come prima quando girava in Launch-M365Ops.ps1.
+    Write-Host "Controllo prerequisiti non riuscito: $($_.Exception.Message)" -ForegroundColor Yellow
+}
 # Bug reale segnalato dal vivo il 22/08/2026 su un'installazione DAVVERO vergine (Windows
 # Sandbox, Config\tenants.json mai esistito): Connect-M365Ops lancia un'eccezione se non
 # trova NESSUN profilo salvato ("Nessun profilo salvato. Usa prima Set-M365OpsTenant.") - qui
