@@ -1984,6 +1984,107 @@ try {
                     $json = (@{ text = "Impostazioni AI salvate (provider attivo: $($script:ActiveAIProvider))." } | ConvertTo-Json -Compress)
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
+                "GET /api/ai-usage-report" {
+                    # Sezione "Costi IA" (31/08/2026, richiesta esplicitamente dall'utente: "una
+                    # sezione di report... dove compaiono giorno per giorno i token inviati
+                    # ricevuti da e verso quale modello e la possibilita' di stimare il costo").
+                    # Il costo si calcola QUI (non dentro Get-M365OpsAiUsageReport, che resta
+                    # puri token) combinando i token reali registrati con i prezzi configurati -
+                    # una voce senza prezzo configurato resta con EstimatedCostUsd = $null,
+                    # mai una stima inventata a caso.
+                    $days = 30
+                    if ($request.QueryString["days"]) { [void][int]::TryParse($request.QueryString["days"], [ref]$days) }
+                    $usage = Get-M365OpsAiUsageReport -Days $days
+                    $pricing = Get-M365OpsAiPricingConfig
+
+                    function Add-M365OpsEstimatedCost {
+                        param($Row)
+                        $priceKey = "$($Row.Provider)|$($Row.Model)"
+                        $price = $pricing[$priceKey]
+                        $cost = if ($price) {
+                            $billableInput = $Row.InputTokens - $Row.CachedTokens
+                            if ($billableInput -lt 0) { $billableInput = 0 }
+                            ($billableInput * $price.inputPer1M / 1000000) + ($Row.CachedTokens * $price.cachedInputPer1M / 1000000) + ($Row.OutputTokens * $price.outputPer1M / 1000000)
+                        } else { $null }
+                        # camelCase (non PascalCase): ConvertTo-Json preserva esattamente i nomi
+                        # di proprieta' cosi' come sono qui - questa e' la convenzione gia' in
+                        # uso da ogni altra route JSON di questo file (es. GET /api/ai-settings
+                        # restituisce "provider"/"hasClaudeKey", mai "Provider"/"HasClaudeKey") -
+                        # bug reale trovato dal vivo con la prima stesura PascalCase: il
+                        # JavaScript lato client (case-sensitive) leggeva sempre undefined.
+                        [pscustomobject]@{
+                            date            = $Row.Date
+                            provider        = $Row.Provider
+                            model           = $Row.Model
+                            calls           = $Row.Calls
+                            inputTokens     = $Row.InputTokens
+                            outputTokens    = $Row.OutputTokens
+                            cachedTokens    = $Row.CachedTokens
+                            reasoningTokens = $Row.ReasoningTokens
+                            estimatedCostUsd = $cost
+                            hasPricing      = [bool]$price
+                        }
+                    }
+
+                    $dailyWithCost = @($usage.Daily | ForEach-Object { Add-M365OpsEstimatedCost -Row $_ })
+                    $totalsWithCost = @($usage.Totals | ForEach-Object { Add-M365OpsEstimatedCost -Row $_ })
+                    $json = (@{ daily = $dailyWithCost; totals = $totalsWithCost } | ConvertTo-Json -Compress -Depth 6)
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "GET /api/ai-pricing" {
+                    $pricing = Get-M365OpsAiPricingConfig
+                    $rows = @($pricing.Keys | ForEach-Object {
+                        $parts = $_ -split '\|', 2
+                        [pscustomobject]@{
+                            provider         = $parts[0]
+                            model            = $parts[1]
+                            inputPer1M       = $pricing[$_].inputPer1M
+                            cachedInputPer1M = $pricing[$_].cachedInputPer1M
+                            outputPer1M      = $pricing[$_].outputPer1M
+                            source           = $pricing[$_].source
+                            lastUpdated      = $pricing[$_].lastUpdated
+                        }
+                    })
+                    $json = (@{ pricing = $rows } | ConvertTo-Json -Compress -Depth 4)
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/ai-pricing" {
+                    $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                    $body = $reader.ReadToEnd() | ConvertFrom-Json
+                    try {
+                        $pricingSource = if ($body.source -in @('auto', 'manual', 'known')) { $body.source } else { 'manual' }
+                        Set-M365OpsAiPricingConfig -Provider $body.provider -Model $body.model -InputPer1M ([double]$body.inputPer1M) -CachedInputPer1M ([double]($body.cachedInputPer1M ?? 0)) -OutputPer1M ([double]$body.outputPer1M) -Source $pricingSource | Out-Null
+                        $json = (@{ text = "Prezzo salvato per $($body.provider)/$($body.model)." } | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "GET /api/ai-pricing/autodetect" {
+                    # Solo Azure OpenAI (Claude ha un unico modello fisso gia' precaricato con
+                    # il prezzo reale, vedi Get-M365OpsAiPricingConfig - non serve rilevarlo).
+                    # La regione si prova a dedurre dal vivo con una chiamata minima e reale
+                    # (header di risposta x-ms-region) - se questo tentativo fallisce (es.
+                    # nessuna chiave Azure configurata in questo momento), l'auto-detect
+                    # prosegue comunque senza filtro di regione, ripiegando sulla tariffa
+                    # Global se disponibile (vedi Find-M365OpsAzureModelPricing).
+                    $deploymentToDetect = $request.QueryString["deployment"]
+                    if (-not $deploymentToDetect) { $deploymentToDetect = Get-M365OpsSecret -Name 'AZURE_OPENAI_DEPLOYMENT' }
+                    $detectedRegion = $null
+                    try {
+                        $azureKeyDetect = Get-M365OpsSecret -Name 'AZURE_OPENAI_KEY'
+                        $azureEndpointDetect = Get-M365OpsSecret -Name 'AZURE_OPENAI_ENDPOINT'
+                        if ($azureKeyDetect -and $azureEndpointDetect -and $deploymentToDetect) {
+                            $detectUri = "$($azureEndpointDetect.TrimEnd('/'))/chat/completions"
+                            $detectBody = @{ model = $deploymentToDetect; messages = @(@{ role = "user"; content = "hi" }); max_completion_tokens = 5 } | ConvertTo-Json
+                            $detectResp = Invoke-WebRequest -Method POST -Uri $detectUri -Headers @{ "api-key" = $azureKeyDetect; "Content-Type" = "application/json" } -Body $detectBody -TimeoutSec 15 -ErrorAction Stop
+                            $detectedRegion = $detectResp.Headers['x-ms-region'] | Select-Object -First 1
+                        }
+                    } catch { }
+                    $result = Find-M365OpsAzureModelPricing -DeploymentName $deploymentToDetect -Region $detectedRegion
+                    $json = ($result | ConvertTo-Json -Compress -Depth 4)
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
                 "GET /api/email-settings" {
                     $info = Get-M365OpsActiveTenantInfo
                     $json = (@{ emailSender = $info.EmailSender } | ConvertTo-Json -Compress)

@@ -205,6 +205,10 @@ function Invoke-M365OpsAgentTools {
     $totalInputTokens = 0
     $totalOutputTokens = 0
     $totalCachedTokens = 0
+    # Token di ragionamento interno (31/08/2026, per la sezione costi IA richiesta
+    # dall'utente - vedi Write-M365OpsAiUsageLog piu' sotto) - solo Azure OpenAI sui modelli
+    # reasoning li riporta, sempre 0 su Claude (nessun concetto equivalente in questa API).
+    $totalReasoningTokens = 0
 
     # CLI Microsoft 365 come sostituto PROATTIVO di Graph quando la sessione Graph delegata
     # generica non e' attiva (23/08/2026, richiesto esplicitamente dal vivo dall'utente dopo il
@@ -1403,6 +1407,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
             $reasoningTok = $response.usage.completion_tokens_details.reasoning_tokens
             if ($reasoningTok -gt 0) {
                 Write-M365OpsLog "Azure OpenAI: $reasoningTok token di ragionamento interno (fatturati come output, mai mostrati) su $($response.usage.completion_tokens) token di output totali."
+                $totalReasoningTokens += $reasoningTok
             }
             # Accumulo token di questo round (25/08/2026, vedi $totalInputTokens sopra per il
             # motivo) - $promptTok/$cachedTok gia' estratti qui sopra per il log cache, riusati
@@ -1439,6 +1444,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                 } else {
                     "`n`n_Risposta generata da IA ($aiProviderLabel, $tokenNote) senza consultare dati del tenant._"
                 }
+                Write-M365OpsAiUsageLog -Provider AzureOpenAI -Model $azureDeployment -InputTokens $totalInputTokens -OutputTokens $totalOutputTokens -CachedTokens $totalCachedTokens -ReasoningTokens $totalReasoningTokens
                 return [pscustomobject]@{ Text = $azureFinalText; PendingWrite = $pendingWrite; Attachments = $reportAttachments }
             }
 
@@ -1551,6 +1557,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                 } else {
                     "`n`n_Risposta generata da IA ($aiProviderLabel, $tokenNote) senza consultare dati del tenant._"
                 }
+                Write-M365OpsAiUsageLog -Provider Claude -Model 'claude-sonnet-4-5' -InputTokens $totalInputTokens -OutputTokens $totalOutputTokens -CachedTokens $totalCachedTokens
                 return [pscustomobject]@{ Text = $claudeFinalText; PendingWrite = $pendingWrite; Attachments = $reportAttachments }
             }
 
@@ -2295,6 +2302,8 @@ Motivo piu' probabile: la domanda richiede dati che Microsoft Graph non espone d
     } else {
         "`n`n_Risposta generata da IA ($aiProviderLabel, $tokenNote) senza consultare dati del tenant._"
     }
+    $usageModel = if ($Provider -eq 'AzureOpenAI') { $azureDeployment } else { 'claude-sonnet-4-5' }
+    Write-M365OpsAiUsageLog -Provider $Provider -Model $usageModel -InputTokens $totalInputTokens -OutputTokens $totalOutputTokens -CachedTokens $totalCachedTokens -ReasoningTokens $totalReasoningTokens
     return [pscustomobject]@{
         Text         = $maxRoundsText
         PendingWrite = $pendingWrite

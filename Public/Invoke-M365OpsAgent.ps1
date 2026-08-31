@@ -69,6 +69,7 @@ function Invoke-M365OpsAgent {
                 "Content-Type"      = "application/json"
             } -Body $body
             $script:M365OpsAiCallCount.Claude++
+            Write-M365OpsAiUsageLog -Provider Claude -Model 'claude-sonnet-4-5' -InputTokens $response.usage.input_tokens -OutputTokens $response.usage.output_tokens -CachedTokens $response.usage.cache_read_input_tokens
 
             $claudeText = $response.content[0].text
             if (-not $claudeText) {
@@ -135,6 +136,7 @@ function Invoke-M365OpsAgent {
                 }
             }
             $script:M365OpsAiCallCount.AzureOpenAI++
+            Write-M365OpsAiUsageLog -Provider AzureOpenAI -Model $deployment -InputTokens $response.usage.prompt_tokens -OutputTokens $response.usage.completion_tokens -CachedTokens $response.usage.prompt_tokens_details.cached_tokens -ReasoningTokens $response.usage.completion_tokens_details.reasoning_tokens
 
             $azureText = $response.choices[0].message.content
             if (-not $azureText) {

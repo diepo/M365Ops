@@ -422,6 +422,7 @@
     <button class="tab-btn" data-tab="mcp">MCP / Connettori</button>
     <button class="tab-btn" data-tab="email">Email</button>
     <button class="tab-btn" data-tab="maint">Manutenzione</button>
+    <button class="tab-btn" data-tab="ai-costs">Costi IA</button>
   </div>
 
   <div class="tab-panel" id="tab-tenant">
@@ -788,6 +789,42 @@
     </div>
     <div id="log-search-status" class="hint" style="margin-top:6px;"></div>
     <pre id="logs-view" style="max-height:400px; overflow-y:auto; background:var(--surface-alt); padding:10px 12px; border-radius:var(--radius-sm); font-size:11px; white-space:pre-wrap; margin-top:8px;">Caricamento...</pre>
+  </div>
+
+  <div class="tab-panel" id="tab-ai-costs" style="display:none;">
+    <h2>Utilizzo IA giorno per giorno</h2>
+    <p class="hint">Token registrati ad ogni risposta completa dell'IA (non ogni singolo giro di tool-calling interno), per provider e modello. Il costo stimato compare solo per i modelli con un prezzo configurato qui sotto - senza prezzo, resta onestamente vuoto invece di una stima inventata.</p>
+    <div class="actions">
+      <select id="ai-costs-period-select" style="padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+        <option value="7">Ultimi 7 giorni</option>
+        <option value="30" selected>Ultimi 30 giorni</option>
+        <option value="90">Ultimi 90 giorni</option>
+      </select>
+      <button id="ai-costs-refresh-btn">Aggiorna</button>
+    </div>
+    <div id="ai-costs-daily-table" class="hint" style="margin-top:10px;">Caricamento...</div>
+
+    <h2 style="margin-top:20px;">Configurazione prezzi (per milione di token, USD)</h2>
+    <p class="hint">Claude ha un prezzo reale gia' precaricato (pubblico, verificato). I deployment Azure OpenAI vanno rilevati o inseriti a mano: il nome del deployment e' un alias scelto da te, non identifica da solo quale modello reale ci sia dietro - "Rileva automaticamente" tenta una corrispondenza contro il listino pubblico Microsoft (prices.azure.com) sulla regione reale della tua risorsa, ma se il nome non e' riconoscibile (es. un alias come "gpt-chat-latest") non trova nulla: in quel caso inserisci i valori a mano, li trovi sul portale Azure AI Foundry alla pagina del tuo deployment.</p>
+    <div id="ai-pricing-table" class="hint">Caricamento...</div>
+    <div class="actions" style="margin-top:10px;">
+      <input type="text" id="ai-pricing-deployment-input" placeholder="nome deployment Azure (es. gpt-5.4-mini)" style="flex:1; min-width:200px; padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+      <button id="ai-pricing-autodetect-btn">Rileva automaticamente</button>
+      <span id="ai-pricing-autodetect-status"></span>
+    </div>
+    <div id="ai-pricing-manual-form" style="display:none; margin-top:10px;">
+      <div class="actions" style="flex-wrap:wrap;">
+        <input type="text" id="ai-pricing-input-rate" placeholder="$ per 1M token input" style="width:170px; padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+        <input type="text" id="ai-pricing-cached-rate" placeholder="$ per 1M token cache (opz.)" style="width:190px; padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+        <input type="text" id="ai-pricing-output-rate" placeholder="$ per 1M token output" style="width:170px; padding:6px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+        <button id="ai-pricing-save-btn">Salva prezzo</button>
+        <span id="ai-pricing-save-status"></span>
+      </div>
+    </div>
+
+    <h2 style="margin-top:20px;">Confronto tra modelli configurati</h2>
+    <p class="hint">Applica l'utilizzo REALE totale registrato (somma di tutti i giorni sopra) ai prezzi di ciascun modello configurato qui sopra - cosi' puoi vedere quanto costerebbe lo STESSO carico di lavoro su un modello diverso (es. uno di gamma superiore), non solo quanto e' costato davvero finora.</p>
+    <div id="ai-costs-comparison-table" class="hint">Caricamento...</div>
   </div>
 </div>
 
@@ -2125,6 +2162,188 @@
     }
   });
 
+  // Sezione "Costi IA" (31/08/2026, richiesta esplicitamente dall'utente: "una sezione di
+  // report... dove compaiono giorno per giorno i token inviati ricevuti da e verso quale
+  // modello e la possibilita' di stimare il costo"). Tre parti: utilizzo giorno per giorno
+  // (con costo stimato solo se un prezzo e' configurato), configurazione prezzi per
+  // provider+modello (auto-rilevata per Azure quando possibile, sempre modificabile a mano),
+  // confronto tra modelli applicando lo STESSO utilizzo reale registrato a prezzi diversi.
+  function escapeHtmlAiCosts(text) {
+    const div = document.createElement('div');
+    div.textContent = text == null ? '' : String(text);
+    return div.innerHTML;
+  }
+
+  function fmtUsd(n) {
+    if (n === null || n === undefined) return '—';
+    return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  }
+
+  let lastAiCostsTotals = [];
+
+  async function loadAiCosts() {
+    const days = document.getElementById('ai-costs-period-select').value;
+    const dailyPanel = document.getElementById('ai-costs-daily-table');
+    dailyPanel.textContent = 'Caricamento...';
+    try {
+      const res = await fetch('/api/ai-usage-report?days=' + encodeURIComponent(days));
+      const data = await res.json();
+      const daily = Array.isArray(data.daily) ? data.daily : (data.daily ? [data.daily] : []);
+      const totals = Array.isArray(data.totals) ? data.totals : (data.totals ? [data.totals] : []);
+      lastAiCostsTotals = totals;
+
+      if (daily.length === 0) {
+        dailyPanel.innerHTML = 'Nessun utilizzo registrato in questo periodo.';
+      } else {
+        let rows = '<table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr style="text-align:left; border-bottom:1px solid var(--border);"><th style="padding:4px 8px;">Data</th><th style="padding:4px 8px;">Provider</th><th style="padding:4px 8px;">Modello</th><th style="padding:4px 8px;">Chiamate</th><th style="padding:4px 8px;">Input</th><th style="padding:4px 8px;">Output</th><th style="padding:4px 8px;">Cache</th><th style="padding:4px 8px;">Ragionamento</th><th style="padding:4px 8px;">Costo stimato</th></tr></thead><tbody>';
+        for (const row of daily) {
+          rows += `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:4px 8px;">${escapeHtmlAiCosts(row.date)}</td>
+            <td style="padding:4px 8px;">${escapeHtmlAiCosts(row.provider)}</td>
+            <td style="padding:4px 8px;">${escapeHtmlAiCosts(row.model)}</td>
+            <td style="padding:4px 8px;">${row.calls}</td>
+            <td style="padding:4px 8px;">${row.inputTokens.toLocaleString()}</td>
+            <td style="padding:4px 8px;">${row.outputTokens.toLocaleString()}</td>
+            <td style="padding:4px 8px;">${row.cachedTokens.toLocaleString()}</td>
+            <td style="padding:4px 8px;">${row.reasoningTokens.toLocaleString()}</td>
+            <td style="padding:4px 8px;">${row.hasPricing ? fmtUsd(row.estimatedCostUsd) : '<span style="color:var(--text-faint);">nessun prezzo configurato</span>'}</td>
+          </tr>`;
+        }
+        rows += '</tbody></table>';
+        dailyPanel.innerHTML = rows;
+      }
+    } catch (e) {
+      dailyPanel.textContent = 'Errore nel caricare l\'utilizzo: ' + e.message;
+    }
+
+    await loadAiPricingTable();
+    renderAiCostsComparison();
+  }
+
+  async function loadAiPricingTable() {
+    const panel = document.getElementById('ai-pricing-table');
+    panel.textContent = 'Caricamento...';
+    try {
+      const res = await fetch('/api/ai-pricing');
+      const data = await res.json();
+      const pricing = Array.isArray(data.pricing) ? data.pricing : (data.pricing ? [data.pricing] : []);
+      if (pricing.length === 0) {
+        panel.innerHTML = 'Nessun prezzo configurato ancora.';
+        return;
+      }
+      let rows = '<table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr style="text-align:left; border-bottom:1px solid var(--border);"><th style="padding:4px 8px;">Provider</th><th style="padding:4px 8px;">Modello</th><th style="padding:4px 8px;">Input/1M</th><th style="padding:4px 8px;">Cache/1M</th><th style="padding:4px 8px;">Output/1M</th><th style="padding:4px 8px;">Origine</th></tr></thead><tbody>';
+      for (const p of pricing) {
+        const sourceLabel = { known: 'prezzo noto', auto: 'rilevato automaticamente', manual: 'inserito a mano' }[p.source] || p.source;
+        rows += `<tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:4px 8px;">${escapeHtmlAiCosts(p.provider)}</td>
+          <td style="padding:4px 8px;">${escapeHtmlAiCosts(p.model)}</td>
+          <td style="padding:4px 8px;">${fmtUsd(p.inputPer1M)}</td>
+          <td style="padding:4px 8px;">${fmtUsd(p.cachedInputPer1M)}</td>
+          <td style="padding:4px 8px;">${fmtUsd(p.outputPer1M)}</td>
+          <td style="padding:4px 8px; color:var(--text-muted);">${escapeHtmlAiCosts(sourceLabel)} (${escapeHtmlAiCosts(p.lastUpdated)})</td>
+        </tr>`;
+      }
+      rows += '</tbody></table>';
+      panel.innerHTML = rows;
+    } catch (e) {
+      panel.textContent = 'Errore nel caricare i prezzi: ' + e.message;
+    }
+  }
+
+  function renderAiCostsComparison() {
+    const panel = document.getElementById('ai-costs-comparison-table');
+    if (!lastAiCostsTotals || lastAiCostsTotals.length === 0) {
+      panel.innerHTML = 'Nessun utilizzo registrato nel periodo selezionato - niente da confrontare.';
+      return;
+    }
+    // Utilizzo aggregato REALE (somma su tutto il periodo, provider/modello combinati) - il
+    // carico di lavoro di riferimento applicato a ciascun prezzo configurato qui sotto.
+    const agg = lastAiCostsTotals.reduce((acc, r) => {
+      acc.input += r.inputTokens; acc.output += r.outputTokens; acc.cached += r.cachedTokens;
+      return acc;
+    }, { input: 0, output: 0, cached: 0 });
+
+    fetch('/api/ai-pricing').then(r => r.json()).then(data => {
+      const pricing = Array.isArray(data.pricing) ? data.pricing : (data.pricing ? [data.pricing] : []);
+      if (pricing.length === 0) { panel.innerHTML = 'Configura almeno un prezzo qui sopra per vedere un confronto.'; return; }
+      let rows = `<p style="margin:0 0 8px;">Carico di riferimento (utilizzo reale totale del periodo): ${agg.input.toLocaleString()} token input, ${agg.output.toLocaleString()} output, ${agg.cached.toLocaleString()} dalla cache.</p>`;
+      rows += '<table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr style="text-align:left; border-bottom:1px solid var(--border);"><th style="padding:4px 8px;">Modello</th><th style="padding:4px 8px;">Costo stimato per lo STESSO carico</th></tr></thead><tbody>';
+      const costs = pricing.map(p => {
+        const billableInput = Math.max(0, agg.input - agg.cached);
+        const cost = (billableInput * p.inputPer1M / 1000000) + (agg.cached * (p.cachedInputPer1M || 0) / 1000000) + (agg.output * p.outputPer1M / 1000000);
+        return { label: `${p.provider} / ${p.model}`, cost };
+      }).sort((a, b) => a.cost - b.cost);
+      const cheapest = costs.length > 0 ? costs[0].cost : null;
+      for (const c of costs) {
+        const diff = cheapest !== null && cheapest > 0 && c.cost > cheapest ? ` <span style="color:var(--text-muted);">(+${(((c.cost - cheapest) / cheapest) * 100).toFixed(0)}% rispetto al piu' economico)</span>` : (cheapest !== null && c.cost === cheapest ? ' <span style="color:var(--accent);">più economico</span>' : '');
+        rows += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:4px 8px;">${escapeHtmlAiCosts(c.label)}</td><td style="padding:4px 8px;">${fmtUsd(c.cost)}${diff}</td></tr>`;
+      }
+      rows += '</tbody></table>';
+      panel.innerHTML = rows;
+    }).catch(e => { panel.textContent = 'Errore nel confronto: ' + e.message; });
+  }
+
+  document.getElementById('ai-costs-refresh-btn').addEventListener('click', loadAiCosts);
+
+  // Traccia se i valori attualmente nel form vengono da un rilevamento automatico riuscito e
+  // non ancora modificati a mano - solo per l'etichetta "Origine" mostrata nella tabella
+  // prezzi (dato puramente informativo, il prezzo salvato e' corretto in entrambi i casi):
+  // qualunque modifica manuale ai tre campi lo invalida, tornando "manual" come e' onesto.
+  let aiPricingLastAutodetected = false;
+  ['ai-pricing-input-rate', 'ai-pricing-cached-rate', 'ai-pricing-output-rate'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => { aiPricingLastAutodetected = false; });
+  });
+
+  document.getElementById('ai-pricing-autodetect-btn').addEventListener('click', async () => {
+    const deployment = document.getElementById('ai-pricing-deployment-input').value.trim();
+    const status = document.getElementById('ai-pricing-autodetect-status');
+    const form = document.getElementById('ai-pricing-manual-form');
+    if (!deployment) { status.textContent = 'Inserisci prima il nome del deployment.'; return; }
+    status.textContent = 'rilevamento in corso...';
+    try {
+      const res = await fetch('/api/ai-pricing/autodetect?deployment=' + encodeURIComponent(deployment));
+      const data = await res.json();
+      form.style.display = 'block';
+      if (data.Found) {
+        document.getElementById('ai-pricing-input-rate').value = data.InputPer1M ?? '';
+        document.getElementById('ai-pricing-cached-rate').value = data.CachedInputPer1M ?? '';
+        document.getElementById('ai-pricing-output-rate').value = data.OutputPer1M ?? '';
+        aiPricingLastAutodetected = true;
+        status.textContent = `Trovato (${data.Confidence}, regione: ${data.RegionUsed || '—'}) - verifica i valori prima di salvare, poi premi "Salva prezzo".`;
+      } else {
+        aiPricingLastAutodetected = false;
+        status.textContent = data.Reason + ' Inserisci i valori a mano qui sotto.';
+      }
+    } catch (e) {
+      aiPricingLastAutodetected = false;
+      status.textContent = 'Errore: ' + e.message;
+      form.style.display = 'block';
+    }
+  });
+
+  document.getElementById('ai-pricing-save-btn').addEventListener('click', async () => {
+    const deployment = document.getElementById('ai-pricing-deployment-input').value.trim();
+    const status = document.getElementById('ai-pricing-save-status');
+    if (!deployment) { status.textContent = 'Inserisci prima il nome del deployment.'; return; }
+    const inputRate = parseFloat(document.getElementById('ai-pricing-input-rate').value);
+    const cachedRate = parseFloat(document.getElementById('ai-pricing-cached-rate').value) || 0;
+    const outputRate = parseFloat(document.getElementById('ai-pricing-output-rate').value);
+    if (isNaN(inputRate) || isNaN(outputRate)) { status.textContent = 'Servono almeno i prezzi di input e output (numeri).'; return; }
+    status.textContent = 'salvataggio...';
+    try {
+      const res = await fetch('/api/ai-pricing', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'AzureOpenAI', model: deployment, inputPer1M: inputRate, cachedInputPer1M: cachedRate, outputPer1M: outputRate, source: aiPricingLastAutodetected ? 'auto' : 'manual' })
+      });
+      const data = await res.json();
+      status.textContent = data.text || 'Salvato.';
+      await loadAiPricingTable();
+      renderAiCostsComparison();
+    } catch (e) {
+      status.textContent = 'Errore: ' + e.message;
+    }
+  });
+
   restartServerBtn.addEventListener('click', async () => {
     if (!confirm('Riavviare il server? Perdi lo stato della sessione corrente (file caricato, ultimo gruppo/app, connessione Lokka).')) return;
     restartStatus.textContent = 'riavvio in corso...';
@@ -2246,6 +2465,7 @@
       if (btn.dataset.tab === 'email') loadEmailSettings();
       if (btn.dataset.tab === 'maint') { loadCustomScripts(); loadLogs(); loadUpdateStatus(); loadServerPort(); startServerHealthPolling(); }
       else { stopServerHealthPolling(); }
+      if (btn.dataset.tab === 'ai-costs') loadAiCosts();
     });
   });
 
