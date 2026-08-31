@@ -85,12 +85,28 @@ function Set-M365OpsStartupStage {
     [System.Windows.Forms.Application]::DoEvents()
 }
 
-# Da richiamare durante le attese (es. dentro un ciclo di polling) senza cambiare lo stage
-# mostrato - aggiorna solo il tempo trascorso e ripompa i messaggi Windows, cosi' la finestra
-# non risulta "Non risponde" durante un'attesa lunga.
+# Da richiamare durante le attese (es. dentro un ciclo di polling) - aggiorna il tempo
+# trascorso e ripompa i messaggi Windows, cosi' la finestra non risulta "Non risponde" durante
+# un'attesa lunga. Se $StageFilePath e' passato e il file esiste con contenuto non vuoto,
+# aggiorna ANCHE lo stage mostrato con quel contenuto (31/08/2026, richiesto esplicitamente
+# dall'utente dopo aver visto un avvio a freddo insolitamente lento: "puoi scrivere anche
+# quello che sta facendo, non solo i secondi che passano, cosi' non sembra freezato?" - senza,
+# durante l'attesa di Server.ps1 (un processo SEPARATO, invisibile da qui) la finestra mostrava
+# solo un testo fisso "Attendo che il server risponda..." con il tempo che saliva, indistingu-
+# ibile da un vero blocco anche quando in realta' stava lavorando - es. una risincronizzazione
+# una tantum della guida nella Knowledge Base che da sola puo' richiedere decine di secondi).
+# Server.ps1 scrive il proprio stadio corrente in Config\startup-stage.txt man mano che
+# avanza - questa funzione lo rilegge e lo mostra, dando visibilita' reale invece di un timer
+# muto.
 function Update-M365OpsStartupWindow {
-    param($Window)
+    param($Window, [string]$StageFilePath)
     if (-not $Window -or $Window.Form.IsDisposed) { return }
+    if ($StageFilePath -and (Test-Path $StageFilePath)) {
+        try {
+            $stageText = (Get-Content -Path $StageFilePath -Raw -ErrorAction Stop).Trim()
+            if ($stageText) { $Window.StageLabel.Text = $stageText }
+        } catch {}
+    }
     $Window.TimeLabel.Text = "{0:N1}s" -f $Window.Stopwatch.Elapsed.TotalSeconds
     [System.Windows.Forms.Application]::DoEvents()
 }

@@ -34,6 +34,7 @@ $root = $PSScriptRoot
 $serverScriptPath = (Join-Path $root 'Gui\Server.ps1')
 $lockPath = Join-Path $root 'Config\startup.lock'
 $activePortFile = Join-Path $root 'Config\active-port.txt'
+$stageFile = Join-Path $root 'Config\startup-stage.txt'
 
 . (Join-Path $root 'Tools\M365OpsStartupLock.ps1')
 . (Join-Path $root 'Tools\M365OpsStartupUI.ps1')
@@ -67,7 +68,7 @@ if (-not $lockHandle) {
     $waitPort = 8743
     for ($i = 0; $i -lt 60; $i++) {
         Start-Sleep -Milliseconds 500
-        Update-M365OpsStartupWindow -Window $window
+        Update-M365OpsStartupWindow -Window $window -StageFilePath $stageFile
         if (Test-Path $activePortFile) {
             $currentPort = (Get-Content $activePortFile -Raw -ErrorAction SilentlyContinue).Trim()
             if ($currentPort -match '^\d+$') { $waitPort = [int]$currentPort }

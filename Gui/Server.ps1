@@ -4,6 +4,24 @@ param(
 )
 
 $moduleRoot = Split-Path -Parent $PSScriptRoot
+
+# Stadio corrente dell'avvio, scritto in un file cosi' Launch-M365Ops.ps1 (un processo
+# SEPARATO, che spawna questo script e poi puo' solo attendere che risponda su HTTP) puo'
+# rileggerlo e mostrarlo nella propria finestra di avanzamento - 31/08/2026, richiesto
+# esplicitamente dall'utente dopo aver visto un avvio insolitamente lento (risincronizzazione
+# una tantum della guida nella Knowledge Base) e aver chiesto: "puoi scrivere anche quello che
+# sta facendo, non solo i secondi che passano, cosi' non sembra freezato?" - senza, l'attesa di
+# QUESTO intero script (import modulo, controllo prerequisiti, connessione tenant, ecc.) era
+# invisibile da fuori, indistinguibile da un vero blocco anche quando stava lavorando per
+# davvero. Ogni scrittura e' avvolta in try/catch e non deve mai poter interrompere l'avvio
+# vero e proprio - e' solo un'etichetta per l'utente, non uno stato funzionale.
+$script:StartupStagePath = Join-Path $moduleRoot 'Config\startup-stage.txt'
+function Write-M365OpsStartupStage {
+    param([string]$Stage)
+    try { Set-Content -Path $script:StartupStagePath -Value $Stage -Encoding UTF8 -ErrorAction Stop } catch {}
+}
+
+Write-M365OpsStartupStage "Importazione del modulo PowerShell (350+ file)..."
 Import-Module (Join-Path $moduleRoot 'M365Ops.psd1') -Force
 . (Join-Path $PSScriptRoot 'CommandCatalog.ps1')
 
@@ -18,6 +36,7 @@ Import-Module (Join-Path $moduleRoot 'M365Ops.psd1') -Force
 # controllato ne' quando rispetto a Connect-M365Ops sotto - solo DOVE gira. Il pulsante
 # "Installa automaticamente" nel banner Impostazioni resta come fallback manuale invariato
 # (richiama la stessa Install-M365OpsPrerequisites da dentro una richiesta HTTP, non da qui).
+Write-M365OpsStartupStage "Controllo prerequisiti (Node.js, Edge, moduli PowerShell)..."
 try {
     $prereqResults = Install-M365OpsPrerequisites
     $prereqResults | ForEach-Object {
@@ -44,6 +63,7 @@ try {
 # con almeno un profilo tenant esistente. Corretto lasciando partire il server anche senza
 # nessun tenant attivo (stato gia' previsto e gestito altrove, es. Get-M365OpsSetupStatus) -
 # l'utente vedra' il messaggio di onboarding al primo caricamento della pagina.
+Write-M365OpsStartupStage "Connessione al tenant '$TenantProfile'..."
 try {
     Connect-M365Ops -TenantProfile $TenantProfile
 } catch {
@@ -91,6 +111,7 @@ try {
         $lastHash = if (Test-Path $guideHashPath) { (Get-Content $guideHashPath -Raw).Trim() } else { $null }
         if ($currentHash -ne $lastHash) {
             Write-M365OpsLog "Guida di configurazione cambiata, risincronizzo nella Knowledge Base globale..."
+            Write-M365OpsStartupStage "Sincronizzazione della guida nella Knowledge Base (documento cambiato dall'ultimo avvio)..."
             Add-M365OpsKnowledgeDocument -TenantName '_global' -FilePath $guidePdfPath -OriginalFileName 'Guida-Configurazione.pdf' -Provider $script:ActiveAIProvider | Out-Null
             Set-Content -Path $guideHashPath -Value $currentHash -Encoding UTF8
             Write-M365OpsLog "Knowledge Base globale risincronizzata con la guida aggiornata."
@@ -1502,6 +1523,7 @@ $activePortFile = Join-Path $moduleRoot 'Config\active-port.txt'
 New-Item -ItemType Directory -Force -Path (Split-Path $activePortFile) -ErrorAction SilentlyContinue | Out-Null
 Set-Content -Path $activePortFile -Value $Port -Encoding UTF8 -NoNewline
 
+Write-M365OpsStartupStage "Server pronto sulla porta $Port."
 Write-Host "M365Ops web app in ascolto su http://localhost:$Port/ (Ctrl+C per fermare)" -ForegroundColor Green
 
 try {

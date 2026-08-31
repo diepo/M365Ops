@@ -49,6 +49,10 @@ $activePortFile = Join-Path $root 'Config\active-port.txt'
 $portPrefFile = Join-Path $root 'Config\server-port.txt'
 $statusFile = Join-Path $root 'Config\last-start-status.txt'
 $lockPath = Join-Path $root 'Config\startup.lock'
+# Scritto da Server.ps1 stesso (un processo separato) man mano che avanza nell'avvio -
+# riletto qui durante l'attesa cosi' la finestra mostra CHE COSA sta succedendo, non solo il
+# tempo che passa (31/08/2026, richiesto esplicitamente dall'utente).
+$stageFile = Join-Path $root 'Config\startup-stage.txt'
 
 . (Join-Path $root 'Tools\M365OpsStartupLock.ps1')
 . (Join-Path $root 'Tools\M365OpsStartupUI.ps1')
@@ -126,7 +130,7 @@ if (-not $lockHandle) {
     if (-not $waitPort) { $waitPort = 8743 }
     for ($i = 0; $i -lt 60; $i++) {
         Start-Sleep -Milliseconds 500
-        Update-M365OpsStartupWindow -Window $window
+        Update-M365OpsStartupWindow -Window $window -StageFilePath $stageFile
         if (Test-Path $activePortFile) {
             $currentPort = (Get-Content $activePortFile -Raw -ErrorAction SilentlyContinue).Trim()
             if ($currentPort -match '^\d+$') { $waitPort = [int]$currentPort }
@@ -195,6 +199,10 @@ try {
     }
 
     Set-M365OpsStartupStage -Window $window -Stage 'Avvio del processo server...'
+    # Ripulito prima di avviare Server.ps1 (che lo riscrive lui stesso come primissima cosa che
+    # fa): senza, un eventuale contenuto residuo dell'avvio PRECEDENTE (es. "Server pronto...")
+    # resterebbe visibile per una frazione di secondo prima di essere sovrascritto per davvero.
+    Remove-Item -Path $stageFile -ErrorAction SilentlyContinue
 
     # -STA aggiunto il 17/08/2026 (bug reale, vedi lo stesso fix nel ramo di riavvio dentro
     # Server.ps1 per i dettagli): senza, pwsh gira in MTA e le finestre di login interattivo
@@ -221,7 +229,7 @@ try {
     $actualPort = $Port
     for ($i = 0; $i -lt 60; $i++) {
         Start-Sleep -Milliseconds 500
-        Update-M365OpsStartupWindow -Window $window
+        Update-M365OpsStartupWindow -Window $window -StageFilePath $stageFile
         if (Test-Path $activePortFile) {
             $currentPort = (Get-Content $activePortFile -Raw -ErrorAction SilentlyContinue).Trim()
             if ($currentPort -match '^\d+$') { $actualPort = [int]$currentPort }
