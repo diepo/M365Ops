@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Reset BT Auto</string>
+
+    <string name="intro">
+        L\'app esegue in sequenza tre operazioni per sbloccare la connessione dell\'auto:
+        spegne il Bluetooth, chiude Android Auto e riaccende il Bluetooth.
+        Al termine premi OK per uscire.
+    </string>
+
+    <string name="mode_checking">Verifica dei permessi in corso&#8230;</string>
+    <string name="mode_root">Modalita\': root disponibile, sequenza completamente automatica.</string>
+    <string name="mode_limited">Modalita\': senza root. Il Bluetooth si commuta solo fino ad Android 12 e di Android Auto vengono chiusi i soli processi in background.</string>
+
+    <string name="step_number">%1$d</string>
+
+    <string name="step_disable_title">Disattiva il Bluetooth</string>
+    <string name="step_disable_desc">Spegne l\'adattatore e attende la conferma dello stato OFF.</string>
+    <string name="step_kill_title">Termina Android Auto</string>
+    <string name="step_kill_desc">Forza la chiusura dell\'app Android Auto e dei suoi processi.</string>
+    <string name="step_enable_title">Riattiva il Bluetooth</string>
+    <string name="step_enable_desc">Riaccende l\'adattatore e attende la conferma dello stato ON.</string>
+
+    <string name="detail_working">In corso&#8230;</string>
+    <string name="detail_skipped">Saltato: il passo precedente non e\' riuscito.</string>
+    <string name="detail_via_root">Completato tramite shell di root.</string>
+    <string name="detail_via_legacy_api">Completato tramite le API Bluetooth legacy.</string>
+    <string name="detail_bt_already_off">Il Bluetooth era gia\' spento.</string>
+    <string name="detail_bt_already_on">Il Bluetooth era gia\' acceso.</string>
+    <string name="detail_bt_disable_failed">Impossibile spegnere il Bluetooth: servono i permessi di root su Android 13 o superiore.</string>
+    <string name="detail_bt_enable_failed">Impossibile riaccendere il Bluetooth: riattivalo dalle impostazioni di sistema.</string>
+    <string name="detail_auto_not_installed">Android Auto non risulta installato: nessun processo da terminare.</string>
+    <string name="detail_auto_killed">Chiusura forzata completata (%1$d pacchetti).</string>
+    <string name="detail_auto_kill_failed">Chiusura forzata non riuscita: %1$s</string>
+    <string name="detail_auto_killed_partial">Chiusi i soli processi in background: senza root il sistema non consente la chiusura forzata.</string>
+    <string name="detail_auto_kill_denied">Permesso negato per la chiusura dei processi di Android Auto.</string>
+
+    <string name="error_no_bluetooth">Nessun adattatore Bluetooth disponibile su questo dispositivo.</string>
+
+    <string name="result_ok">Sequenza completata correttamente.</string>
+    <string name="result_partial">Sequenza completata solo in parte: controlla i dettagli qui sopra.</string>
+    <string name="result_failed">Sequenza non riuscita: controlla i dettagli qui sopra.</string>
+
+    <string name="action_start">Avvia</string>
+    <string name="action_running">Esecuzione in corso&#8230;</string>
+    <string name="action_ok">OK</string>
+</resources>
