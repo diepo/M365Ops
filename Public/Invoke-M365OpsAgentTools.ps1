@@ -1290,6 +1290,22 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
     })
     $messages += @{ role = "user"; content = $Prompt }
 
+    # Rete di sicurezza contro il "tentativo alla cieca" di CLI Microsoft 365: segnalato dal
+    # vivo il 09/09/2026 su un tenant reale (CAGS) - "esiste su Entra Roberto Bellomunno?" ha
+    # fatto scattare 6 round dell'IA in meno di 3 minuti, ognuno con un comando 'entra user
+    # get --userName <variante indovinata>' diverso, perche' CLI365 non ha una ricerca per
+    # nome/cognome (solo lookup per UPN/ID esatto, vedi descrizione di cli_m365_run_command
+    # piu' sopra) - il modello indovinava UPN uno alla volta invece di fermarsi e chiedere
+    # all'utente. Costoso (ogni round paga il prompt intero) e lento (ogni comando CLI365 reale
+    # e' 15-40s), e in quel caso specifico ha anche esaurito la quota per-minuto del deployment
+    # (429, vedi Gui\Server.ps1 sul fallback). Tracciato qui (variabile locale alla funzione,
+    # azzerata a ogni nuovo messaggio - non $script:, sarebbe stato condiviso tra richieste
+    # diverse) invece che lasciato al solo buon senso del prompt: dopo 2 tentativi di lookup per
+    # identificativo ESATTO con valori DIVERSI nello stesso messaggio, il risultato del secondo
+    # (e successivi) porta un'istruzione esplicita a fermarsi e chiedere l'identificativo esatto
+    # all'utente invece di continuare a indovinare.
+    $cliM365GuessedIdentifiers = @()
+
     for ($round = 0; $round -lt $MaxRounds; $round++) {
         # Elenco strumenti IDENTICO su ogni round (24/08/2026, vedi $graphOverlapToolNames piu'
         # sopra per il motivo del cambio - prima variava tra il round 0 e i successivi, rompendo
@@ -1828,7 +1844,19 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             "Rifiutato: questo comando non e' riconosciuto come sola lettura (l'ultimo verbo non e' get/list/search/export/status). Usa propose_cli_m365_command invece, che richiede conferma esplicita dell'utente."
                         } else {
                             $cliResult = Invoke-M365OpsMcpServerTool -ServerName 'CLI-Microsoft365' -ToolName "m365_run_command" -Arguments @{ command = $block.input.command }
-                            (($cliResult.content | ForEach-Object { $_.text }) -join "`n")
+                            $cliText = (($cliResult.content | ForEach-Object { $_.text }) -join "`n")
+                            # Vedi commento su $cliM365GuessedIdentifiers piu' sopra (prima del
+                            # 'for'): riconosce un lookup per identificativo ESATTO (get con
+                            # --userName/--id/--email/--upn) e ne traccia il valore tentato.
+                            if ($block.input.command -match '\bget\b' -and $block.input.command -match '--(userName|id|email|upn)\s+"?([^\s"]+)"?') {
+                                $guessedValue = $matches[2]
+                                if ($cliM365GuessedIdentifiers -notcontains $guessedValue) { $cliM365GuessedIdentifiers += $guessedValue }
+                                if ($cliM365GuessedIdentifiers.Count -ge 2) {
+                                    $filterExample = 'm365 entra user list --filter "startswith(displayName,''Cognome'')"'
+                                    $cliText += "`n`n[NOTA PER L'IA, non mostrarla come dato reale: hai gia' tentato $($cliM365GuessedIdentifiers.Count) identificativi diversi indovinati per questo lookup ($($cliM365GuessedIdentifiers -join ', ')) - CLI Microsoft 365 NON supporta una ricerca per nome/cognome, solo lookup per UPN/ID esatto. NON tentare un altro identificativo indovinato: nella risposta finale spiega chiaramente che non sei riuscito a trovare l'oggetto con gli identificativi tentati e chiedi all'utente lo UPN (o l'ID oggetto) esatto - oppure, se disponibile, prova UNA sola volta un vero comando di elenco/ricerca con filtro (es. '$filterExample') invece di indovinare altri UPN.]"
+                                }
+                            }
+                            $cliText
                         }
                     }
                     "cli_m365_search_commands" {
