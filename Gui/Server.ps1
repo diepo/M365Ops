@@ -1529,6 +1529,22 @@ function Handle-ChatMessage {
             # vero invece di un silenzio totale.
             $originalError = $_.Exception.Message
             Write-M365OpsLog "Invoke-M365OpsAgentTools fallito, ripiego su chiamata AI senza strumenti: $originalError" -Level Error
+            # Bug reale segnalato dal vivo il 09/09/2026: un 429 (rate limit) su una domanda che
+            # riguarda DATI DEL TENANT (es. "esiste su Entra Roberto Bellomunno?") faceva comunque
+            # scattare il fallback sotto - una seconda chiamata AI, questa volta SENZA alcuno
+            # strumento/contesto. Per una domanda fattuale sul tenant il modello non ha alcuna base
+            # per rispondere senza strumenti, ma risponde comunque con sicurezza (es. "non risultano
+            # informazioni pubbliche su questa persona") - una frase che SEMBRA una conclusione reale
+            # mentre e' pura invenzione, con l'unico avviso onesto ("Nota: risposta senza accesso ai
+            # dati del tenant") in fondo al messaggio, facile da non notare. Un 429 e' inoltre per
+            # natura TRANSITORIO (quota per-minuto, non un guasto permanente) - la risposta corretta
+            # e' dire chiaramente che serve riprovare tra poco, non inventare un fatto. Rilevato qui
+            # in base al testo dell'errore Azure OpenAI (formato confermato dal vivo:
+            # "rate_limit_exceeded"/"Too Many Requests") - se non e' un rate limit il comportamento
+            # resta quello di prima (fallback utile per un errore davvero benigno/transitorio).
+            if ($originalError -match '429|rate_limit_exceeded|Too Many Requests') {
+                return @{ role = 'ai'; text = "Limite di richieste al minuto del modello AI raggiunto (rate limit) - non e' un errore dei tuoi dati, e' una quota temporanea lato Azure OpenAI che si libera da sola in genere entro un minuto. Riprova la stessa domanda tra poco.`n`n_Dettaglio tecnico: $originalError_" }
+            }
             try {
                 $response = Invoke-M365OpsAgent -Prompt $msg -Provider $script:ActiveAIProvider
                 if (-not $response) { throw "risposta di fallback vuota" }
