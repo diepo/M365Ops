@@ -622,6 +622,50 @@ IMPORTANTE: se non conosci gia' l'indirizzo/identity esatto di un oggetto, usa P
             }
         }
         @{
+            name = "propose_bulk_write"
+            description = @"
+Proponi la STESSA scrittura ripetuta su PIU' oggetti in un colpo solo - richiesto esplicitamente dall'utente il 09/09/2026: quando carica un CSV (o fornisce comunque un elenco di piu' voci) e chiede di applicare una modifica a ciascuna, l'utente conferma UNA SOLA VOLTA l'intero batch invece di dover rispondere 'si' separatamente per ogni singolo oggetto (limite di propose_exo_write/propose_graph_write: UNA sola proposta di scrittura per risposta, quindi N oggetti richiederebbero N turni di conferma in sequenza - impraticabile oltre poche unita').
+
+Usa questo strumento OGNI VOLTA che la richiesta riguarda PIU' di 3-4 oggetti della stessa natura (mailbox, utenti, gruppi, ecc.) con la STESSA operazione da applicare a ciascuno - non solo per CSV caricati esplicitamente, vale per qualunque elenco fornito in chat o gia' ottenuto con una query. Per 1-3 oggetti, o per azioni di natura diversa tra loro, resta piu' naturale una normale propose_exo_write/propose_graph_write per ciascuna.
+
+Non amplia CIO' CHE si puo' scrivere (stessa identica validazione di propose_exo_write per 'platform'='exo' - il cmdlet deve essere nell'elenco consentito li' sopra - e di propose_graph_write per 'platform'='graph'), solo QUANTE scritture uguali una singola conferma dell'utente copre.
+
+Specifica:
+- 'platform': 'exo' oppure 'graph'.
+- 'cmdlet' (SOLO se platform='exo'): un cmdlet dall'elenco di propose_exo_write, fisso per TUTTE le righe (es. Grant-M365OpsMailboxPermission per assegnare permessi a un elenco di mailbox).
+- 'method' (SOLO se platform='graph'): 'PATCH'/'POST'/'DELETE'/ecc, fisso per TUTTE le righe.
+- 'rows': un oggetto per CIASCUN elemento dell'elenco - {parameters, label} per exo (parameters = stessi parametri di propose_exo_write per QUESTA riga; ExtraParams supportato allo stesso modo), oppure {path, body, label} per graph (path/body specifici di QUESTA riga). 'label' e' un'etichetta breve e leggibile (es. l'indirizzo email della mailbox/utente) mostrata nel riepilogo prima della conferma e nel risultato finale - SEMPRE presente, mai omessa.
+- 'reason': spiegazione in italiano dell'INTERO batch (cosa fa, su cosa, perche').
+Massimo 300 righe per proposta - se l'elenco e' piu' grande, dillo chiaramente all'utente e suggerisci di dividerlo in piu' batch da qui, oppure (per il caso specifico AutoMapping su gruppi) lo script locale dedicato Repair-FullAccessAutoMapping.ps1.
+
+Ogni riga viene eseguita ISOLATA da un proprio try/catch al momento della conferma: un errore su una riga NON blocca le altre, e il risultato finale elenca esplicitamente quali sono riuscite e quali fallite (con il motivo) - stesso principio gia' in uso per Get-/Invoke-M365OpsFullAccessAutoMapPlan. Ogni riga viene anche loggata singolarmente (Logs\writes-YYYYMMDD.log), sia in caso di successo sia di fallimento.
+"@
+            input_schema = @{
+                type       = "object"
+                properties = @{
+                    platform = @{ type = "string"; enum = @("exo", "graph"); description = "'exo' per un cmdlet Exchange (come propose_exo_write), 'graph' per una chiamata Microsoft Graph (come propose_graph_write)" }
+                    cmdlet   = @{ type = "string"; description = "Solo per platform='exo': nome esatto del cmdlet dall'elenco di propose_exo_write, fisso per tutte le righe" }
+                    method   = @{ type = "string"; description = "Solo per platform='graph': metodo HTTP, fisso per tutte le righe" }
+                    rows     = @{
+                        type  = "array"
+                        items = @{
+                            type       = "object"
+                            properties = @{
+                                parameters = @{ type = "object"; description = "Solo per platform='exo': parametri di questa riga per il cmdlet" }
+                                path       = @{ type = "string"; description = "Solo per platform='graph': percorso di questa riga" }
+                                body       = @{ type = "object"; description = "Solo per platform='graph': corpo di questa riga" }
+                                label      = @{ type = "string"; description = "Etichetta breve e leggibile di questa riga (es. indirizzo email), sempre presente" }
+                            }
+                            required   = @("label")
+                        }
+                        description = "Un oggetto per ciascun elemento dell'elenco/CSV - massimo 300"
+                    }
+                    reason   = @{ type = "string"; description = "Spiegazione in italiano dell'intero batch" }
+                }
+                required   = @("platform", "rows", "reason")
+            }
+        }
+        @{
             name = "intune_query"
             description = @"
 Esegue una query di SOLA LETTURA sulle aree Intune avanzate NON coperte da graph_api_call in modo pratico (schemi troppo annidati/poco intuitivi da costruire a mano) - Settings Catalog, Endpoint Security, Autopilot, script Windows/macOS, Proactive Remediations, App Protection (MAM), anelli di aggiornamento, Modelli amministrativi, Scope Tag, restrizioni di iscrizione, modelli di notifica, ruoli RBAC. Per dispositivi/conformita' base usa PRIMA list_devices/list_noncompliant_devices/get_device_compliance_reasons (piu' diretti). Specifica 'cmdlet' (uno di questi) e 'parameters':
@@ -2072,6 +2116,44 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                                 TotalSteps = if ($block.input.totalSteps) { [int]$block.input.totalSteps } else { 1 }
                             }
                             "Proposta registrata. NON eseguirla, NON dire all'utente che e' stata fatta: nella tua risposta finale spiega chiaramente cosa proponi di fare e di che si aspetti una richiesta di conferma separata."
+                        }
+                    }
+                    "propose_bulk_write" {
+                        $rows = @($block.input.rows)
+                        if ($pendingWrite) {
+                            "Rifiutato: e' gia' in sospeso un'altra proposta di scrittura in questa stessa risposta ('$($pendingWrite.Kind)'). Puoi proporne solo UNA per risposta - concludi qui spiegando la proposta gia' registrata, poi proponi questa in un messaggio separato dopo che la prima e' stata confermata ed eseguita."
+                        } elseif ($block.input.platform -notin @('exo', 'graph')) {
+                            "'platform' deve essere 'exo' o 'graph'."
+                        } elseif ($rows.Count -eq 0) {
+                            "'rows' e' vuoto - niente da proporre."
+                        } elseif ($rows.Count -gt 300) {
+                            "Rifiutato: $($rows.Count) righe superano il limite di 300 per una singola proposta - dividi in piu' batch da qui, oppure (per il caso AutoMapping su gruppi) usa lo script locale Repair-FullAccessAutoMapping.ps1."
+                        } elseif ($block.input.platform -eq 'exo' -and $block.input.cmdlet -notin $exoWriteAllowlist) {
+                            "Cmdlet '$($block.input.cmdlet)' non e' nell'elenco consentito per propose_exo_write/propose_bulk_write."
+                        } elseif ($block.input.platform -eq 'graph' -and -not $block.input.method) {
+                            "'method' e' obbligatorio per platform='graph'."
+                        } elseif ($block.input.platform -eq 'graph' -and -not $graphDelegatedSessionActive -and $cliM365ConfiguredEarly -and (@($rows | Where-Object { $_.path -match '^/(users|groups|devices|directoryRoles|organization|domains)(/|\?|$)' })).Count -gt 0) {
+                            "Rifiutato: la sessione Graph delegata generica NON risulta attiva ORA per questo tenant - questi percorsi fallirebbero SEMPRE in esecuzione con 'Nessuna sessione delegata attiva' (stesso limite di propose_graph_write). CLI Microsoft 365 e' pero' configurato: per un batch su utenti/gruppi/dispositivi/organizzazione/domini usa propose_cli_m365_command riga per riga invece (poche unita'), o chiedi come procedere per un batch grande su questi percorsi."
+                        } else {
+                            $builtRows = foreach ($r in $rows) {
+                                if (-not $r.label) { continue }
+                                if ($block.input.platform -eq 'exo') {
+                                    $rp = @{}
+                                    if ($r.parameters) { $r.parameters.PSObject.Properties | ForEach-Object { $rp[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
+                                    [pscustomobject]@{ Label = $r.label; Parameters = $rp }
+                                } else {
+                                    [pscustomobject]@{ Label = $r.label; Path = $r.path; Body = (ConvertTo-M365OpsHashtable $r.body) }
+                                }
+                            }
+                            $pendingWrite = @{
+                                Kind     = 'BulkWrite'
+                                Platform = $block.input.platform
+                                Cmdlet   = $block.input.cmdlet
+                                Method   = $block.input.method
+                                Rows     = @($builtRows)
+                                Reason   = $block.input.reason
+                            }
+                            "Proposta registrata ($($builtRows.Count) righe). NON eseguirla, NON dire all'utente che e' stata fatta: nella tua risposta finale spiega chiaramente cosa proponi di fare (con qualche esempio delle righe coinvolte) e di che si aspetti una richiesta di conferma separata, UNA sola per l'intero batch."
                         }
                     }
                     "propose_intune_write" {

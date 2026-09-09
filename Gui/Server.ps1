@@ -592,6 +592,48 @@ function Execute-PendingAction {
                 }
                 return Complete-M365OpsWriteResponse -Type $action.Type -BaseText $exoBaseText -CommandText (Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $params)
             }
+            'BulkWrite' {
+                # Ogni riga isolata in un proprio try/catch e loggata singolarmente (09/09/2026,
+                # richiesto esplicitamente dall'utente: "ogni get set deve essere ovviamente
+                # loggato e ogni errore intercettato e gestito con output chiaro") - un errore su
+                # una riga non blocca le altre, a differenza di Execute-PendingQueue (pensata per
+                # pochi PASSI DIPENDENTI in sequenza, es. crea gruppo POI assegna app - qui invece
+                # sono N oggetti INDIPENDENTI, fermarsi al primo fallimento lascerebbe indietro
+                # tutto il resto del batch per un problema isolato su un solo oggetto).
+                $isDelegated = (Get-M365OpsActiveTenantInfo).AuthMode -eq 'Delegated'
+                $source = Get-M365OpsWriteActionSourceLabel -Type $action.Type -IsDelegatedTenant $isDelegated
+                $rowResults = foreach ($row in $action.Rows) {
+                    $rowOk = $false
+                    $rowError = $null
+                    $rowCmdText =
+                        if ($action.Platform -eq 'exo') { Format-M365OpsCommandLine -Cmdlet $action.Cmdlet -Parameters $(if ($row.Parameters) { $row.Parameters } else { @{} }) }
+                        else { "$($action.Method.ToUpper()) $($row.Path)" }
+                    try {
+                        if ($action.Platform -eq 'exo') {
+                            $rParams = @{}
+                            if ($row.Parameters) { $row.Parameters.GetEnumerator() | ForEach-Object { $rParams[$_.Key] = $_.Value } }
+                            $cmdletName = $action.Cmdlet
+                            $rowRecovered = $false
+                            Invoke-M365OpsWriteWithIsolationRecovery -ModuleType 'Exchange' -Action { & $cmdletName @rParams } -RecoveredViaIsolation ([ref]$rowRecovered) | Out-Null
+                        } else {
+                            Invoke-M365OpsGraphRequest -Method $action.Method -Path $row.Path -Body $row.Body | Out-Null
+                        }
+                        $rowOk = $true
+                        Write-M365OpsLog "BulkWrite riuscita: $($row.Label) - $rowCmdText"
+                        Write-M365OpsWriteLog -Source $source -Command "$($row.Label): $rowCmdText" -Outcome 'OK'
+                    } catch {
+                        $rowError = $_.Exception.Message
+                        Write-M365OpsLog "BulkWrite FALLITA: $($row.Label) - $rowCmdText - $rowError" -Level Error
+                        Write-M365OpsWriteLog -Source $source -Command "$($row.Label): $rowCmdText" -Outcome 'FAIL' -Detail $rowError
+                    }
+                    [pscustomobject]@{ Label = $row.Label; Ok = $rowOk; Error = $rowError }
+                }
+                $okCount = @($rowResults | Where-Object Ok).Count
+                $failedRows = @($rowResults | Where-Object { -not $_.Ok })
+                $failText = if ($failedRows.Count -gt 0) { "`n`nFallite ($($failedRows.Count)):`n" + (($failedRows | ForEach-Object { "- $($_.Label): $($_.Error)" }) -join "`n") } else { "" }
+                $bulkBaseText = "Fatto. $okCount/$($rowResults.Count) completate con successo.$failText"
+                return Complete-M365OpsWriteResponse -Type $action.Type -BaseText $bulkBaseText -CommandText "BulkWrite $(if ($action.Platform -eq 'exo') { $action.Cmdlet } else { $action.Method.ToUpper() }) x $($rowResults.Count) righe"
+            }
             'CustomWrite' {
                 $params = @{}
                 if ($action.Parameters) { $action.Parameters.GetEnumerator() | ForEach-Object { $params[$_.Key] = $_.Value } }
@@ -1436,6 +1478,24 @@ function Handle-ChatMessage {
                         # 'Path' because it is null" su Split-Path).
                         $confirmText = "$stepPrefix$($result.Text)`n`n--- Invio email proposto (non ancora eseguito) ---`nDestinatario: $($w.To)`nOggetto: $($w.Subject)`nAllegato: $(Split-Path -Leaf $w.AttachmentPath)`nMotivo: $($w.Reason)"
                         $script:PendingAction = @{ Type = 'SendReportEmail'; To = $w.To; Subject = $w.Subject; Body = $w.Body; AttachmentPath = $w.AttachmentPath; ConfirmText = $confirmText }
+                    }
+                    'BulkWrite' {
+                        # Stessa scrittura ripetuta su N oggetti, UNA sola conferma (09/09/2026,
+                        # richiesto esplicitamente dall'utente per gli scenari CSV-driven: "che
+                        # l'utente possa farlo senza troppe richieste di conferma") - il
+                        # riepilogo elenca OGNI riga (non solo il conteggio) cosi' la singola
+                        # conferma resta davvero informata, non un click alla cieca su un numero.
+                        $rowLines = ($w.Rows | ForEach-Object {
+                            if ($w.Platform -eq 'exo') {
+                                $pText = if ($_.Parameters -and $_.Parameters.Count -gt 0) { ($_.Parameters | ConvertTo-Json -Depth 4 -Compress) } else { "" }
+                                "- $($_.Label) $pText"
+                            } else {
+                                "- $($_.Label): $($w.Method.ToUpper()) $($_.Path)"
+                            }
+                        }) -join "`n"
+                        $opText = if ($w.Platform -eq 'exo') { $w.Cmdlet } else { "$($w.Method.ToUpper()) (Graph)" }
+                        $confirmText = "$stepPrefix$($result.Text)`n`n--- Scrittura in blocco proposta: $($w.Rows.Count) righe, operazione: $opText (non ancora eseguita) ---`n$rowLines`n`nMotivo: $($w.Reason)"
+                        $script:PendingAction = @{ Type = 'BulkWrite'; Platform = $w.Platform; Cmdlet = $w.Cmdlet; Method = $w.Method; Rows = $w.Rows; Reason = $w.Reason; ConfirmText = $confirmText }
                     }
                     default {
                         $bodyText = if ($w.Body) { ($w.Body | ConvertTo-Json -Depth 6 -Compress) } else { "(nessuno)" }
