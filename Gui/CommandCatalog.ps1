@@ -629,7 +629,7 @@ function Get-M365OpsCommandCatalog {
             # all'AI anche richieste semplicissime senza alcun legame con la conformita'.
             # 'poi'/'dopo' isolate (23/08/2026, stesso bug-hunt): "elenca i dispositivi, poi
             # dimmi quanti gruppi ci sono" (virgola) non veniva deviato dalle sole frasi letterali.
-            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'nn\s*conform', 'compliant', 'conform')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'nn\s*conform', 'complian', 'conform')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { Get-M365OpsManagedDevices }
@@ -774,7 +774,7 @@ function Get-M365OpsCommandCatalog {
             # NON conformi ci sono" e' una domanda DIVERSA (va a ListNonCompliant, che risponde
             # gia' con il conteggio corretto filtrato) - senza questa DeferWord questa voce
             # risponderebbe con il totale non filtrato spacciandolo per la risposta giusta.
-            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'nn\s*conform', 'compliant', 'conform')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'nn\s*conform', 'complian', 'conform')
             CaptureRegex = $null
             RequiresAI   = $false
             Handler      = { Get-M365OpsManagedDevices }
