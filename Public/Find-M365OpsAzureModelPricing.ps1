@@ -142,7 +142,15 @@ function Find-M365OpsAzureModelPricing {
     # standard, "cd Inp" = input dalla cache ("cd" = cached, NON "Cache" per esteso), "Opt" =
     # output (NON "Out") - es. "5.4 mini Inp Gl 1M Tokens" / "5.4 mini cd Inp Gl 1M Tokens" /
     # "5.4 mini Opt Gl 1M Tokens".
-    $syncItems = @($allItems | Where-Object { $_.meterName -notmatch 'Batch' -and $_.meterName -notmatch '\bpp\b' })
+    # 'ft' (fine-tuning: addestramento/hosting di un modello personalizzato, unita' di misura e
+    # struttura prezzo COMPLETAMENTE diverse dall'inferenza standard) esclusa qui accanto a
+    # Batch/pp - bug reale trovato dal vivo il 09/09/2026 su "gpt-4.1-mini": senza questa
+    # esclusione, quando ne' Dz ne' Gl trovano un match (vedi sotto, stesso bug di naming),
+    # l'ultima spiaggia finiva per agganciare una riga 'ft' con prezzi minuscoli e completamente
+    # estranei (es. $0,0001/1M invece di ~$0,40/1M), riportati con "Found: true" e confidenza
+    # "bassa" ma comunque un numero concreto facile da prendere per buono senza leggere la nota.
+    $syncItems = @($allItems | Where-Object { $_.meterName -notmatch 'Batch' -and $_.meterName -notmatch '\bpp\b' -and $_.meterName -notmatch '\bft\b' })
+    if ($syncItems.Count -eq 0) { $syncItems = @($allItems | Where-Object { $_.meterName -notmatch 'Batch' -and $_.meterName -notmatch '\bft\b' }) }
     if ($syncItems.Count -eq 0) { $syncItems = @($allItems | Where-Object { $_.meterName -notmatch 'Batch' }) }
     if ($syncItems.Count -eq 0) { $syncItems = $allItems }
 
@@ -152,8 +160,13 @@ function Find-M365OpsAzureModelPricing {
     # costruzione (verificato dal vivo: stesso identico retailPrice in decine di regioni
     # diverse), quindi resta un dato accurato al 100% per un deployment che (come verificato
     # per questo tenant) risulta servito in una regione priva di prezzo Dz proprio.
-    $dzItems = if ($Region) { @($syncItems | Where-Object { $_.armRegionName -eq $Region -and $_.meterName -match '\bDz\b' }) } else { @() }
-    $glItems = @($syncItems | Where-Object { $_.meterName -match '\bGl\b' })
+    # Seconda convenzione di naming trovata dal vivo il 09/09/2026 (famiglia "gpt 4.1"):
+    # "glbl"/"Data Zone" per esteso invece delle abbreviazioni "Gl"/"Dz" gia' note per altre
+    # famiglie di modelli (es. GPT-5) - stesso significato, sigle diverse. Entrambe le forme
+    # controllate sempre, cosi' questa funzione non deve sapere in anticipo quale convenzione
+    # usa la famiglia di modelli che sta cercando.
+    $dzItems = if ($Region) { @($syncItems | Where-Object { $_.armRegionName -eq $Region -and ($_.meterName -match '\bDz\b' -or $_.meterName -match 'Data Zone' -or $_.meterName -match '\bregnl\b') }) } else { @() }
+    $glItems = @($syncItems | Where-Object { $_.meterName -match '\bGl\b' -or $_.meterName -match '\bglbl\b' })
     $usedGlobalTier = $false
     if ($dzItems.Count -gt 0) {
         $regionItems = $dzItems
@@ -168,12 +181,33 @@ function Find-M365OpsAzureModelPricing {
         $usedGlobalTier = $true
     }
 
-    $inputEntry = $regionItems | Where-Object { $_.meterName -match 'Inp' -and $_.meterName -notmatch '\bcd\b' } | Select-Object -First 1
-    $cachedEntry = $regionItems | Where-Object { $_.meterName -match '\bcd\b' -and $_.meterName -match 'Inp' } | Select-Object -First 1
-    $outputEntry = $regionItems | Where-Object { $_.meterName -match 'Opt' } | Select-Object -First 1
+    # Terza variante di naming trovata dal vivo il 09/09/2026 (famiglia "gpt 4.1"): "cached"
+    # per esteso invece dell'abbreviazione "cd" (GPT-5), e "Outp" invece di "Opt" per l'output
+    # - bug reale confermato: senza queste alternative, "cached Inp" veniva scambiato per un
+    # normale "Inp" (nessuna esclusione valida), e "Outp" non veniva mai riconosciuto come
+    # output (restituiva sempre null).
+    $inputEntry = $regionItems | Where-Object { $_.meterName -match 'Inp' -and $_.meterName -notmatch '\bcd\b' -and $_.meterName -notmatch '\bcached\b' } | Select-Object -First 1
+    $cachedEntry = $regionItems | Where-Object { ($_.meterName -match '\bcd\b' -or $_.meterName -match '\bcached\b') -and $_.meterName -match 'Inp' } | Select-Object -First 1
+    $outputEntry = $regionItems | Where-Object { $_.meterName -match 'Opt' -or $_.meterName -match 'Outp' } | Select-Object -First 1
 
     if (-not $inputEntry -and -not $outputEntry) {
         return [pscustomobject]@{ Found = $false; Reason = "Trovate $($allItems.Count) righe di prezzo per '$searchTerm' (strategia: $matchStrategy) ma nessuna riconoscibile come tariffa di input/output standard - verificare manualmente su prices.azure.com." }
+    }
+
+    # Normalizzazione unita' di misura (bug reale trovato dal vivo il 09/09/2026 sulla
+    # famiglia "gpt 4.1"): i meter Foundry Models NON sono tutti "per 1M token" come
+    # verificato per GPT-5 - alcuni (es. "gpt 4.1 mini") sono "per 1K token" invece
+    # (campo unitOfMeasure "1K"), quindi il prezzo grezzo va moltiplicato x1000 per essere
+    # confrontabile - senza questa normalizzazione un prezzo reale di $0,0004/1K veniva
+    # riportato cosi' com'e' come se fosse $0,0004/1M (1000 volte troppo basso).
+    function ConvertTo-M365OpsPricePer1M {
+        param($Entry)
+        if (-not $Entry) { return $null }
+        switch ($Entry.unitOfMeasure) {
+            '1K' { return [double]$Entry.retailPrice * 1000 }
+            '1M' { return [double]$Entry.retailPrice }
+            default { return [double]$Entry.retailPrice }
+        }
     }
 
     $confidence = if ($dzItems.Count -gt 0 -and $inputEntry -and $outputEntry) {
@@ -191,9 +225,9 @@ function Find-M365OpsAzureModelPricing {
         SearchTerm          = $searchTerm
         MatchStrategy       = $matchStrategy
         ServedModel         = $ServedModelHint
-        InputPer1M          = if ($inputEntry) { $inputEntry.retailPrice } else { $null }
-        CachedInputPer1M    = if ($cachedEntry) { $cachedEntry.retailPrice } else { $null }
-        OutputPer1M         = if ($outputEntry) { $outputEntry.retailPrice } else { $null }
+        InputPer1M          = ConvertTo-M365OpsPricePer1M -Entry $inputEntry
+        CachedInputPer1M    = ConvertTo-M365OpsPricePer1M -Entry $cachedEntry
+        OutputPer1M         = ConvertTo-M365OpsPricePer1M -Entry $outputEntry
         # Se e' la tariffa Global, il nome della PRIMA regione trovata sarebbe fuorviante (il
         # prezzo e' identico ovunque per definizione, non "quella regione in particolare") -
         # mostrato invece come "Global" esplicito.
