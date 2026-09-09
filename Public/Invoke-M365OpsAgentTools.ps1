@@ -1854,7 +1854,22 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                         }
                     }
                     "graph_api_call" {
-                        if ($script:M365OpsContext.AuthMode -eq 'Delegated') {
+                        # GUARD gemello di quello gia' esistente su propose_graph_write (vedi
+                        # sotto per il ragionamento completo) - trovato mancante qui il
+                        # 09/09/2026 dopo una segnalazione esplicita dell'utente su un tenant
+                        # Delegato reale ("CAGS"): una LETTURA su questo stesso percorso falliva
+                        # con l'errore Graph grezzo "Nessuna sessione delegata attiva", e la
+                        # risposta si limitava a chiedere all'utente di fare il login Graph -
+                        # ignorando che CLI Microsoft 365 (autenticazione COMPLETAMENTE separata,
+                        # vedi Connect-M365OpsCliMicrosoft365.ps1) poteva gia' essere connesso in
+                        # modo indipendente per lo stesso tenant. A differenza delle scritture, per
+                        # una LETTURA non c'e' alcun rischio di "traduzione diversa" (nessun
+                        # default/normalizzazione che possa divergere, e' solo lettura dati) -
+                        # quindi qui il reindirizzamento e' anche piu' sicuro da proporre di quanto
+                        # gia' lo sia per propose_graph_write.
+                        if ($script:M365OpsContext.AuthMode -eq 'Delegated' -and -not $graphDelegatedSessionActive -and $cliM365ConfiguredEarly -and $block.input.path -match '^/(users|groups|devices|directoryRoles|organization|domains)(/|\?|$)') {
+                            "La sessione Graph delegata generica NON risulta attiva ORA per questo tenant - questo percorso ('$($block.input.path)') fallirebbe SEMPRE con 'Nessuna sessione delegata attiva'. CLI Microsoft 365 e' pero' configurato e potrebbe gia' essere connesso in modo indipendente (login separato, vedi cli_m365_run_command): prova PRIMA un comando 'm365 entra ...' equivalente li' (cerca la sintassi esatta con cli_m365_search_commands/cli_m365_get_command_docs se non la conosci gia' con certezza) invece di rispondere subito che serve il login Graph - se anche CLI Microsoft 365 non risulta connesso, ALLORA e solo allora spiega all'utente che serve fare il login (Graph via tab Tenant, oppure CLI Microsoft 365 via tab MCP/Connettori)."
+                        } elseif ($script:M365OpsContext.AuthMode -eq 'Delegated') {
                             # Lokka non e' mai disponibile in modalita' delegata (richiede client
                             # credentials) - chiamata diretta con lo stesso token delegato usato
                             # dal resto del modulo, stesso principio di ogni cmdlet Graph esistente.
