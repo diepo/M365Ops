@@ -539,6 +539,20 @@ dall'app stessa, che gira app-only).</p>
 Install-Module ExchangeOnlineManagement -Scope CurrentUser
 Connect-ExchangeOnline -UserPrincipalName tuo-admin@contoso.onmicrosoft.com</pre>
 
+<div class="note"><strong>In questa sezione, in ordine</strong>: 6.1 registra l'app dentro
+Exchange Online → 6.2 assegna un ruolo RBAC "classico" (role group Exchange, es. "Organization
+Management") → 6.3 verifica e tempi di propagazione → <strong>6.4 un SECONDO meccanismo di
+permesso, distinto e complementare: il ruolo directory Microsoft Entra ID</strong> (es. "Exchange
+Administrator"), necessario quando il solo role group di 6.2 non basta per alcuni cmdlet → 6.5
+conflitto assembly .NET tra provider Exchange/Teams → <strong>6.6 stesso ruolo directory di 6.4,
+ma per un caso diverso (gestione membership di gruppi) — il caso reale del 09/09/2026</strong>.
+<br><br>
+<strong>Riferimento rapido</strong>: se un cmdlet Exchange fallisce con "insufficient
+permissions"/"term not recognized"/"only a manager of the group" nonostante il role group di 6.2
+sia già assegnato, il problema è quasi sempre risolto assegnando (in AGGIUNTA, non al posto di)
+il ruolo directory Entra ID di 6.4/6.6 — procedura completa: <a href="#sezione-6-4">salta a
+6.4, "Passi per assegnare il ruolo directory Entra ID"</a>.</div>
+
 <h3>6.1 Registrare il service principal in Exchange Online</h3>
 <div class="warn">Serve l'<strong>Object ID della Enterprise Application</strong> (Entra ID → Enterprise
 applications → cerca il nome dell'app → Overview → Object ID) — è diverso dall'Object ID della
@@ -577,7 +591,7 @@ Non è un errore di configurazione: se <code>Get-ManagementRoleAssignment -RoleA
 restituisce righe, basta attendere e riprovare — non serve rifare i passi precedenti.
 </div>
 
-<h3>6.4 Alcuni cmdlet restano "term not recognized" anche con Organization Management (scoperto dal vivo il 20/08/2026)</h3>
+<h3 id="sezione-6-4">6.4 Ruolo directory Microsoft Entra ID (secondo meccanismo di permesso, oltre al role group di 6.2) — scoperto dal vivo il 20/08/2026</h3>
 <div class="warn"><strong>Aggiornamento importante (21/08/2026): questa indagine si e' rivelata
 in parte una pista sbagliata.</strong> Il caso <code>Receive-/SendConnector</code> descritto qui
 sotto NON era affatto un problema di RBAC - erano semplicemente i cmdlet SBAGLIATI, esclusivi di
@@ -925,6 +939,55 @@ verificano l'integrita' dei file critici PRIMA di importare, quando e' ancora po
 una volta che <code>Import-Module</code> ha caricato l'assembly nel processo, Windows blocca quei
 file a livello di file system e nemmeno <code>Remove-Item</code> puo' piu' toccarli, verificato dal
 vivo.</div>
+</section>
+
+<!-- ============================== 6.6 ============================== -->
+<section class="page">
+<h2>6.6 Gestione membership di gruppi mail-enabled — terzo caso RBAC distinto (09/09/2026)</h2>
+<p>Caso REALE, diverso sia dal limite di piattaforma di Accepted Domain sia dal cmdlet sbagliato
+dei Connector (entrambi in sezione 6.4) - trovato dal vivo il 09/09/2026 sviluppando lo strumento
+di riparazione AutoMapping (sezione 15) e lo strumento di scrittura in blocco
+<code>propose_bulk_write</code>, che nella loro simulazione di test avevano bisogno di
+aggiungere/rimuovere membri da gruppi e di eliminare i gruppi di test creati per la verifica.</p>
+<div class="warn">
+<strong>Sintomo</strong>: <code>Add-DistributionGroupMember</code>,
+<code>Remove-DistributionGroupMember</code> e <code>Remove-DistributionGroup</code> falliscono
+SEMPRE in modalità App-only con:
+<pre class="code">You don't have sufficient permissions. This operation can only be performed by a manager of the group.</pre>
+Confermato SISTEMICO, non solo sui gruppi appena creati dal test: fallisce anche su un gruppo
+mail-enabled PREESISTENTE con membri e proprietario reali già assegnati
+(<code>ManagedBy</code> valorizzato con un utente reale, non vuoto) - riprodotto con un tentativo
+di add+remove isolato, immediatamente ripristinato.
+</div>
+<p><strong>Microsoft Graph non è un'alternativa</strong> (tentativo verificato dal vivo, non
+un'ipotesi): <code>POST /groups/{id}/members/$ref</code> rifiuta esplicitamente i gruppi
+mail-enabled con <code>400 "Cannot Update a mail-enabled security groups and or distribution
+list"</code> - limite noto e permanente dell'API Graph (i gruppi mail-enabled si gestiscono solo
+via Exchange PowerShell), non aggirabile in nessun modo.</p>
+<p><strong>Fix</strong>: stesso identico meccanismo di sezione 6.4 - assegnare il ruolo directory
+Microsoft Entra ID <strong>Exchange Administrator</strong> (usato di fatto il 09/09/2026) al
+service principal dell'app, seguendo i passi già descritti in "6.4 → Passi per assegnare il
+ruolo directory Entra ID". In alternativa, per un permesso più chirurgico (non serve la gestione
+di regole di trasporto/connettori che Exchange Administrator include), <strong>Exchange Recipient
+Administrator</strong> copre già la gestione dei destinatari/gruppi.</p>
+<div class="warn"><span class="badge todo">verifica in corso</span> Ruolo Exchange Administrator
+assegnato il 09/09/2026. Verificato via decodifica del token JWT Graph (claim <code>wids</code>,
+ID modello ruolo <code>29232cdf-9323-42fd-ade2-1d097af3e4de</code>) che il ruolo risulta presente
+IMMEDIATAMENTE nel token, sull'app giusta (stesso <code>AppId</code> configurato per questo
+tenant) - il lato Entra ID è quindi sicuramente corretto. Nonostante questo, un retest a poca
+distanza dall'assegnazione mostra ancora lo stesso errore "manager of the group" su
+<code>Add-DistributionGroupMember</code>/<code>Remove-DistributionGroup</code> - coerente con la
+stessa finestra di propagazione RBAC Entra→Exchange già documentata in sezione 6.3 (fino a 60
+minuti dichiarati, ma la sezione 6.4 aveva già osservato in passato che casi meno comuni - come
+"ruolo assegnato a un'applicazione" invece che a un utente - possono richiedere di più). Da
+riverificare più avanti prima di dichiararlo definitivamente risolto.</div>
+<p>Nel frattempo, <strong>gli strumenti che generano valore reale restano comunque pienamente
+utilizzabili</strong>: lo strumento di riparazione AutoMapping (sezione 15) legge la membership
+dei gruppi già esistente (sola lettura, mai bloccata da questo limite) e scrive solo permessi
+FullAccess sulle mailbox (già funzionante, verificato dal vivo) - il limite qui sopra riguarda
+SOLO la gestione della membership dei gruppi in sé (aggiungere/togliere un membro, eliminare il
+gruppo), una funzionalità preesistente e separata (<code>Add-/Remove-M365OpsDistributionGroupMember</code>,
+<code>Remove-M365OpsDistributionGroup</code>).</p>
 </section>
 
 <!-- ============================== 7 ============================== -->
@@ -1928,6 +1991,7 @@ Tutti e 5 verificati dal vivo dopo la correzione: profilo solo-certificato salva
 <tr><td>Riparazione in blocco AutoMapping per FullAccess assegnato tramite gruppo (v0.15.0, 31/08/2026)</td><td><span class="badge done">nuovo</span></td><td>Richiesta esplicita dell'utente, dopo aver individuato il caso reale su 20 mailbox condivise: "individuare i gruppi Full Access, esploderli nei suoi utenti e fare assegnazione di permessi con automap attivo esplicito - se oltre al gruppo lo stesso utente e' gia' presente, togliere l'assegnazione e ridarla con automap true esplicito".<br><br><strong>Il limite reale di Exchange</strong> (Online e on-prem): -AutoMapping di Add-MailboxPermission imposta l'attributo Active Directory msExchDelegateListLink SOLO su un grant diretto a un singolo utente - quando il trustee e' un gruppo quell'attributo non viene mai impostato sui membri (l'accesso funziona comunque, Exchange valuta l'appartenenza al momento del controllo, ma Outlook non aggiunge mai la mailbox in automatico). L'unico modo per abilitare davvero l'AutoMapping e' un grant diretto per singolo utente.<br><br><strong>Tre pezzi nuovi</strong>: (1) <code>Get-M365OpsMailboxPermissions</code> ora classifica ogni trustee come 'User'/'Group'/'Unknown' (via <code>Get-Recipient</code>, che risolve qualunque tipo senza tentativi impliciti) - richiesto esplicitamente dall'utente; (2) nuova coppia <code>Get-M365OpsFullAccessAutoMapPlan</code> (calcola SOLO il piano: quali gruppi espandere, quali membri necessitano gia' di una rimozione+riassegnazione perche' hanno anche un grant diretto preesistente) + <code>Invoke-M365OpsFullAccessAutoMapPlan</code> (esegue il piano, ogni azione isolata in un proprio try/catch, ogni Get/Set loggato via <code>Write-M365OpsLog</code>, un errore su una mailbox non blocca le altre); (3) nuovo script locale <code>Repair-FullAccessAutoMapping.ps1</code> nella radice del progetto (con <code>-TenantProfile</code> e <code>-CsvPath</code> opzionale per un elenco mirato) - lanciato da terminale, NON tramite la chat IA: <code>propose_exo_write</code> accetta una sola proposta di scrittura per risposta, quindi su decine/centinaia di mailbox significherebbe altrettante conferme "si" in sequenza. Lo script calcola l'intero piano, lo mostra per intero, e chiede UNA sola conferma prima di eseguire tutto - lo stesso compito e' anche possibile in chat per una manciata di mailbox, con propose_exo_write in sequenza come per ogni altra scrittura (nuova regola aggiunta al prompt di sistema).<br><br><strong>Scelta di design</strong>: il grant FullAccess sul gruppo non viene mai rimosso (resta per la gestione futura - i nuovi membri continuano a ricevere accesso, anche se senza AutoMapping finche' lo script non viene rieseguito) - solo aggiunto un grant diretto per ogni membro attuale. Verificato dal vivo sul tenant reale: <code>TrusteeType</code> ha correttamente distinto un grant diretto (User) da uno a gruppo (Group) su mailbox condivise reali, e il piano ha individuato correttamente un caso reale esistente (mailbox con FullAccess al gruppo "lista.grants", un membro senza ancora un grant diretto).</td></tr>
 <tr><td>Scrittura in blocco con UNA sola conferma per l'intero batch (v0.16.0, 09/09/2026)</td><td><span class="badge done">nuovo</span></td><td>Richiesta esplicita dell'utente dopo aver visto il limite di propose_exo_write/propose_graph_write (una sola proposta di scrittura per risposta): "conferma che a prescindere dalla richiesta, se un utente carica un CSV e desidera avviare modifiche sugli oggetti del csv lo possa fare senza troppe richieste di conferma - implementato anche per eventuali altre esigenze di questo tipo".<br><br><strong>Nuovo strumento IA <code>propose_bulk_write</code></strong>: la STESSA scrittura (un cmdlet Exchange dall'elenco gia' consentito di propose_exo_write, o una chiamata Graph con lo stesso metodo) ripetuta su fino a 300 oggetti diversi - non amplia CIO' che si puo' scrivere (identica validazione/allowlist di propose_exo_write e propose_graph_write), solo QUANTE scritture uguali una singola conferma dell'utente copre. Generale, non specifico all'AutoMapping: si applica a qualunque richiesta "applica questa modifica a questo elenco/CSV di oggetti" che l'IA riceve, non solo al caso dei permessi.<br><br><strong>Esecuzione isolata per riga</strong> (a differenza del meccanismo Queue gia' esistente, pensato per pochi PASSI DIPENDENTI in sequenza - es. crea gruppo POI assegna app, dove fermarsi al primo fallimento e' corretto): qui gli oggetti sono INDIPENDENTI, quindi ogni riga ha un proprio try/catch, un errore su una non blocca le altre, ed entrambi i log (generale e scritture separato) registrano ogni singola riga - richiesto esplicitamente dall'utente ("ogni get set deve essere ovviamente loggato e ogni errore intercettato e gestito con output chiaro"). Il riepilogo pre-conferma elenca OGNI riga (non solo il conteggio), cosi' la conferma unica resta davvero informata.<br><br>Verificato dal vivo end-to-end via chiamata HTTP reale alla chat (non solo lettura di codice): proposta di FullAccess su 4 utenti reali per una mailbox di test in un'unica conferma, eseguita con 3/4 riuscite e 1/4 fallita (utente inesistente) isolata correttamente, entrambi i log popolati riga per riga. Durante la verifica, scoperti e gestiti due problemi ambientali separati (non di questo codice): il server non era piu' in esecuzione da giorni (avviato di nuovo con Launch-M365Ops.ps1) e la chiave Azure OpenAI configurata risultava rifiutata con 401 (aggirato per il test passando temporaneamente a Claude come provider, poi ripristinato Azure OpenAI di default) - quest'ultimo probabilmente richiede una nuova chiave dal portale Azure, verifica lasciata all'utente.</td></tr>
 <tr><td>9 nuove voci del catalogo comandi locale (Entra ID/Exchange), zero costo IA (v0.17.0, 09/09/2026)</td><td><span class="badge done">nuovo</span></td><td>Richiesta esplicita dell'utente dopo la discussione sul ridurre la dipendenza dall'IA cloud ("possiamo riprogettare l'app come harness con contenuti locali?"): "si implementa. e' possibile cercare di implementare quanto piu' possibile in ambito Entra Exchange?".<br><br><strong>Metodo</strong>: analizzati oltre 1100 messaggi nei log della chat (filtrando quelli di test/debug di questa stessa maratona) per trovare domande che si ripetono e passano SEMPRE dall'IA nonostante siano rispondibili in modo deterministico, incrociati con le funzioni <code>Get-M365Ops*</code> gia' esistenti nel modulo ma non ancora agganciate a nessuna voce del catalogo.<br><br><strong>4 dall'analisi dei log</strong>: <code>TenantUserCount</code>/<code>TenantGroupCount</code>/<code>TenantDeviceCount</code> ("quanti utenti/gruppi/dispositivi ci sono" comparsa 6 volte, mai intercettata - <code>GroupOverview</code> esistente richiede un nome di gruppo specifico, non risponde a un conteggio) e <code>CopilotUsageReport</code> ("utilizzo copilot"/dettaglio per utente, comparsa 5 volte) - quest'ultima cattura anche un numero di giorni menzionato nel messaggio per scegliere il periodo giusto (D7/D30/D90/D180), e traduce un eventuale 403 mancanza permesso Graph <code>Reports.Read.All</code> in un'indicazione chiara invece dell'errore HTTP grezzo.<br><br><strong>5 dalla scansione delle funzioni inutilizzate</strong> (dominio Entra/Exchange, nessun parametro obbligatorio, domanda di igiene/sicurezza genuinamente comune): <code>AcceptedDomainsList</code>, <code>InactiveMailboxesList</code> (mailbox senza accessi da 90+ giorni), <code>SharedMailboxSignInRisk</code> (controllo di sicurezza: mailbox condivise con login diretto abilitato, verificato dal vivo su questo tenant - trovate realmente 4 mailbox a rischio su 7), <code>LitigationHoldReportList</code>, <code>QuarantineMessagesCount</code>.<br><br><strong>Bug reale trovato e corretto durante la verifica dal vivo</strong>: il formatter di <code>CopilotUsageReport</code> leggeva il periodo dalla colonna 'Report Period' del CSV restituito da Graph, vuota per un utente licenziato ma senza attivita' nel periodo (mostrava "periodo:  giorni" senza numero) - corretto passando il periodo EFFETTIVAMENTE richiesto attraverso un wrapper invece di fidarsi del dato tornato per ogni riga.<br><br>Tutte e 9 le voci verificate dal vivo via chiamata HTTP reale alla chat (non solo lettura di codice), inclusa la protezione contro un falso positivo: "quanti dispositivi NON conformi ci sono" devia correttamente a <code>ListNonCompliant</code> (gia' esistente) invece di rispondere con il totale non filtrato di <code>TenantDeviceCount</code>.</td></tr>
+<tr><td>Guida riorganizzata: sezione permessi App Registration più chiara + terzo caso RBAC (gestione membership gruppi) documentato (v0.17.1, 09/09/2026)</td><td><span class="badge done">corretto</span></td><td>Richiesta esplicita dell'utente: "rivedi un attimo la guida in modo tale che ci sia una sezione ben chiara e separata di come configurare i permessi delle app registration tipo quello fatto oggi" (riferito all'assegnazione del ruolo directory Entra ID "Exchange Administrator" fatta in chat nella stessa sessione, per sbloccare la gestione membership gruppi dello strumento AutoMapping/propose_bulk_write).<br><br>La sezione 6 ("Ruoli RBAC su Exchange Online") copriva già in parte questo meccanismo (6.4, aggiunta il 20-21/08/2026: il ruolo directory Entra ID come SECONDO meccanismo di permesso oltre al role group di 6.2) ma era annegata dentro un titolo di narrazione bug ("Alcuni cmdlet restano term not recognized...") poco riconoscibile scorrendo la sezione - aggiornato il titolo per essere dual-purpose e riconoscibile, aggiunta un'ancora (<code>id="sezione-6-4"</code>) e un riquadro "In questa sezione" in cima alla sezione 6 con la mappa di tutte le sottosezioni e un link diretto ai passi operativi, così un lettore capisce subito che esiste una procedura chiara senza dover leggere tutta la narrazione storica.<br><br><strong>Nuova sottosezione 6.6</strong>: il caso reale di oggi (gestione membership gruppi mail-enabled - <code>Add-/Remove-DistributionGroupMember</code>, <code>Remove-DistributionGroup</code>) è un TERZO caso RBAC distinto dai due già risolti in 6.4 (Accepted Domain = limite di piattaforma App-only/Delegated; Connector = cmdlet on-premises-only sbagliato) - qui invece è un genuino ritardo di propagazione RBAC Entra→Exchange, confermato verificando via decodifica del token JWT Graph che il ruolo "Exchange Administrator" risulta presente immediatamente sull'app giusta, eppure Exchange continua a rifiutare con "only a manager of the group" anche minuti dopo. Documentato anche che Microsoft Graph non è un'alternativa per questo caso (<code>POST /groups/{id}/members/$ref</code> rifiuta esplicitamente i gruppi mail-enabled con 400 "Cannot Update a mail-enabled security groups"). Marcato onestamente <span class="badge todo">verifica in corso</span> - da riconfermare più avanti, non ancora dichiarato risolto.</td></tr>
 </table>
 </section>
 
