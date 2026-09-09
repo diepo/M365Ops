@@ -741,5 +741,187 @@ function Get-M365OpsCommandCatalog {
                 return ($lines -join "`n")
             }
         }
+        [pscustomobject]@{
+            # Aggiunta il 09/09/2026, richiesta esplicita dell'utente dopo aver controllato i
+            # log della chat: "quanti utenti/gruppi/dispositivi ci sono" compariva ripetutamente
+            # senza mai essere intercettata da nessuna voce del catalogo (GroupOverview richiede
+            # un nome di gruppo specifico, non risponde a un conteggio generico) - passava
+            # sempre dall'IA per una domanda a cui basta un conteggio deterministico.
+            Name         = "TenantUserCount"
+            Description  = "Conta quanti utenti ha il tenant. Uso: 'quanti utenti ci sono?'"
+            Triggers     = @('quant[ei]\s+utent', 'numero.{0,10}(di\s+)?utent')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
+            CaptureRegex = $null
+            RequiresAI   = $false
+            Handler      = { (Invoke-M365OpsGraphRequest -Method GET -Path '/users?$select=id&$top=999').value }
+            Formatter    = { param($r) "Il tenant ha $(@($r).Count) utenti." }
+        }
+        [pscustomobject]@{
+            Name         = "TenantGroupCount"
+            Description  = "Conta quanti gruppi ha il tenant. Uso: 'quanti gruppi ci sono?'"
+            Triggers     = @('quant[ei]\s+grupp', 'numero.{0,10}(di\s+)?grupp')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
+            CaptureRegex = $null
+            RequiresAI   = $false
+            Handler      = { (Invoke-M365OpsGraphRequest -Method GET -Path '/groups?$select=id&$top=999').value }
+            Formatter    = { param($r) "Il tenant ha $(@($r).Count) gruppi." }
+        }
+        [pscustomobject]@{
+            Name         = "TenantDeviceCount"
+            Description  = "Conta quanti dispositivi Intune gestiti ha il tenant. Uso: 'quanti dispositivi ci sono?'"
+            Triggers     = @('quant[ei]\s+dispositiv', 'numero.{0,10}(di\s+)?dispositiv')
+            # 'conform'/'compliant' (stesso principio di ListDevices sopra): "quanti dispositivi
+            # NON conformi ci sono" e' una domanda DIVERSA (va a ListNonCompliant, che risponde
+            # gia' con il conteggio corretto filtrato) - senza questa DeferWord questa voce
+            # risponderebbe con il totale non filtrato spacciandolo per la risposta giusta.
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'nn\s*conform', 'compliant', 'conform')
+            CaptureRegex = $null
+            RequiresAI   = $false
+            Handler      = { Get-M365OpsManagedDevices }
+            Formatter    = { param($r) "Il tenant ha $(@($r).Count) dispositivi gestiti da Intune." }
+        }
+        [pscustomobject]@{
+            # Aggiunta il 09/09/2026, richiesta esplicita dell'utente: nei log la stessa domanda
+            # ("quanti utenti usano copilot"/"dettaglio per utente di chi ha usato copilot")
+            # compare 5 volte, sempre passata dall'IA, mai intercettata dal catalogo.
+            Name         = "CopilotUsageReport"
+            Description  = "Report utilizzo Microsoft 365 Copilot per utente (ultima attivita' generale e per app). Uso: 'utilizzo copilot', 'chi ha usato copilot negli ultimi 90 giorni'"
+            Triggers     = @('copilot.{0,20}(utilizz|uso|report|attivit)', '(utilizz|uso|report|attivit).{0,20}copilot', 'quant[ei].{0,15}copilot', 'chi.{0,15}(usa|usato|utilizza).{0,15}copilot')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
+            # Cattura un numero di giorni menzionato ("ultimi 90 giorni") per scegliere il
+            # periodo giusto (D7/D30/D90/D180, gli unici validi per questo report) - senza
+            # nessun numero nel messaggio, il default resta D30 (Get-M365OpsCopilotUsageReport).
+            CaptureRegex = '(\d+)\s*giorni'
+            RequiresAI   = $false
+            Handler      = {
+                param($daysText)
+                $period = 'D30'
+                if ($daysText) {
+                    $d = [int]$daysText
+                    $period = if ($d -le 7) { 'D7' } elseif ($d -le 30) { 'D30' } elseif ($d -le 90) { 'D90' } else { 'D180' }
+                }
+                try {
+                    $rows = @(Get-M365OpsCopilotUsageReport -Period $period)
+                } catch {
+                    # Limite reale gia' documentato nella docstring di Get-M365OpsCopilotUsageReport
+                    # (confermato dal vivo su questo tenant con un 403): il permesso Graph
+                    # Reports.Read.All (Application) non e' presente sull'app registration -
+                    # tradotto qui in un'indicazione chiara di come risolverlo, invece del solo
+                    # errore HTTP grezzo.
+                    if ($_.Exception.Message -match '403|S2SUnauthorized|Invalid permission') {
+                        throw "Manca il permesso Graph 'Reports.Read.All' (Application) su questa app registration - vai su Entra ID > App Registration > API permissions > Add a permission > Microsoft Graph > Application permissions > Reports.Read.All > Grant admin consent (guida, sezione 4.2), poi riprova."
+                    }
+                    throw
+                }
+                # Wrapper con il periodo EFFETTIVAMENTE richiesto (non letto dalla riga CSV: bug
+                # reale trovato dal vivo il 09/09/2026, verificato su questo stesso tenant - la
+                # colonna 'Report Period' del CSV risulta vuota per un utente licenziato ma senza
+                # nessuna attivita' nel periodo, mostrando "periodo:  giorni" senza numero).
+                [pscustomobject]@{ Period = $period; Rows = $rows }
+            }
+            Formatter    = {
+                param($wrapped)
+                $rows = @($wrapped.Rows)
+                $periodDays = @{ D7 = 7; D30 = 30; D90 = 90; D180 = 180 }[$wrapped.Period]
+                if ($rows.Count -eq 0) { return "Nessun dato di utilizzo Copilot trovato (nessun utente licenziato Copilot, o nessuna attivita' negli ultimi $periodDays giorni)." }
+                $active = @($rows | Where-Object { $_.LastActivityDate })
+                $lines = @("Utenti con licenza Copilot: $($rows.Count) (periodo: $periodDays giorni) - attivi: $($active.Count)", "")
+                $lines += ($active | Sort-Object LastActivityDate -Descending | ForEach-Object { "- $($_.DisplayName) ($($_.UserPrincipalName)): ultima attivita' $($_.LastActivityDate)" })
+                return ($lines -join "`n")
+            }
+        }
+        [pscustomobject]@{
+            # Le 5 voci seguenti (fino a QuarantineMessagesCount) sono state aggiunte il
+            # 09/09/2026 su richiesta esplicita dell'utente: "implementa quanto piu' possibile in
+            # ambito Entra/Exchange" - individuate confrontando le funzioni Get-M365Ops* gia'
+            # esistenti (Public\) con quelle non ancora agganciate a nessuna voce del catalogo,
+            # filtrate su: nessun parametro obbligatorio (nessuna ambiguita' su COSA restituire),
+            # dominio Entra ID/Exchange, domanda di sicurezza/igiene del tenant genuinamente
+            # comune - non un elenco esaustivo di tutte le funzioni inutilizzate, una selezione.
+            Name         = "AcceptedDomainsList"
+            Description  = "Elenca i domini accettati dal tenant. Uso: 'domini accettati', 'quali domini ha il tenant'"
+            Triggers     = @('domini.{0,15}(accettat|tenant|configurat)', 'quali\s+domini')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
+            CaptureRegex = $null
+            RequiresAI   = $false
+            Handler      = { Get-M365OpsAcceptedDomains }
+            Formatter    = {
+                param($r)
+                $rows = @($r)
+                if ($rows.Count -eq 0) { return "Nessun dominio accettato trovato." }
+                ($rows | ForEach-Object { $defaultTag = if ($_.Default) { ' (predefinito)' } else { '' }; "- $($_.DomainName) [$($_.DomainType)]$defaultTag" }) -join "`n"
+            }
+        }
+        [pscustomobject]@{
+            Name         = "InactiveMailboxesList"
+            Description  = "Elenca le mailbox senza accessi da oltre 90 giorni. Uso: 'mailbox inattive', 'caselle senza accessi'"
+            Triggers     = @('(mailbox|caselle|casell[ae]).{0,20}inattiv', 'inattiv.{0,20}(mailbox|caselle|casell[ae])', '(mailbox|caselle).{0,20}(senza|nessun).{0,15}access')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
+            CaptureRegex = $null
+            RequiresAI   = $false
+            Handler      = { Get-M365OpsInactiveMailboxes }
+            Formatter    = {
+                param($r)
+                $rows = @($r)
+                if ($rows.Count -eq 0) { return "Nessuna mailbox inattiva da oltre 90 giorni." }
+                $lines = @("Mailbox senza accessi da oltre 90 giorni ($($rows.Count)):", "")
+                $lines += ($rows | ForEach-Object { $last = if ($_.LastLogonTime) { $_.LastLogonTime } else { 'mai' }; "- $($_.DisplayName) ($($_.PrimarySmtpAddress)) [$($_.RecipientTypeDetails)]: ultimo accesso $last" })
+                return ($lines -join "`n")
+            }
+        }
+        [pscustomobject]@{
+            Name         = "SharedMailboxSignInRisk"
+            Description  = "Controllo di sicurezza: mailbox condivise con login diretto abilitato (rischio). Uso: 'sicurezza mailbox condivise', 'mailbox condivise con login abilitato'"
+            Triggers     = @('mailbox.{0,20}condivis.{0,25}(login|accesso|sign.?in)', '(login|accesso|sign.?in).{0,25}mailbox.{0,20}condivis', 'sicurezza.{0,15}mailbox.{0,20}condivis')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
+            CaptureRegex = $null
+            RequiresAI   = $false
+            Handler      = { Get-M365OpsSharedMailboxSignInStatus }
+            Formatter    = {
+                param($r)
+                $rows = @($r)
+                if ($rows.Count -eq 0) { return "Nessuna mailbox condivisa trovata." }
+                $atRisk = @($rows | Where-Object { $_.SignInEnabled })
+                if ($atRisk.Count -eq 0) { return "OK - nessuna delle $($rows.Count) mailbox condivise ha il login diretto abilitato." }
+                $lines = @("ATTENZIONE - $($atRisk.Count) mailbox condivise su $($rows.Count) hanno il login diretto abilitato (rischio, dovrebbe restare sempre disabilitato):", "")
+                $lines += ($atRisk | ForEach-Object { "- $($_.DisplayName) ($($_.PrimarySmtpAddress))" })
+                return ($lines -join "`n")
+            }
+        }
+        [pscustomobject]@{
+            Name         = "LitigationHoldReportList"
+            Description  = "Elenca le mailbox con litigation hold attivo. Uso: 'mailbox con litigation hold', 'chi ha la conservazione legale attiva'"
+            Triggers     = @('litigation.?hold', 'mailbox.{0,20}(hold|conservazione legale)', 'conservazione legale')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
+            CaptureRegex = $null
+            RequiresAI   = $false
+            Handler      = { Get-M365OpsLitigationHoldReport }
+            Formatter    = {
+                param($r)
+                $rows = @($r)
+                if ($rows.Count -eq 0) { return "Nessuna mailbox con litigation hold attivo." }
+                $lines = @("Mailbox con litigation hold attivo ($($rows.Count)):", "")
+                $lines += ($rows | ForEach-Object { $dur = if ($_.LitigationHoldDuration) { $_.LitigationHoldDuration } else { 'illimitata' }; "- $($_.DisplayName) ($($_.PrimarySmtpAddress)): durata $dur" })
+                return ($lines -join "`n")
+            }
+        }
+        [pscustomobject]@{
+            Name         = "QuarantineMessagesCount"
+            Description  = "Conta/elenca i messaggi in quarantena degli ultimi 7 giorni. Uso: 'messaggi in quarantena'"
+            Triggers     = @('quarantena')
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
+            CaptureRegex = $null
+            RequiresAI   = $false
+            Handler      = { Get-M365OpsQuarantineMessages }
+            Formatter    = {
+                param($r)
+                $rows = @($r)
+                if ($rows.Count -eq 0) { return "Nessun messaggio in quarantena negli ultimi 7 giorni." }
+                $lines = @("Messaggi in quarantena negli ultimi 7 giorni ($($rows.Count)):", "")
+                $lines += ($rows | Select-Object -First 30 | ForEach-Object { "- [$($_.Type)] $($_.SenderAddress) -> $($_.RecipientAddress): `"$($_.Subject)`" ($($_.ReceivedTime))" })
+                if ($rows.Count -gt 30) { $lines += "... e altri $($rows.Count - 30)." }
+                return ($lines -join "`n")
+            }
+        }
     )
 }
