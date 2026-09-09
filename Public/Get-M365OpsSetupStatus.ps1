@@ -67,11 +67,26 @@ function Get-M365OpsSetupStatus {
         # "sessione delegata" ambiguo tra le due.
         $delegatedSession = $script:M365OpsTokenCache[$ctx.Name].Delegated
         $sessionActive = [bool]($delegatedSession -and $delegatedSession.ExpiresAt -gt (Get-Date))
+        # Bug reale segnalato dal vivo il 09/09/2026: anche dopo aver chiarito nel testo (nota
+        # sopra, 21/08/2026) che questa voce puo' restare senza sessione attiva senza essere un
+        # problema (Exchange delegato e CLI Microsoft 365 - quest'ultimo un default built-in
+        # SEMPRE presente per ogni tenant, vedi Get-M365OpsMcpServers.ps1 - coprono gia' da soli
+        # la stragrande maggioranza dei casi d'uso reali), lo STATUS restava 'Missing' - il
+        # banner "Ambiente non completo" in Gui\index.html (loadSetupStatus) conta SOLO
+        # Status==='Missing' per decidere cosa mostrare come "cosa da sistemare", quindi la nota
+        # nel Detail non bastava: l'utente la vedeva comunque elencata ad ogni avvio come un
+        # problema da risolvere, anche su un tenant dove il login Graph delegato generico non e'
+        # nemmeno disponibile (mancano i permessi/consenso per quel percorso su quel tenant,
+        # gia' discusso altrove) - un "problema" segnalato che non e' mai risolvibile e non serve
+        # risolvere e' rumore, non informazione. Questa voce e' infrastruttura facoltativa (un
+        # terzo modo di leggere utenti/gruppi/licenze, alternativo a Exchange delegato e CLI
+        # Microsoft 365, non l'unico) - non la contiamo mai come 'Missing' nel banner: resta
+        # comunque visibile con Status 'Info' quando non attiva, mai nascosta del tutto.
         $items += [pscustomobject]@{
             Name = 'Sessione Microsoft Graph delegata (generale)'
-            Status = if ($sessionActive) { 'OK' } else { 'Missing' }
-            Detail = if ($sessionActive) { 'Attiva.' } else { "Nessuna sessione attiva su questo PC - il login non si sposta mai, va sempre rifatto dopo un riavvio o su un PC nuovo. Nota: questa e' la sessione Graph generica (utenti/gruppi/licenze), SEPARATA da quella di Exchange PowerShell - se hai gia' fatto il login delegato di Exchange (riquadro Exchange Online), questa voce puo' restare 'Missing' senza che sia un problema." }
-            Fix = 'Tab Tenant -> "Accedi con il mio utente" (solo se ti serve anche questa, es. per gestire utenti/gruppi via Graph).'
+            Status = if ($sessionActive) { 'OK' } else { 'Info' }
+            Detail = if ($sessionActive) { 'Attiva.' } else { "Non attiva - non e' un problema da sistemare: e' la sessione Graph generica (utenti/gruppi/licenze), SEPARATA da quella di Exchange PowerShell e da CLI Microsoft 365 (sempre disponibile per ogni tenant, vedi tab MCP/Connettori) - una delle due copre gia' la lettura/scrittura su questo tenant senza bisogno di questa sessione aggiuntiva." }
+            Fix = 'Tab Tenant -> "Accedi con il mio utente" (solo se ti serve anche questa, es. per gestire utenti/gruppi via Graph diretto).'
         }
     }
 
