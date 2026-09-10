@@ -70,17 +70,35 @@ function Invoke-M365OpsAgentTools {
     # e' JSON pienamente valido o non ha la forma di un elenco Graph - non deve mai poter
     # rompere una risposta che prima funzionava.
     function Add-M365OpsGraphListCountHint {
+        # Generalizzata il 10/09/2026 (segnalato dal vivo dall'utente: "se facessi domande
+        # simili su liste shared/siti/teams andrei incontro allo stesso bug?" - risposta,
+        # verificata leggendo il codice: si', exo_query/intune_query/teams_query non avevano
+        # ALCUN conteggio automatico, a differenza di graph_api_call, che ce l'ha da tempo -
+        # stessa classe di allucinazione da conteggio gia' vista e corretta per SharePoint
+        # (v0.17.9), mai estesa a questi tre). Prima gestiva solo la forma Graph {value:[...]},
+        # ora accetta ANCHE un array JSON nudo (`[...]`, la forma restituita da
+        # exo_query/intune_query/teams_query/sharepoint_query via 'ConvertTo-Json -AsArray') -
+        # stesso riepilogo automatico (conteggio totale + per campo "a stato") su ENTRAMBE le
+        # forme, un solo posto da mantenere invece di duplicare la logica in ogni tool.
         param([string]$RawText)
         if (-not $RawText) { return $RawText }
         try {
-            $jsonStart = $RawText.IndexOf('{')
+            $jsonStart = $RawText.IndexOfAny(@('{', '['))
             if ($jsonStart -lt 0) { return $RawText }
             $parsed = $RawText.Substring($jsonStart) | ConvertFrom-Json -ErrorAction Stop
-            if ($null -eq $parsed.value) { return $RawText }
-            $items = @($parsed.value)
+            $isBareArray = $parsed -is [array]
+            if ($isBareArray) {
+                $items = @($parsed)
+                $declaredCount = $null
+                $hasNextLink = $false
+            } elseif ($null -ne $parsed.value) {
+                $items = @($parsed.value)
+                $declaredCount = $parsed.'@odata.count'
+                $hasNextLink = [bool]$parsed.'@odata.nextLink'
+            } else {
+                return $RawText
+            }
             $actualCount = $items.Count
-            $declaredCount = $parsed.'@odata.count'
-            $hasNextLink = [bool]$parsed.'@odata.nextLink'
             $countPart = if ($declaredCount) { " (il server dichiara anche @odata.count=$declaredCount)" } else { "" }
             $selectHint = if ($actualCount -gt 15) { " Il payload e' ampio: se non ti servono tutti i campi, valuta di rifare la chiamata con `$select in queryParams per un risultato piu' leggero e piu' facile da leggere con precisione." } else { "" }
             $nextLinkHint = if ($hasNextLink) { " ATTENZIONE: e' presente @odata.nextLink - ci sono ALTRE pagine oltre questa, non e' il quadro completo se ti serve il totale reale." } else { "" }
@@ -131,7 +149,8 @@ function Invoke-M365OpsAgentTools {
                 "`nConteggi automatici per campo, calcolati dal sistema sui $actualCount elementi REALI di questa risposta (non stimati, non dal modello) - usa direttamente questi numeri se la domanda riguarda uno di questi campi, invece di ricontare a mano:`n- " + ($breakdownLines -join "`n- ")
             } else { "" }
 
-            $note = "NOTA AUTOMATICA (generata dal sistema, non dal modello, verificata sui dati reali): questa risposta contiene ESATTAMENTE $actualCount elementi nel campo 'value'$countPart. Prima di scrivere la tua risposta finale, verifica che ogni numero/conteggio che riporti corrisponda davvero a questi $actualCount elementi - non stimare a occhio su un elenco lungo.$selectHint$nextLinkHint$breakdownText`n`n"
+            $whereText = if ($isBareArray) { "" } else { " nel campo 'value'" }
+            $note = "NOTA AUTOMATICA (generata dal sistema, non dal modello, verificata sui dati reali): questa risposta contiene ESATTAMENTE $actualCount elementi$whereText$countPart. Prima di scrivere la tua risposta finale, verifica che ogni numero/conteggio che riporti corrisponda davvero a questi $actualCount elementi - non stimare a occhio su un elenco lungo.$selectHint$nextLinkHint$breakdownText`n`n"
             if ($env:M365OPS_DEBUG_HINT) { Write-Host "[DEBUG HINT] actualCount=$actualCount breakdownLines=$($breakdownLines.Count) `n$note" -ForegroundColor Magenta }
             return $note + $RawText
         } catch {
@@ -2029,7 +2048,12 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
                             $script:M365OpsLastReportWarnings = $null
                             # -InputObject @(...) -AsArray: vedi nota sul bug 0/1-elementi in cima a questo switch.
-                            $queryResult = ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 6 -Compress -AsArray
+                            # Add-M365OpsGraphListCountHint (10/09/2026, generalizzata - vedi il suo
+                            # commento in cima alla funzione): senza questo, "quante mailbox/quanti X"
+                            # su un elenco che passa da qui e' esposto alla stessa allucinazione da
+                            # conteggio gia' trovata e corretta per SharePoint (v0.17.9) - questo tool
+                            # non l'aveva mai avuta.
+                            $queryResult = Add-M365OpsGraphListCountHint -RawText (ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 6 -Compress -AsArray)
                             # Alcune cmdlet (es. Get-M365OpsMessageTrace) troncano un risultato troppo
                             # grande per non far esplodere il contesto del modello (bug reale 17/08/2026:
                             # una query di 30 giorni senza filtro ha superato da sola il limite token di
@@ -2048,7 +2072,7 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             $params = @{}
                             if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
                             try {
-                                ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 8 -Compress -AsArray
+                                Add-M365OpsGraphListCountHint -RawText (ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 8 -Compress -AsArray)
                             }
                             catch {
                                 "Query Intune fallita: $($_.Exception.Message)"
@@ -2062,7 +2086,6 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             $params = @{}
                             if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
                             try {
-                                $spItems = @(& $block.input.cmdlet @params)
                                 # Bug reale trovato dal vivo da un agente di stress test il
                                 # 10/09/2026: alla domanda "quanti siti SharePoint ci sono" il
                                 # modello ha dato 3 risposte diverse in 3 tentativi (57, 52, e in
@@ -2071,14 +2094,13 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                                 # (nessun troncamento), quindi non era un problema di dati mancanti
                                 # ma della stessa incapacita' di contare con precisione un array
                                 # JSON di media dimensione gia' vista e corretta per graph_api_call
-                                # (v0.13.0, Add-M365OpsGraphListCountHint) - mai estesa qui perche'
-                                # quella funzione e' scritta per la forma {value:[...]} di Graph,
-                                # non per un array nudo come questo. Stesso principio, versione
-                                # minima: il conteggio reale viene CALCOLATO qui in PowerShell
-                                # (sempre corretto per costruzione) invece di lasciare che il
-                                # modello lo deduca contando dal testo.
-                                $spCountNote = "NOTA AUTOMATICA (generata dal sistema, non contare tu stesso dagli elementi sotto): questo elenco contiene ESATTAMENTE $($spItems.Count) elementi.`n`n"
-                                $spCountNote + (ConvertTo-Json -InputObject $spItems -Depth 6 -Compress -AsArray)
+                                # (v0.13.0). Add-M365OpsGraphListCountHint generalizzata il
+                                # 10/09/2026 per accettare anche un array nudo come questo (prima
+                                # gestiva solo la forma {value:[...]} di Graph) - questa voce usava
+                                # una nota minima scritta a mano, ora riusa lo stesso helper condiviso
+                                # con exo_query/intune_query/teams_query (stesso riepilogo per campo
+                                # "a stato" incluso, non solo il totale).
+                                Add-M365OpsGraphListCountHint -RawText (ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 6 -Compress -AsArray)
                             }
                             catch {
                                 # L'errore piu' probabile qui, finche' il permesso SharePoint non
@@ -2173,7 +2195,10 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             $params = @{}
                             if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
                             try {
-                                ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 6 -Compress -AsArray
+                                # Add-M365OpsGraphListCountHint (10/09/2026, generalizzata per
+                                # accettare anche un array nudo, vedi il suo commento) - stesso
+                                # principio gia' esteso a exo_query/intune_query/sharepoint_query.
+                                Add-M365OpsGraphListCountHint -RawText (ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 6 -Compress -AsArray)
                             }
                             catch {
                                 # "Access Denied" qui significa quasi sempre il permesso Application
