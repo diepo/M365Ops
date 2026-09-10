@@ -28,6 +28,13 @@ function Get-M365OpsEsempioReport {
         l'AI puo' solo PROPORNE l'esecuzione, mai eseguirlo senza conferma esplicita
         dell'utente, stesso principio di ogni altra scrittura in questo modulo. Senza
         questo tag lo script viene ignorato, mai esposto all'AI, per sicurezza.)
+
+        CatalogTrigger: (OPZIONALE, solo per script Mode:ReadOnly SENZA parametri - vedi
+        README.md sezione "Farlo diventare un comando istantaneo") una regex che, se
+        trova corrispondenza nel messaggio dell'utente, esegue questo script SUBITO, senza
+        alcun round IA - es. CatalogTrigger: quant[ei]\s+xyz
+        CatalogDefer: (opzionale) parole che fanno saltare questa voce se presenti nel
+        messaggio, es. CatalogDefer: e poi|e anche
     #>
     param(
         [Parameter(Mandatory)] [string]$Identity

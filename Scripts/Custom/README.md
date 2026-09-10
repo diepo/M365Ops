@@ -27,6 +27,7 @@ vede tra gli strumenti disponibili al prossimo messaggio in chat.
 | `.SYNOPSIS` in una riga, **specifico** | Vedi checklist sotto — una riga vaga porta l'AI a usarlo male o a ignorarlo. |
 | `.PARAMETER <nome>` per ogni parametro | L'AI lo usa per capire cosa passare (formato atteso: UPN, GUID, nome esatto...). |
 | `.NOTES` con **`Mode: ReadOnly`** oppure **`Mode: Write`** | **Obbligatorio.** Determina se l'AI può eseguirlo subito (ReadOnly) o solo proporlo, mai eseguirlo senza conferma umana esplicita (Write) — stesso principio non negoziabile di ogni altra scrittura in questo modulo. Senza questo tag lo script viene **ignorato**, mai esposto all'AI: meglio uno script silenziosamente non disponibile che uno con natura ambigua eseguito per errore. |
+| `.NOTES` con **`CatalogTrigger: <regex>`** (opzionale) | Vedi sezione dedicata sotto — rende lo script anche una voce del catalogo comandi locale, risposta istantanea **senza alcun costo IA**. |
 | Nessun input interattivo (`Read-Host`, popup) | Deve essere una funzione pura: parametri in ingresso, oggetti PowerShell in uscita. |
 | Usa le funzioni di accesso dati **già esistenti** del modulo | Mai gestire token/credenziali proprie. Usa `Invoke-M365OpsGraphRequest` per Graph, `Connect-M365OpsExchange` + cmdlet native per Exchange Online. Così lo script funziona automaticamente sia sui tenant **AppOnly** (client credentials) sia **Delegated** (login utente + MFA, sezione 10 della guida) — non deve mai assumere quale delle due modalità è attiva. |
 | Consulta Microsoft Learn per i parametri, mai a memoria | Prima di scrivere una chiamata a una cmdlet Exchange/Graph nativa con parametri poco comuni, verifica il nome/formato esatto con `Invoke-M365OpsLookupMsDocs -Topic "Nome-Cmdlet"` — non indovinare un parametro plausibile-ma-forse-sbagliato. Vale anche per chi/cosa corregge lo script dopo un errore (sezione "Se uno script fallisce" sotto). |
@@ -39,6 +40,42 @@ Scrivi una riga che risponda a tutte queste domande, non solo "cosa fa" in astra
 2. **Permessi/scope non standard richiesti**, se ce ne sono — es. `Sites.Read.All` non è tra i permessi Graph configurati di default (sezione 4.2 della guida): se lo script ne ha bisogno, va detto qui, così l'operatore lo sa *prima* di lanciarlo e non scopre un 403 a metà.
 3. **Per gli script `Mode: Write`**: quali effetti reali ha (cosa crea/modifica/elimina) — l'AI userà questo testo, quasi alla lettera, per spiegare la proposta all'utente in chat prima della conferma. Vago qui significa una proposta vaga in chat.
 4. **Forma dei dati restituiti**, se non ovvia — es. "oggetti con SiteUrl, User, Role" aiuta l'AI a incatenare più chiamate.
+
+## Farlo diventare un comando istantaneo (senza IA), non solo uno strumento richiamabile dall'IA
+
+Per uno script `Mode: ReadOnly` **senza parametri**, aggiungi in `.NOTES`:
+
+```
+CatalogTrigger: quant[ei]\s+xyz|numero.{0,10}(di\s+)?xyz
+CatalogDefer: e poi|e anche|quindi
+```
+
+- **`CatalogTrigger`** (obbligatorio per questa modalità): una regex (case-insensitive, .NET)
+  che, se trova corrispondenza nel messaggio dell'utente, esegue lo script **subito, senza
+  nessun round IA** — stessa velocità/costo zero delle voci native del catalogo (es. "quanti
+  utenti ci sono"). Più varianti si scrivono con `|` nella stessa regex.
+- **`CatalogDefer`** (opzionale): parole separate da `|` che, se presenti nel messaggio, fanno
+  "passare oltre" questa voce (va a un'altra voce più specifica, o all'IA) invece di rispondere
+  con questo script — usalo quando il tuo trigger potrebbe intercettare per errore una domanda
+  più ampia o più specifica di quella a cui lo script risponde davvero.
+
+**Perché solo ReadOnly e solo senza parametri**: un trigger che esegue subito una SCRITTURA
+salterebbe la conferma umana, mai accettabile in questo modulo. E senza un round IA non c'è
+modo di estrarre un valore (UPN, nome gruppo...) dal testo libero del messaggio — se il tuo
+script ha bisogno di un parametro, resta comunque utilizzabile dall'IA in chat (come oggi),
+semplicemente non diventa un comando istantaneo.
+
+**Formattazione**: se lo script restituisce già una stringa pronta (es. `"Il tenant ha 7
+mailbox disabilitate."`), viene mostrata così com'è — il modo consigliato, perché il testo
+finale resta deciso da te, non improvvisato al volo. Se restituisce oggetti grezzi, viene
+mostrato un riepilogo generico (conteggio + JSON compatto dei primi 20) — funziona, ma è meno
+curato di una stringa scritta apposta.
+
+Un tag `CatalogTrigger` scritto in modo non valido (regex che non compila) viene
+silenziosamente ignorato — lo script resta comunque disponibile come strumento IA, semplicemente
+non diventa una voce di catalogo. Va sempre bene chiedere all'assistente in chat di proporre
+uno script CON questi tag già inclusi (usa `propose_new_custom_script`, stesso flusso
+proponi → conferma → salva → riavvio server di ogni altro script) — non serve scriverlo a mano.
 
 ## Se uno script fallisce
 

@@ -6,6 +6,16 @@
     Le voci con flussi a piu' turni (creazione gruppo, packaging app, assegnazione) restano
     codice dedicato in Server.ps1 perche' richiedono stato/conferma - questo catalogo copre
     le richieste dirette, senza conferma necessaria (sola lettura).
+
+    Voci DINAMICHE da Scripts\Custom (10/09/2026): oltre alle voci statiche sotto (scritte a
+    mano, richiedono una modifica di questo file), Get-M365OpsCommandCatalog ne aggiunge altre
+    scoperte automaticamente da Get-M365OpsCustomCommandCatalogEntries - uno script personalizzato
+    in Scripts\Custom con Mode:ReadOnly, zero parametri e un tag CatalogTrigger nel proprio
+    .NOTES diventa una voce di catalogo a costo zero senza toccare questo file. Richiesto
+    esplicitamente dall'utente: "ho bisogno di un modo comodo per far crescere il catalogo
+    locale che non richieda il fatto di interpellare te ogni volta... deve essere scalabile" -
+    la crescita passa dalla chat dell'app stessa (propose_new_custom_script, gia' esistente,
+    proponi->conferma->salva->riavvia), non da una sessione di sviluppo.
 #>
 
 function Format-M365OpsOverview {
@@ -41,8 +51,79 @@ function Format-M365OpsOverview {
     return ($lines -join "`n")
 }
 
+function Get-M365OpsCustomCommandCatalogEntries {
+    <#
+    .SYNOPSIS
+        Costruisce voci di Command Catalog al volo a partire dagli script personalizzati in
+        Scripts\Custom che dichiarano un tag CatalogTrigger nel proprio .NOTES (vedi
+        Get-M365OpsCustomScriptCatalog e Scripts\Custom\README.md). Chiamata da
+        Get-M365OpsCommandCatalog, non direttamente dal dispatch in Server.ps1.
+
+        Requisiti di idoneita' (chi non li rispetta viene silenziosamente escluso, mai fatto
+        entrare "quasi valido" - stesso principio di sicurezza gia' in uso per Mode/Synopsis):
+        Mode deve essere ReadOnly (mai una scrittura innescata da un semplice match di testo,
+        senza conferma umana - resta disponibile come strumento IA con propose_custom_script_write
+        se serve una scrittura), zero parametri (senza IA non c'e' modo di estrarre un valore
+        dal messaggio libero - CaptureRegex non e' previsto per queste voci), e il pattern in
+        CatalogTrigger deve compilare come regex valida (un tag scritto male non deve mai poter
+        rompere il dispatch per OGNI messaggio successivo - testato qui, PRIMA che la voce
+        raggiunga il ciclo di dispatch in Server.ps1, non li').
+    #>
+    $entries = @()
+    foreach ($script in (Get-M365OpsCustomScriptCatalog | Where-Object { $_.Valid -and $_.Mode -eq 'ReadOnly' -and $_.CatalogTrigger })) {
+        if ($script.Parameters.Count -gt 0) {
+            Write-M365OpsLog "Script personalizzato '$($script.Name)': CatalogTrigger presente ma lo script ha parametri ($($script.Parameters -join ', ')) - ignorato come voce di catalogo (resta comunque disponibile come strumento IA). Le voci di catalogo a costo zero richiedono zero parametri." -Level Warn
+            continue
+        }
+        try {
+            [regex]::new($script.CatalogTrigger) | Out-Null
+        } catch {
+            Write-M365OpsLog "Script personalizzato '$($script.Name)': CatalogTrigger '$($script.CatalogTrigger)' non e' una regex valida ($($_.Exception.Message)) - ignorato come voce di catalogo." -Level Warn
+            continue
+        }
+        # Chiusura sul nome (non sulla variabile di loop $script, che cambia a ogni iterazione -
+        # bug classico di PowerShell su closure dentro un foreach) tramite una variabile locale
+        # dedicata + GetNewClosure(), stesso pattern gia' in uso altrove nel progetto per lo
+        # stesso motivo.
+        $fnName = $script.Name
+        $entries += [pscustomobject]@{
+            Name         = $fnName
+            Description  = $script.Synopsis
+            Triggers     = @($script.CatalogTrigger)
+            DeferWords   = if ($script.CatalogDefer) { @($script.CatalogDefer -split '\|') } else { @() }
+            CaptureRegex = $null
+            RequiresAI   = $false
+            Handler      = { & $fnName }.GetNewClosure()
+            # Lo script e' incoraggiato (vedi README.md) a restituire gia' una stringa pronta -
+            # se lo fa, usata cosi' com'e' (stesso principio delle voci native: la formattazione
+            # e' deterministica, decisa da chi scrive lo script, mai dal modello). Fallback
+            # generico se restituisce oggetti grezzi, cosi' una voce non "rompe" solo perche' chi
+            # l'ha scritta si e' dimenticato di formattare l'output finale.
+            Formatter    = {
+                param($r)
+                if ($r -is [string]) { return $r }
+                $rows = @($r)
+                if ($rows.Count -eq 0) { return "Nessun risultato." }
+                if ($rows.Count -eq 1 -and $rows[0] -is [string]) { return $rows[0] }
+                "Trovati $($rows.Count) risultati (script personalizzato senza formattazione dedicata - considera di far restituire allo script gia' una stringa pronta):`n`n" + (($rows | Select-Object -First 20 | ConvertTo-Json -Depth 4 -Compress) -join "`n")
+            }
+        }
+    }
+    $entries
+}
+
 function Get-M365OpsCommandCatalog {
-    @(
+    # Bug reale trovato dal vivo il 10/09/2026, subito dopo aver costruito questo meccanismo:
+    # una domanda pensata per una voce dinamica appena creata (es. "quanti utenti ospiti ci
+    # sono") veniva intercettata PRIMA da una voce nativa generica (TenantUserCount, trigger
+    # 'quant[ei]\s+utent' - matcha comunque perche' "ospiti" contiene comunque "utenti" nella
+    # frase) - il dispatch in Server.ps1 prende la PRIMA voce che matcha, e le voci dinamiche
+    # arrivavano in coda all'array. Le voci personalizzate sono aggiunte una alla volta,
+    # deliberatamente, per rispondere a un caso specifico - devono poter "specializzare" un
+    # trigger nativo piu' generico senza dover chiedere a chi mantiene il modulo di aggiungere
+    # una DeferWord apposita ogni volta (esattamente il punto della scalabilita' richiesta
+    # dall'utente) - quindi controllate PRIMA delle voci native sotto, non dopo.
+    @(Get-M365OpsCustomCommandCatalogEntries) + @(
         [pscustomobject]@{
             Name         = "EmailLastReport"
             Description  = "Invia per email l'ultimo report generato in questa sessione. Uso: 'invialo per email a nome@dominio.it'"

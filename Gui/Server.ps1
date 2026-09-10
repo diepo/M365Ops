@@ -932,7 +932,19 @@ function Handle-ChatMessage {
     #     tranne le voci con RequiresAI = $true (es. CompliancePatterns). ---
     foreach ($entry in (Get-M365OpsCommandCatalog)) {
         $hit = $false
-        foreach ($t in $entry.Triggers) { if ($lower -match $t) { $hit = $true; break } }
+        # try/catch per-voce (10/09/2026): le voci native sotto sono tutte scritte a mano e gia'
+        # verificate, ma da oggi il catalogo include anche voci DINAMICHE da Scripts\Custom
+        # (CatalogTrigger, vedi Get-M365OpsCustomCommandCatalogEntries) - quel pattern e' gia'
+        # validato come regex compilabile al momento della scoperta, ma non c'e' garanzia che
+        # resti innocuo a runtime su OGNI testo possibile (es. backtracking eccessivo). Una voce
+        # che fallisce qui non deve mai poter rompere il controllo di TUTTE le altre voci per
+        # QUESTO e ogni messaggio successivo - isolata, loggata, e si passa oltre.
+        try {
+            foreach ($t in $entry.Triggers) { if ($lower -match $t) { $hit = $true; break } }
+        } catch {
+            Write-M365OpsLog "Voce del catalogo '$($entry.Name)': errore nel controllo del trigger, saltata per questo messaggio - $($_.Exception.Message)" -Level Warn
+            continue
+        }
         if (-not $hit) { continue }
 
         # DeferWords: bug reale del 17/08/2026, osservato due volte di fila sullo stesso
