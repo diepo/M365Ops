@@ -1845,6 +1845,30 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                         } else {
                             $cliResult = Invoke-M365OpsMcpServerTool -ServerName 'CLI-Microsoft365' -ToolName "m365_run_command" -Arguments @{ command = $block.input.command }
                             $cliText = (($cliResult.content | ForEach-Object { $_.text }) -join "`n")
+                            # Bug reale trovato dal vivo da un agente di stress test il 10/09/2026
+                            # (giro di verifica dopo v0.17.4-v0.17.7): un 'entra user list'/'entra
+                            # group list' non filtrato su un tenant enterprise grande (CAGS) ha
+                            # restituito un output di 31.923.241 caratteri - i percorsi Graph hanno
+                            # gia' un tetto per questo esatto motivo (generate_raw_export/
+                            # generate_raw_graph_export, 19/08/2026: i dati voluminosi non entrano
+                            # mai nel contesto, finiscono in un file) ma cli_m365_run_command, un
+                            # tool pensato per lookup puntuali non per bulk, non aveva NESSUN tetto -
+                            # 3 volte il limite di 10MB di Azure OpenAI (400 "string too long"), che
+                            # falliva il ciclo con gli strumenti e faceva scattare il fallback IA
+                            # senza contesto (v0.17.6) - ma quel guard riconosce solo la firma di un
+                            # 429, non di un 400, quindi produceva comunque una risposta inventata.
+                            # Corretto qui, alla radice, con lo stesso tetto di sicurezza (non
+                            # pensato per proteggere la conversazione dai costi, quello e' gia' il
+                            # limite di 3000 su $maxHistoryCharsPerTurn per i turni RIUSATI - qui
+                            # serve solo evitare che un singolo risultato enorme rompa la richiesta
+                            # corrente) - un comando che restituisce cosi' tanti dati non e' comunque
+                            # un lookup puntuale: l'istruzione guida l'IA verso un filtro piu' stretto
+                            # invece di un tool NUOVO (generate_raw_export copre gia' il caso bulk per
+                            # Graph; per CLI365 basta restringere il comando, non serve altro export).
+                            $cliM365MaxChars = 40000
+                            if ($cliText.Length -gt $cliM365MaxChars) {
+                                $cliText = $cliText.Substring(0, $cliM365MaxChars) + "`n`n[TRONCATO: il risultato era di $($cliText.Length) caratteri, oltre il tetto di sicurezza di $cliM365MaxChars - troppo voluminoso per un lookup puntuale. NON trattare questo come il dato completo. Nella risposta finale non descrivere il contenuto come se fosse tutto qui: ripeti il comando con un filtro piu' stretto (es. '--filter', un nome/UPN specifico, o '--top') per ottenere solo cio' che serve davvero.]"
+                            }
                             # Vedi commento su $cliM365GuessedIdentifiers piu' sopra (prima del
                             # 'for'): riconosce un lookup per identificativo ESATTO (get con
                             # --userName/--id/--email/--upn) e ne traccia il valore tentato.

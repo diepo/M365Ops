@@ -986,6 +986,20 @@ function Handle-ChatMessage {
             } else {
                 "_Fonte: comando locale '$($entry.Name)', nessuna IA usata (fallito prima di completare)._"
             }
+            # Gap segnalato dal vivo da un agente di stress test il 10/09/2026: un comando del
+            # catalogo locale (RequiresAI=$false, es. TenantUserCount/TenantGroupCount/
+            # TenantDeviceCount) chiama Graph direttamente e fallisce con "Nessuna sessione
+            # delegata attiva" su un tenant Delegato senza login Graph generico - a differenza
+            # dello stesso identico dato chiesto in una frase normale (che passa dal ciclo IA e
+            # beneficia gia' del fallback a CLI Microsoft 365, v0.17.4/v0.17.5), il catalogo
+            # locale bypassa completamente quel ciclo per restare a costo zero, quindi non ha
+            # nessun fallback. Non duplicare qui la logica CLI365 (aumenterebbe la complessita' di
+            # un percorso pensato per restare semplice) - basta dire all'utente che esiste
+            # un'alternativa, cioe' la stessa identica domanda scritta come frase invece che come
+            # comando rapido.
+            if (-not $entry.RequiresAI -and $_.Exception.Message -match 'Nessuna sessione delegata attiva') {
+                $failNote += "`n`n(Suggerimento: questo comando rapido richiede la sessione Graph delegata generica. Se non la puoi attivare, fai la stessa domanda scrivendola come una frase normale invece che come comando rapido - l'IA puo' rispondere comunque usando CLI Microsoft 365, se configurato.)"
+            }
             return @{ role = 'error'; text = "Errore in '$($entry.Name)': $($_.Exception.Message)`n`n$failNote" }
         }
     }
@@ -1544,6 +1558,17 @@ function Handle-ChatMessage {
             # resta quello di prima (fallback utile per un errore davvero benigno/transitorio).
             if ($originalError -match '429|rate_limit_exceeded|Too Many Requests') {
                 return @{ role = 'ai'; text = "Limite di richieste al minuto del modello AI raggiunto (rate limit) - non e' un errore dei tuoi dati, e' una quota temporanea lato Azure OpenAI che si libera da sola in genere entro un minuto. Riprova la stessa domanda tra poco.`n`n_Dettaglio tecnico: $originalError_" }
+            }
+            # Stesso principio del blocco 429 sopra, gap trovato dal vivo da un agente di stress
+            # test il 10/09/2026: un comando CLI Microsoft 365 non filtrato su un tenant grande
+            # poteva restituire un risultato cosi' voluminoso da superare il limite di richiesta
+            # di Azure OpenAI (400 "string too long") - causa radice ora corretta con un tetto in
+            # cli_m365_run_command (Invoke-M365OpsAgentTools.ps1), ma questo resta un secondo
+            # livello di difesa: se succede comunque (qui o altrove), e' un errore quasi certamente
+            # legato a UNA risposta di uno strumento troppo grande, non un guasto generico - stessa
+            # logica del 429, stesso tipo di risposta onesta invece del fallback senza contesto.
+            if ($originalError -match 'string too long|context.?length|maximum context|too many tokens') {
+                return @{ role = 'ai'; text = "La richiesta era troppo voluminosa per il modello AI (probabilmente uno strumento ha restituito troppi dati in una volta) - non e' un errore dei tuoi dati. Prova a restringere la domanda (es. un filtro, un nome specifico, un periodo piu' corto) invece di chiedere un elenco completo non filtrato.`n`n_Dettaglio tecnico: $originalError_" }
             }
             try {
                 $response = Invoke-M365OpsAgent -Prompt $msg -Provider $script:ActiveAIProvider
