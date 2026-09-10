@@ -731,13 +731,43 @@ function Execute-PendingAction {
                 if (Test-Path $scriptPath) {
                     return @{ role = 'error'; text = "Esiste gia' uno script chiamato '$($action.Name)' - non sovrascritto. Chiedi di usare un nome diverso." }
                 }
-                Set-Content -Path $scriptPath -Value $action.Code -Encoding UTF8
+                # Correzione automatica difensiva (10/09/2026): anche dopo aver rinforzato la
+                # descrizione dello strumento propose_new_custom_script con un avviso esplicito,
+                # osservato dal vivo che il modello ha ripetuto la STESSA classe di errore tre
+                # volte nella stessa sessione, ogni volta con una variante testuale diversa
+                # ('<#+', poi '<##') come apertura del blocco di help - la sola guida nel prompt
+                # non e' bastata, e correggere UNA stringa letterale alla volta e' un rincorrere
+                # varianti senza fine. Generalizzato invece a un pattern strutturale: qualunque
+                # riga che inizia con '<#' seguito SUBITO (senza spazio) da 1-10 caratteri non
+                # alfanumerici (mai lettere/cifre/underscore) e NIENT'ALTRO fino a fine riga, con
+                # la riga SUCCESSIVA che inizia con '.SYNOPSIS' (la firma inequivocabile di "questo
+                # doveva essere l'apertura del blocco di help") - quei caratteri estranei vengono
+                # rimossi, '<#' e tutto il resto restano intatti. Il vincolo ".SYNOPSIS sulla riga
+                # dopo" e' deliberato: evita di toccare un eventuale commento a riga singola
+                # legittimo che non c'entra nulla con l'help del modulo. Verificato con test
+                # isolati (entrambe le varianti osservate + un caso gia' corretto, che resta
+                # invariato) prima di essere messo in produzione - stesso principio di "mai
+                # fidarsi del solo prompt" gia' applicato altrove nel progetto (allowlist di
+                # scrittura, guardie anti-tentativo-alla-cieca). Trasparente: se scatta, lo si
+                # dice esplicitamente nella risposta, non in silenzio.
+                $codeToSave = $action.Code
+                $autoFixNote = ""
+                $helpOpenerPattern = '(?m)^(\s*<#)[^\w\r\n]{1,10}(\r?\n)(\s*\.SYNOPSIS)'
+                if ($codeToSave -match $helpOpenerPattern) {
+                    $helpOpenerEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
+                        param($m) $m.Groups[1].Value + $m.Groups[2].Value + $m.Groups[3].Value
+                    }
+                    $codeToSave = [regex]::Replace($codeToSave, $helpOpenerPattern, $helpOpenerEvaluator)
+                    $autoFixNote = " (corretta automaticamente un'apertura di blocco di help malformata nel codice proposto - caratteri estranei subito dopo '<#' che avrebbero reso .SYNOPSIS/.NOTES invisibili a Get-Help, errore ricorrente gia' osservato in piu' varianti)"
+                    Write-M365OpsLog "Nuovo script personalizzato '$($action.Name)': corretta automaticamente un'apertura di blocco di help malformata (caratteri estranei dopo '<#') nel codice proposto dall'IA (bug ricorrente, gia' osservato in piu' varianti testuali)." -Level Warn
+                }
+                Set-Content -Path $scriptPath -Value $codeToSave -Encoding UTF8
                 Write-M365OpsLog "Nuovo script personalizzato salvato: $($action.Name).ps1 [$($action.Mode)]"
                 # Stessa infrastruttura di riavvio sicuro del pulsante GUI/POST /api/restart
                 # (sezione 12.2 della guida): agisce solo DOPO che questa risposta e' gia' stata
                 # inviata, quindi l'utente vede sempre prima la conferma di cosa e' successo.
                 $script:RestartRequested = $true
-                return @{ role = 'system'; text = "Fatto. Script '$($action.Name)' ($($action.Mode)) salvato in Scripts\Custom\$($action.Name).ps1. Il server si riavvia ora per caricarlo - sara' uno strumento vero, disponibile all'AI dal prossimo messaggio." }
+                return @{ role = 'system'; text = "Fatto. Script '$($action.Name)' ($($action.Mode)) salvato in Scripts\Custom\$($action.Name).ps1.$autoFixNote Il server si riavvia ora per caricarlo - sara' uno strumento vero, disponibile all'AI dal prossimo messaggio." }
             }
             default {
                 return @{ role = 'error'; text = "Azione sconosciuta." }

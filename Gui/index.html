@@ -127,6 +127,24 @@
   }
   #headers-panel.open { display: block; }
 
+  /* Pannello "Richiesta script" (10/09/2026, richiesto esplicitamente dall'utente: un modo
+     comodo di far crescere il catalogo comandi locale senza dover conoscere a memoria la
+     formula giusta da scrivere in chat - vedi CatalogTrigger/CatalogDefer in
+     Scripts\Custom\README.md) - stesso pattern di toggle di #headers-panel/#upload-panel.
+     La richiesta semplice dell'utente ("crea uno script che conta X") viene avvolta qui,
+     lato client, con il contorno tecnico SEMPRE uguale (usa le funzioni dati sicure, valuta
+     il CatalogTrigger, restituisci una stringa pronta) prima di essere inviata come normale
+     messaggio di chat - la parte davvero "dinamica" (quale endpoint/campo specifico) resta
+     decisa dall'IA che riceve il messaggio, che ha gia' tutte le istruzioni tecniche esatte
+     nella descrizione dello strumento propose_new_custom_script: non serve un secondo giro
+     IA solo per "arricchire" il prompt, il contorno fisso basta a far scattare lo stesso
+     comportamento che l'utente otterrebbe scrivendolo a mano per intero. */
+  #script-request-panel {
+    display: none; background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 16px 18px; flex-shrink: 0;
+  }
+  #script-request-panel.open { display: block; }
+
   /* Pannello "Infrastruttura tenant" (25/08/2026, richiesto esplicitamente dall'utente: editor
      grafico per disegnare l'infrastruttura del tenant - anche ibrida on-prem/cloud, Domain
      Controller/Entra Connect/sedi/firewall con nome macchina/ruolo/IP/dominio - salvato per
@@ -339,6 +357,7 @@
     <button id="theme-toggle-btn" class="header-btn" title="Cambia tema chiaro/scuro">🌙</button>
     <button id="upload-toggle-btn" class="header-btn" title="Carica un file da pacchettizzare, un'icona o un CSV di migrazione">📎 Upload</button>
     <button id="headers-toggle-btn" class="header-btn" title="Analizza intestazioni email o un blocco di diagnostica NDR">📧 Intestazioni email</button>
+    <button id="script-request-toggle-btn" class="header-btn" title="Chiedi la creazione di un nuovo script/comando personalizzato, senza dover scrivere tu il prompt tecnico completo">🧩 Richiesta script</button>
     <button id="infra-toggle-btn" class="header-btn" title="Disegna l'infrastruttura di questo tenant - on-prem, ibrida o multi-cloud">🗺️ Infrastruttura</button>
     <button id="permissions-check-btn" class="header-btn" title="Verifica quali permessi ha davvero l'app registrata su questo tenant">🔐 Stato permessi</button>
     <button id="settings-btn" class="header-btn">⚙ Impostazioni tenant</button>
@@ -373,6 +392,16 @@
     <span id="headers-status-msg"></span>
   </div>
   <div id="headers-result" style="margin-top:16px;"></div>
+</div>
+
+<div id="script-request-panel">
+  <h2 style="margin-top:0;">Richiesta script</h2>
+  <p class="hint">Descrivi in una frase semplice cosa vuoi che lo script faccia (es. "conta gli utenti con licenza E5 assegnata", "elenca i siti SharePoint con condivisione esterna attiva") - l'app aggiunge automaticamente le istruzioni tecniche (quali funzioni usare per accedere ai dati, quando proporre anche un comando istantaneo del catalogo) prima di mandarlo in chat. L'IA propone il codice completo: lo leggi e confermi tu prima che venga salvato, come ogni altra scrittura.</p>
+  <textarea id="script-request-input" rows="3" style="width:100%; font-family:inherit; font-size:14px; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); resize:vertical;" placeholder="Es. crea uno script che conta le licenze Microsoft 365 assegnate nel tenant"></textarea>
+  <div class="actions" style="margin-top:10px;">
+    <button id="script-request-send-btn">Richiedi lo script</button>
+    <span id="script-request-status-msg" class="hint"></span>
+  </div>
 </div>
 
 <div id="infra-panel">
@@ -4029,6 +4058,40 @@
   headersToggleBtn.addEventListener('click', () => {
     const isOpen = headersPanel.classList.toggle('open');
     headersToggleBtn.classList.toggle('active', isOpen);
+  });
+
+  // Pannello "Richiesta script" (10/09/2026, richiesto esplicitamente dall'utente) - stesso
+  // pattern di toggle di #headers-panel/#upload-panel. Il testo dell'utente viene avvolto con
+  // un contorno FISSO (sempre uguale, nessun giro IA extra) prima di essere inviato come
+  // normale messaggio in chat tramite sendMessage(presetText) - la stessa funzione gia' usata
+  // per ogni altro invio, cosi' la proposta risultante passa dallo stesso identico
+  // proponi->conferma->salva->riavvio di ogni script personalizzato scritto a mano.
+  const scriptRequestToggleBtn = document.getElementById('script-request-toggle-btn');
+  const scriptRequestPanel = document.getElementById('script-request-panel');
+  const scriptRequestInput = document.getElementById('script-request-input');
+  const scriptRequestSendBtn = document.getElementById('script-request-send-btn');
+  const scriptRequestStatusMsg = document.getElementById('script-request-status-msg');
+  scriptRequestToggleBtn.addEventListener('click', () => {
+    const isOpen = scriptRequestPanel.classList.toggle('open');
+    scriptRequestToggleBtn.classList.toggle('active', isOpen);
+    if (isOpen) scriptRequestInput.focus();
+  });
+  function buildScriptRequestPrompt(userRequest) {
+    return `Crea un nuovo script personalizzato in Scripts\\Custom per: ${userRequest}\n\n`
+      + `Usa SOLO le funzioni di accesso dati gia' esistenti nel modulo (Invoke-M365OpsGraphRequest per Graph, Connect-M365OpsExchange + cmdlet native per Exchange) - se non conosci con certezza l'endpoint o un parametro esatto, verificalo prima di scrivere il codice (es. con lookup_ms_docs), non indovinare.\n`
+      + `Se lo script e' di sola lettura, non richiede parametri, e risponde a una domanda fattuale semplice (un conteggio o un elenco senza filtri), valuta di aggiungere anche il tag CatalogTrigger (+ eventuale CatalogDefer) nel .NOTES per farlo diventare un comando istantaneo del catalogo comandi locale, senza costo IA - in quel caso fai anche in modo che lo script restituisca gia' una stringa pronta come risultato finale, non oggetti grezzi.`;
+  }
+  scriptRequestSendBtn.addEventListener('click', () => {
+    const userRequest = scriptRequestInput.value.trim();
+    if (!userRequest) { scriptRequestStatusMsg.textContent = 'Scrivi prima cosa deve fare lo script.'; return; }
+    scriptRequestStatusMsg.textContent = '';
+    sendMessage(buildScriptRequestPrompt(userRequest));
+    scriptRequestInput.value = '';
+    scriptRequestPanel.classList.remove('open');
+    scriptRequestToggleBtn.classList.remove('active');
+  });
+  scriptRequestInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); scriptRequestSendBtn.click(); }
   });
 
   // Pannello "Infrastruttura tenant" (25/08/2026, richiesto esplicitamente dall'utente) - stesso
