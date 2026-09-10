@@ -560,12 +560,33 @@ function Execute-PendingAction {
                 try {
                     $cliResult = Invoke-M365OpsMcpServerTool -ServerName 'CLI-Microsoft365' -ToolName "m365_run_command" -Arguments @{ command = $action.Command }
                     $resultText = ($cliResult.content | ForEach-Object { $_.text }) -join "`n"
+                    # Bug reale trovato dal vivo da un agente di stress test il 10/09/2026: un
+                    # comando CLI365 rotto (es. verbo top-level sbagliato/inesistente, causa
+                    # originale la duplicazione del prefisso "m365 " corretta piu' sopra alla
+                    # costruzione di $action.Command) veniva dichiarato "Fatto." perche' l'unico
+                    # controllo era "nessuna eccezione PowerShell" - il risultato MCP non veniva
+                    # mai ispezionato. Verificato dal vivo (probe isolato) il comportamento reale
+                    # di CLI365 su un comando non riconosciuto: NON lancia un'eccezione, risponde
+                    # con lo stesso identico messaggio di help generico che mostrerebbe "m365
+                    # --help", CON 'isError' assente/false (solo un errore di PARAMETRO su un
+                    # verbo VALIDO, es. '--top' inesistente su un comando reale, imposta
+                    # 'isError:true' in modo affidabile) - quindi 'isError' da solo non basta a
+                    # coprire questo caso specifico. Corretto controllando ENTRAMBI i segnali:
+                    # 'isError' del risultato MCP (protocollo standard, gia' verificato dal vivo
+                    # che il server CLI365 lo imposta per i suoi errori) E il pattern del banner
+                    # di help generico (comando non riconosciuto affatto).
+                    $looksLikeHelpBanner = $resultText -match 'CLI for Microsoft 365 v[\d.]+' -and $resultText -match 'Commands groups:'
+                    if ($cliResult.isError) {
+                        $writeError = $resultText
+                    } elseif ($looksLikeHelpBanner) {
+                        $writeError = "Il comando non e' stato riconosciuto da CLI Microsoft 365 (ha restituito l'elenco generico dei comandi invece di eseguire, senza segnalare un errore esplicito) - probabilmente un nome di comando/sottocomando sbagliato o inesistente. Verifica la sintassi con cli_m365_search_commands/cli_m365_get_command_docs prima di riproporlo."
+                    }
                 } catch {
                     $writeError = $_.Exception.Message
                 }
 
                 if (-not $writeError) {
-                    return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto.`n$resultText" -CommandText "m365 $($action.Command)"
+                    return Complete-M365OpsWriteResponse -Type $action.Type -BaseText "Fatto.`n$resultText" -CommandText $action.Command
                 }
                 return @{ role = 'error'; text = "Il comando CLI Microsoft 365 NON e' andato a buon fine.`n$writeError" }
             }
@@ -1477,8 +1498,20 @@ function Handle-ChatMessage {
                         # (26/08/2026, aggiunto insieme all'integrazione del server MCP
                         # CLI-Microsoft365) - Execute-PendingAction esegue tramite
                         # m365RunCommand, nessuna logica specifica per comando necessaria qui.
-                        $confirmText = "$stepPrefix$($result.Text)`n`n--- Comando CLI Microsoft 365 proposto (non ancora eseguito) ---`nComando: m365 $($w.Command)`nMotivo: $($w.Reason)"
-                        $script:PendingAction = @{ Type = 'CliM365Write'; Command = $w.Command; Reason = $w.Reason; ConfirmText = $confirmText }
+                        # Bug reale trovato dal vivo da un agente di stress test il 10/09/2026: lo
+                        # schema di propose_cli_m365_command (Invoke-M365OpsAgentTools.ps1) impone
+                        # gia' all'IA di includere il prefisso "m365 " nel comando - questa riga lo
+                        # anteponeva COMUNQUE una seconda volta nel testo di conferma mostrato
+                        # all'utente ("m365 m365 aad group add..."), e se il comando cosi'
+                        # duplicato finiva anche nel testo eseguito, CLI Microsoft 365 lo
+                        # interpretava come comando sconosciuto e stampava il proprio help invece
+                        # di eseguire. Corretto normalizzando UNA volta sola qui (rimuove
+                        # qualunque numero di prefissi "m365 " ripetuti in testa, poi ne aggiunge
+                        # esattamente uno) - usato sia per il testo mostrato sia per cio' che viene
+                        # davvero eseguito, cosi' i due non possono piu' divergere.
+                        $normalizedCliCommand = "m365 " + ($w.Command.Trim() -replace '^(m365\s+)+', '')
+                        $confirmText = "$stepPrefix$($result.Text)`n`n--- Comando CLI Microsoft 365 proposto (non ancora eseguito) ---`nComando: $normalizedCliCommand`nMotivo: $($w.Reason)"
+                        $script:PendingAction = @{ Type = 'CliM365Write'; Command = $normalizedCliCommand; Reason = $w.Reason; ConfirmText = $confirmText }
                     }
                     'EmailReport' {
                         # Invio email = azione visibile a un terzo (specie un indirizzo esterno

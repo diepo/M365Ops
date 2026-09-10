@@ -2062,7 +2062,23 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
                             $params = @{}
                             if ($block.input.parameters) { $block.input.parameters.PSObject.Properties | ForEach-Object { $params[$_.Name] = ConvertTo-M365OpsHashtable $_.Value } }
                             try {
-                                ConvertTo-Json -InputObject @(& $block.input.cmdlet @params) -Depth 6 -Compress -AsArray
+                                $spItems = @(& $block.input.cmdlet @params)
+                                # Bug reale trovato dal vivo da un agente di stress test il
+                                # 10/09/2026: alla domanda "quanti siti SharePoint ci sono" il
+                                # modello ha dato 3 risposte diverse in 3 tentativi (57, 52, e in
+                                # precedenza 59), MAI il valore reale (47, verificato
+                                # indipendentemente) - il tool restituiva gia' l'elenco COMPLETO
+                                # (nessun troncamento), quindi non era un problema di dati mancanti
+                                # ma della stessa incapacita' di contare con precisione un array
+                                # JSON di media dimensione gia' vista e corretta per graph_api_call
+                                # (v0.13.0, Add-M365OpsGraphListCountHint) - mai estesa qui perche'
+                                # quella funzione e' scritta per la forma {value:[...]} di Graph,
+                                # non per un array nudo come questo. Stesso principio, versione
+                                # minima: il conteggio reale viene CALCOLATO qui in PowerShell
+                                # (sempre corretto per costruzione) invece di lasciare che il
+                                # modello lo deduca contando dal testo.
+                                $spCountNote = "NOTA AUTOMATICA (generata dal sistema, non contare tu stesso dagli elementi sotto): questo elenco contiene ESATTAMENTE $($spItems.Count) elementi.`n`n"
+                                $spCountNote + (ConvertTo-Json -InputObject $spItems -Depth 6 -Compress -AsArray)
                             }
                             catch {
                                 # L'errore piu' probabile qui, finche' il permesso SharePoint non
