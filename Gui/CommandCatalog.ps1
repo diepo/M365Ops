@@ -781,6 +781,29 @@ function Get-M365OpsCommandCatalog {
             Formatter    = { param($r) "Il tenant ha $(@($r).Count) dispositivi gestiti da Intune." }
         }
         [pscustomobject]@{
+            # Aggiunta il 10/09/2026, segnalata dal vivo dall'utente: "quante mailbox ha il
+            # tenant" passava sempre dall'IA (e in un caso specifico ha becco un 429/rate limit,
+            # facendo perdere la risposta) nonostante sia esattamente lo stesso tipo di domanda
+            # gia' risolto per utenti/gruppi/dispositivi (vedi TenantUserCount sopra, 09/09/2026)
+            # - un conteggio deterministico che non ha mai avuto bisogno dell'IA, solo nessuno se
+            # n'era accorto finche' non e' capitato dal vivo. Get-M365OpsAllMailboxes gestisce da
+            # sola la connessione Exchange (Connect-M365OpsExchange al suo interno) - stesso
+            # comportamento "connetti e fai il Get" che l'utente si aspettava gia'.
+            Name         = "TenantMailboxCount"
+            Description  = "Conta quante mailbox (di ogni tipo) ha il tenant. Uso: 'quante mailbox ci sono?'"
+            Triggers     = @('quant[ei]\s+(mailbox|casell[ae])', 'numero.{0,10}(di\s+)?(mailbox|casell[ae])')
+            # Le voci piu' specifiche sotto (mailbox condivise/inattive/litigation hold/inoltro/
+            # export) restano intercettate per prime a parita' di parole chiave piu' qualificanti
+            # - qui deferiamo su quelle stesse parole per non rispondere con un totale generico
+            # quando la domanda era in realta' piu' specifica (stesso principio gia' in uso per
+            # TenantDeviceCount sopra rispetto a ListNonCompliant).
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'condivis', 'shared', 'inattiv', 'litigation', 'conservazione legale', 'inoltr', 'forward', 'permess', 'deleg', 'login', 'accesso', 'sign.?in', 'rischio', 'sicurezza', 'export', 'report', 'esporta', 'utilizzo', 'quota', 'spazio')
+            CaptureRegex = $null
+            RequiresAI   = $false
+            Handler      = { Get-M365OpsAllMailboxes }
+            Formatter    = { param($r) "Il tenant ha $(@($r).Count) mailbox (di ogni tipo)." }
+        }
+        [pscustomobject]@{
             # Aggiunta il 09/09/2026, richiesta esplicita dell'utente: nei log la stessa domanda
             # ("quanti utenti usano copilot"/"dettaglio per utente di chi ha usato copilot")
             # compare 5 volte, sempre passata dall'IA, mai intercettata dal catalogo.
