@@ -1604,6 +1604,28 @@ function Handle-ChatMessage {
             if (-not $result.Attachments -and $result.Text -match '(?i)(genero|creo|preparo|sto generando|sto creando)\b.{0,15}\breport') {
                 $result.Text += "`n`n(Nota: sembra che il report non sia stato effettivamente generato - nessun file allegato. Chiedimi di riprovare.)"
             }
+            # Stessa rete di sicurezza di sopra, stessa classe di bug, trovata dal vivo il
+            # 10/09/2026 su un caso DIVERSO: il testo finale ha affermato "Fatto. Script 'X'
+            # (ReadOnly) salvato in Scripts\Custom\X.ps1..." - frase pressoche' identica al
+            # messaggio VERO che il ramo 'NewCustomScript' di Execute-PendingAction restituisce
+            # dopo un salvataggio reale (vedi sopra) - ma senza che il salvataggio fosse mai
+            # avvenuto (confermato nei log: nessuna riga "Nuovo script personalizzato salvato"
+            # per quel nome, e nessun file corrispondente su disco). Causa piu' probabile in
+            # quel caso specifico: piu' sessioni sullo stesso server hanno probabilmente
+            # sovrascritto $script:PendingAction (uno slot globale unico, server a thread
+            # singolo) tra la proposta e la conferma "si" - ma indipendentemente dalla causa, il
+            # principio e' lo stesso del bug sui report: non fidarsi del testo, verificare il
+            # fatto concreto. Qui il fatto concreto e' verificabile con certezza (a differenza
+            # del report, dove l'unico segnale disponibile e' l'assenza di un allegato): il file
+            # dichiarato esiste davvero su disco o no.
+            if ($result.Text -match "(?i)\bfatto\b.{0,10}script\s+'([A-Za-z0-9\-]+)'.{0,60}salvat") {
+                $claimedScriptName = $Matches[1]
+                $claimedScriptPath = Join-Path $moduleRoot "Scripts\Custom\$claimedScriptName.ps1"
+                if (-not (Test-Path $claimedScriptPath)) {
+                    $result.Text += "`n`n(NOTA AUTOMATICA, non dal modello: il testo sopra afferma che lo script '$claimedScriptName' e' stato salvato, ma non risulta nessun file '$claimedScriptName.ps1' in Scripts\Custom - il salvataggio NON e' avvenuto davvero, nonostante il messaggio dica il contrario. Probabile causa: la conferma non ha raggiunto la proposta in sospeso in tempo. Riprova a proporre e confermare di nuovo lo script.)"
+                    Write-M365OpsLog "Rilevata affermazione di salvataggio script NON corrispondente alla realta': '$claimedScriptName' dichiarato salvato ma il file non esiste su disco." -Level Warn
+                }
+            }
             return @{ role = 'ai'; text = $result.Text; attachments = $result.Attachments }
         }
         catch {
@@ -2789,6 +2811,124 @@ try {
                             $responseBytes = [IO.File]::ReadAllBytes($filePath)
                         }
                     }
+                }
+                "GET /api/custom-scripts/export" {
+                    # Richiesto esplicitamente dall'utente il 10/09/2026, dopo aver notato che
+                    # Scripts\Custom E' gia' tracciato da git (a differenza di Config\/Logs\/
+                    # Uploads\/Reports\, sempre locali per design - vedi .gitignore) quindi un
+                    # 'git pull' su un altro PC si porta gia' dietro tutti gli script
+                    # personalizzati senza bisogno di nulla: questo export/import serve SOLO per
+                    # il caso che git non copre, un PC che riceve l'app senza clonare il repo
+                    # (es. la si consegna a un collega che deve solo usarla). Zip in memoria
+                    # (nessun file temporaneo su disco da ripulire), solo i file *.ps1 che NON
+                    # iniziano per '_' (stessa esclusione di Get-M365OpsCustomScriptCatalog per
+                    # bozze/esempi non pronti - vedi Scripts\Custom\README.md).
+                    # $script:M365OpsCustomScriptsPath e' una variabile del MODULO (definita
+                    # dentro M365Ops.psm1) - Server.ps1 NON fa parte del modulo, il suo $script:
+                    # e' uno scope completamente diverso (stesso bug di scope gia' documentato
+                    # altrove in questo file, es. GET /api/kb/list). Bug reale trovato dal vivo il
+                    # 10/09/2026 verificando l'export appena scritto: lo zip conteneva gli script
+                    # nella RADICE del progetto (Bootstrap-Winget.ps1 ecc.) invece di quelli in
+                    # Scripts\Custom - quella variabile risultava vuota in questo scope, e
+                    # Get-ChildItem -Path '' e' caduto silenziosamente sulla directory corrente.
+                    # Corretto costruendo il percorso da $moduleRoot, come gia' fa correttamente
+                    # il ramo NewCustomScript qui sopra.
+                    $customScriptsPath = Join-Path $moduleRoot 'Scripts\Custom'
+                    Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
+                    $zipStream = New-Object System.IO.MemoryStream
+                    try {
+                        $zipArchive = New-Object System.IO.Compression.ZipArchive($zipStream, [System.IO.Compression.ZipArchiveMode]::Create, $true)
+                        $exportedCount = 0
+                        Get-ChildItem -Path $customScriptsPath -Filter '*.ps1' -ErrorAction SilentlyContinue |
+                            Where-Object { $_.Name -notlike '_*' } | ForEach-Object {
+                                $entry = $zipArchive.CreateEntry($_.Name)
+                                $entryStream = $entry.Open()
+                                try {
+                                    $bytes = [IO.File]::ReadAllBytes($_.FullName)
+                                    $entryStream.Write($bytes, 0, $bytes.Length)
+                                } finally { $entryStream.Dispose() }
+                                $exportedCount++
+                            }
+                        $zipArchive.Dispose()
+                        if ($exportedCount -eq 0) {
+                            $response.StatusCode = 404
+                            $contentType = "text/plain; charset=utf-8"
+                            $responseBytes = [System.Text.Encoding]::UTF8.GetBytes("Nessuno script personalizzato da esportare (Scripts\Custom e' vuota).")
+                        } else {
+                            $contentType = "application/zip"
+                            $zipFileName = "M365Ops-CustomScripts-$(Get-Date -Format 'yyyyMMdd-HHmmss').zip"
+                            $response.Headers.Add("Content-Disposition", "attachment; filename=`"$zipFileName`"")
+                            $responseBytes = $zipStream.ToArray()
+                        }
+                    } finally {
+                        $zipStream.Dispose()
+                    }
+                }
+                "POST /api/custom-scripts/import" {
+                    # Import corrispondente all'export sopra - stesso formato di upload gia' in
+                    # uso per /api/upload (JSON con contentBase64+filename, niente multipart:
+                    # questo server e' un HttpListener nudo, senza parser multipart). Validazioni
+                    # ripetute qui (difesa in profondita', stesso principio del ramo
+                    # 'NewCustomScript' in Execute-PendingAction): (1) protezione zip-slip -
+                    # ENTRY.FullName usato da .NET per l'estrazione rispetta gia' i separatori
+                    # dell'archivio, ma un nome voce con '..' potrebbe comunque provare a uscire
+                    # dalla cartella di destinazione, quindi il nome file viene normalizzato con
+                    # Split-Path -Leaf (mai un percorso, solo un nome semplice) PRIMA di comporre
+                    # il percorso di destinazione, esattamente come gia' fatto per /api/upload;
+                    # (2) solo file .ps1; (3) mai sovrascrivere uno script gia' esistente in
+                    # silenzio (stesso principio del ramo NewCustomScript - un conflitto viene
+                    # segnalato, non risolto a caso).
+                    try {
+                        # Stesso bug di scope corretto sopra per l'export ($script:
+                        # M365OpsCustomScriptsPath appartiene al modulo, non a Server.ps1) -
+                        # stesso fix, $moduleRoot.
+                        $customScriptsPath = Join-Path $moduleRoot 'Scripts\Custom'
+                        $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                        $body = $reader.ReadToEnd() | ConvertFrom-Json
+                        $zipBytes = [Convert]::FromBase64String($body.contentBase64)
+                        Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
+                        $zipStream = New-Object System.IO.MemoryStream(,$zipBytes)
+                        try {
+                            $zipArchive = New-Object System.IO.Compression.ZipArchive($zipStream, [System.IO.Compression.ZipArchiveMode]::Read)
+                            $imported = @(); $skippedExisting = @(); $skippedInvalid = @()
+                            foreach ($entry in $zipArchive.Entries) {
+                                $safeName = Split-Path -Leaf $entry.Name
+                                if ($safeName -notmatch '^[A-Za-z0-9][A-Za-z0-9\-]*\.ps1$' -or $safeName -like '_*') {
+                                    $skippedInvalid += $entry.Name
+                                    continue
+                                }
+                                $destPath = Join-Path $customScriptsPath $safeName
+                                if (Test-Path $destPath) {
+                                    $skippedExisting += $safeName
+                                    continue
+                                }
+                                $entryStream = $entry.Open()
+                                try {
+                                    $fileStream = [IO.File]::Create($destPath)
+                                    try { $entryStream.CopyTo($fileStream) } finally { $fileStream.Dispose() }
+                                } finally { $entryStream.Dispose() }
+                                $imported += $safeName
+                            }
+                            $zipArchive.Dispose()
+                        } finally { $zipStream.Dispose() }
+
+                        $summaryLines = @()
+                        if ($imported.Count -gt 0) { $summaryLines += "Importati ($($imported.Count)): $($imported -join ', ')" }
+                        if ($skippedExisting.Count -gt 0) { $summaryLines += "Saltati perche' gia' esistenti ($($skippedExisting.Count)): $($skippedExisting -join ', ')" }
+                        if ($skippedInvalid.Count -gt 0) { $summaryLines += "Saltati perche' nome non valido ($($skippedInvalid.Count)): $($skippedInvalid -join ', ')" }
+                        if ($summaryLines.Count -eq 0) { $summaryLines += "Lo zip non conteneva nessun file .ps1." }
+                        Write-M365OpsLog "Import script personalizzati: $($summaryLines -join ' | ')"
+                        # Riavvio solo se e' stato davvero importato qualcosa di nuovo da
+                        # caricare - un import che non ha aggiunto nulla (tutto gia' presente o
+                        # tutto scartato) non deve interrompere una sessione in corso per niente.
+                        if ($imported.Count -gt 0) { $script:RestartRequested = $true }
+                        $restartNote = if ($imported.Count -gt 0) { " Il server si riavvia ora per caricarli." } else { "" }
+                        $json = (@{ role = 'system'; text = ($summaryLines -join "`n") + $restartNote } | ConvertTo-Json -Compress)
+                    } catch {
+                        $response.StatusCode = 500
+                        $json = (@{ role = 'error'; text = "Import fallito: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
                 "POST /api/restart" {
                     $script:RestartRequested = $true

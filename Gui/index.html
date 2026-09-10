@@ -402,6 +402,15 @@
     <button id="script-request-send-btn">Richiedi lo script</button>
     <span id="script-request-status-msg" class="hint"></span>
   </div>
+  <hr style="margin:18px 0; border:none; border-top:1px solid var(--border);">
+  <h3 style="margin:0 0 6px 0; font-size:14px;">Esporta / importa script personalizzati</h3>
+  <p class="hint">Scripts\Custom e' gia' tracciato da git: chi clona/aggiorna questo repository si porta dietro tutti gli script automaticamente, non serve altro. Questo export/import serve SOLO per un PC che riceve l'app senza passare da git (es. un collega che deve solo usarla, non svilupparla).</p>
+  <div class="actions" style="margin-top:8px;">
+    <button id="custom-scripts-export-btn" style="background:var(--surface-alt);">Esporta script (.zip)</button>
+    <button id="custom-scripts-import-btn" style="background:var(--surface-alt);">Importa script (.zip)...</button>
+    <input type="file" id="custom-scripts-import-input" accept=".zip" style="display:none">
+    <span id="custom-scripts-io-status-msg" class="hint"></span>
+  </div>
 </div>
 
 <div id="infra-panel">
@@ -4092,6 +4101,51 @@
   });
   scriptRequestInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); scriptRequestSendBtn.click(); }
+  });
+
+  // Export/import script personalizzati (10/09/2026, richiesto esplicitamente dall'utente:
+  // "sarebbe possibile fare un export/import custom script?" - chiarito prima che Scripts\Custom
+  // e' gia' tracciato da git, quindi questo serve solo per un PC che riceve l'app SENZA passare
+  // da git). Export: semplice navigazione verso l'endpoint GET (il browser gestisce da solo
+  // Content-Disposition:attachment, nessun JS di download necessario). Import: stesso pattern
+  // base64 gia' in uso per /api/upload/CSV di migrazione qui sopra.
+  const customScriptsExportBtn = document.getElementById('custom-scripts-export-btn');
+  const customScriptsImportBtn = document.getElementById('custom-scripts-import-btn');
+  const customScriptsImportInput = document.getElementById('custom-scripts-import-input');
+  const customScriptsIoStatusMsg = document.getElementById('custom-scripts-io-status-msg');
+  customScriptsExportBtn.addEventListener('click', () => {
+    window.location.href = '/api/custom-scripts/export';
+  });
+  customScriptsImportBtn.addEventListener('click', () => customScriptsImportInput.click());
+  customScriptsImportInput.addEventListener('change', async () => {
+    const file = customScriptsImportInput.files[0];
+    if (!file) return;
+    customScriptsIoStatusMsg.textContent = 'importazione in corso...';
+    const buf = await file.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+    try {
+      const res = await fetch('/api/custom-scripts/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, contentBase64: base64 })
+      });
+      const data = await res.json();
+      customScriptsIoStatusMsg.textContent = '';
+      customScriptsImportInput.value = '';
+      if (!res.ok || data.role === 'error') {
+        addMessage('error', data.text || 'Import script fallito.');
+        return;
+      }
+      scriptRequestPanel.classList.remove('open');
+      scriptRequestToggleBtn.classList.remove('active');
+      addMessage(data.role || 'system', data.text || 'Import completato.');
+    } catch (e) {
+      customScriptsIoStatusMsg.textContent = '';
+      addMessage('error', 'Import script fallito: ' + e.message);
+    }
   });
 
   // Pannello "Infrastruttura tenant" (25/08/2026, richiesto esplicitamente dall'utente) - stesso
