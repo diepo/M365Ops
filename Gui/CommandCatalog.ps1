@@ -1045,9 +1045,22 @@ function Get-M365OpsCommandCatalog {
             Formatter    = {
                 param($r)
                 if (-not $r) { return "Nessun dato trovato per questo archivio." }
+                # Bug reale osservato dal vivo l'11/09/2026, STESSO giorno in cui questa voce e'
+                # stata creata: la prima versione di questo Formatter filtrava via i campi
+                # null/vuoti (Where-Object $_.Value -ne '') - cioe' curava comunque il risultato,
+                # lo stesso identico problema per cui l'utente si era arrabbiato all'IA
+                # (Get-M365OpsMailboxArchiveDetail, sottoinsieme di 8 campi), solo spostato al
+                # livello catalogo zero-IA. "Tutti i dettagli"/"| fl" significa letteralmente
+                # OGNI proprieta', comprese quelle vuote (un Get-Mailbox | fl reale le mostra
+                # comunque, solo con valore vuoto dopo i due punti) - nessun filtro qui.
                 $lines = @("Dettagli completi dell'archivio:", "")
-                $lines += ($r.PSObject.Properties | Where-Object { $null -ne $_.Value -and $_.Value -ne '' -and -not ($_.Value -is [array] -and $_.Value.Count -eq 0) } |
-                    ForEach-Object { "- $($_.Name): $($_.Value)" })
+                $lines += ($r.PSObject.Properties | ForEach-Object {
+                    $val = $_.Value
+                    $display = if ($null -eq $val) { '' }
+                               elseif ($val -is [array]) { ($val -join ', ') }
+                               else { $val }
+                    "$($_.Name) : $display"
+                })
                 return ($lines -join "`n")
             }
         }
@@ -1066,9 +1079,16 @@ function Get-M365OpsCommandCatalog {
             Formatter    = {
                 param($r)
                 if (-not $r) { return "Nessun dato trovato per questa mailbox." }
+                # Stesso fix di MailboxArchiveFullDetail qui sopra: nessun filtro sui campi
+                # vuoti/null, "tutti i dettagli" deve corrispondere davvero a un | fl completo.
                 $lines = @("Dettagli completi della mailbox:", "")
-                $lines += ($r.PSObject.Properties | Where-Object { $null -ne $_.Value -and $_.Value -ne '' -and -not ($_.Value -is [array] -and $_.Value.Count -eq 0) } |
-                    ForEach-Object { "- $($_.Name): $($_.Value)" })
+                $lines += ($r.PSObject.Properties | ForEach-Object {
+                    $val = $_.Value
+                    $display = if ($null -eq $val) { '' }
+                               elseif ($val -is [array]) { ($val -join ', ') }
+                               else { $val }
+                    "$($_.Name) : $display"
+                })
                 return ($lines -join "`n")
             }
         }
