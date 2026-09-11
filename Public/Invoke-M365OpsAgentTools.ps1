@@ -554,7 +554,8 @@ Esegue una query di SOLA LETTURA su Exchange Online (dati non disponibili via Gr
 - Get-M365OpsMigrationEndpoints {} - endpoint di migrazione GIA' configurati (usali per New-M365OpsMigrationBatch)
 - Get-M365OpsMoveRequestDiagnostic {Identity} - diagnosi dettagliata di UNA migrazione mailbox (stato, percentuale, timeline, report diagnostico completo) - usalo quando serve capire PERCHE' una migrazione e' bloccata/lenta/fallita, non solo il suo stato sintetico (per quello basta Get-M365OpsMigrationUserStatus)
 - Get-M365OpsAllMailboxes {} - tutte le mailbox di ogni tipo
-- Get-M365OpsMailboxStatistics {Identity?} - dimensione/item/ultimo logon (Identity opzionale = tutte)
+- Get-M365OpsMailboxStatistics {Identity?} - dimensione/item/ultimo logon DELLA MAILBOX PRIMARIA (Identity opzionale = tutte). NON supporta e non ha MAI supportato -Archive: non usarlo mai per una domanda sull'archivio (dimensione archivio, ArchiveName, se l'archivio e' abilitato) - i numeri che restituisce sono sempre della mailbox primaria, anche se la domanda parla di archivio (bug reale gia' successo dal vivo: dati primari presentati per errore come "dati dell'archivio", nessun errore a segnalarlo). Per l'archivio usa SEMPRE Get-M365OpsMailboxArchiveDetail qui sotto.
+- Get-M365OpsMailboxArchiveDetail {Identity} - dettagli REALI dell'archivio (Online Archive/In-Place Archive) di UNA mailbox: se e' abilitato (ArchiveEnabled), ArchiveName, ArchiveStatus, ArchiveGuid, e dimensione/item/ultimo logon DELL'ARCHIVIO stesso (mai della mailbox primaria) - questo e' lo strumento giusto per qualunque domanda che nomina esplicitamente "archivio"/"archive"
 - Get-M365OpsMailboxUsageReport {} - utilizzo/quota percentuale su tutte le mailbox
 - Get-M365OpsInactiveMailboxes {DaysInactive?} - mailbox senza logon da N giorni (default 90)
 - Get-M365OpsForwardingReport {} - mailbox con inoltro automatico configurato (sicurezza)
@@ -903,7 +904,13 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
         'Get-M365OpsDynamicDistributionGroupMember', 'Get-M365OpsTenantAllowBlockListSpoofItems',
         'Get-M365OpsQuarantinePolicy', 'Get-M365OpsQuarantineMessageHeader',
         'Get-M365OpsTransportConfig', 'Get-M365OpsInboundConnector', 'Get-M365OpsOutboundConnector',
-        'Get-M365OpsRemoteDomain', 'Get-M365OpsMailDetailTransportRuleReport'
+        'Get-M365OpsRemoteDomain', 'Get-M365OpsMailDetailTransportRuleReport',
+        # Aggiunta l'11/09/2026, bug reale segnalato dal vivo dall'utente: una domanda
+        # sull'archivio di una mailbox (dimensione, ArchiveName) veniva risposta con i dati
+        # della mailbox PRIMARIA (Get-M365OpsMailboxStatistics, l'unica funzione disponibile,
+        # non ha mai supportato -Archive) mascherati da "dati dell'archivio" - nessun errore
+        # segnalava la discrepanza. Vedi la nota completa nel file della funzione.
+        'Get-M365OpsMailboxArchiveDetail'
     )
     $exoWriteAllowlist = @(
         'New-M365OpsSharedMailbox', 'Remove-M365OpsSharedMailbox', 'Grant-M365OpsMailboxPermission', 'Revoke-M365OpsMailboxPermission',
