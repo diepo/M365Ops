@@ -534,6 +534,7 @@ Esegue una query di SOLA LETTURA su Exchange Online (dati non disponibili via Gr
 - Get-M365OpsMailboxPermissions {Identity} - permessi FullAccess/SendAs/SendOnBehalf di UNA mailbox, ogni riga include TrusteeType ('User'/'Group'/'Unknown') per distinguere senza tentativi impliciti se il grant e' diretto o tramite gruppo - vedi la regola su AutoMapping+gruppi piu' sotto
 - Get-M365OpsMailboxDelegatesReport {Identity?} - stessi permessi ma aggregati su tutte le mailbox (Identity opzionale per limitare)
 - Get-M365OpsDistributionGroups {} / Get-M365OpsMailSecurityGroups {} / Get-M365OpsDynamicDistributionGroups {} - gruppi Exchange per tipo
+- Get-M365OpsExchangeRecipientDetail {ObjectType: DistributionGroup|DynamicDistributionGroup|MailContact|MailUser, Identity} - STRUMENTO GENERALE: l'oggetto COMPLETO (tutte le proprieta' native) di UN destinatario di questi 4 tipi - usalo per qualunque campo specifico non gia' coperto da una voce piu' mirata qui sopra/sotto (es. Get-M365OpsDistributionGroups mostra solo DisplayName/PrimarySmtpAddress/GroupType/ManagedBy - per qualunque ALTRO campo del gruppo usa questo con ObjectType=DistributionGroup), invece di assumere che un dato non sia disponibile
 - Get-M365OpsDistributionGroupMembers {Identity} - membri di un gruppo
 - Get-M365OpsGroupsOverviewReport {} / Get-M365OpsGroupMembershipReport {} - report aggregato gruppi / membership completa
 - Get-M365OpsTransportRules {} - regole di trasporto (mail flow rule)
@@ -554,7 +555,7 @@ Esegue una query di SOLA LETTURA su Exchange Online (dati non disponibili via Gr
 - Get-M365OpsMigrationEndpoints {} - endpoint di migrazione GIA' configurati (usali per New-M365OpsMigrationBatch)
 - Get-M365OpsMoveRequestDiagnostic {Identity} - diagnosi dettagliata di UNA migrazione mailbox (stato, percentuale, timeline, report diagnostico completo) - usalo quando serve capire PERCHE' una migrazione e' bloccata/lenta/fallita, non solo il suo stato sintetico (per quello basta Get-M365OpsMigrationUserStatus)
 - Get-M365OpsAllMailboxes {} - tutte le mailbox di ogni tipo
-- Get-M365OpsMailboxDetail {Identity, Archive?} - STRUMENTO GENERALE: restituisce l'oggetto Get-Mailbox COMPLETO (tutte le proprieta' native, non un sottoinsieme curato) - usalo per QUALUNQUE campo specifico non gia' coperto in modo piu' mirato da un'altra voce di questo elenco (es. ArchiveName/ArchiveStatus/ArchiveGuid, ProhibitSendQuota, WhenMailboxCreated, EmailAddresses, RecipientTypeDetails, LitigationHoldEnabled, RetentionPolicy, ForwardingAddress, ecc. - se un campo esiste su un oggetto Mailbox di Exchange, e' qui dentro). NON assumere mai che un dato specifico non sia disponibile solo perche' non c'e' una funzione dedicata per quel nome esatto - prova prima questo prima di dirlo all'utente. -Archive restituisce l'oggetto ARCHIVIO invece della mailbox primaria (identita'/configurazione, es. ArchiveName/ArchiveStatus) - MAI dimensione/numero elementi, quelli vengono solo da Get-M365OpsMailboxStatistics (vedi sotto), Get-Mailbox non li ha mai avuti ne' con ne' senza -Archive.
+- Get-M365OpsMailboxDetail {Identity, Archive?} - STRUMENTO GENERALE: restituisce l'oggetto Get-Mailbox COMPLETO (tutte le proprieta' native, non un sottoinsieme curato) - vale per OGNI tipo di mailbox (utente, condivisa, risorsa sala/attrezzatura: sono tutte lo stesso oggetto Exchange, RecipientTypeDetails diverso, stessa funzione per tutte, mai bisogno di una funzione separata per "mailbox condivisa" o "mailbox risorsa"). Usalo per QUALUNQUE campo specifico non gia' coperto in modo piu' mirato da un'altra voce di questo elenco (es. ArchiveName/ArchiveStatus/ArchiveGuid, ProhibitSendQuota, WhenMailboxCreated, EmailAddresses, RecipientTypeDetails, LitigationHoldEnabled, RetentionPolicy, ForwardingAddress, ecc. - se un campo esiste su un oggetto Mailbox di Exchange, e' qui dentro). NON assumere mai che un dato specifico non sia disponibile solo perche' non c'e' una funzione dedicata per quel nome esatto - prova prima questo prima di dirlo all'utente. -Archive restituisce l'oggetto ARCHIVIO invece della mailbox primaria (identita'/configurazione, es. ArchiveName/ArchiveStatus) - MAI dimensione/numero elementi, quelli vengono solo da Get-M365OpsMailboxStatistics (vedi sotto), Get-Mailbox non li ha mai avuti ne' con ne' senza -Archive.
 - Get-M365OpsMailboxStatistics {Identity?, Archive?} - dimensione/item/ultimo logon DELLA MAILBOX PRIMARIA per default (Identity opzionale = tutte) - con -Archive:true, le STESSE statistiche ma dell'ARCHIVIO. Bug reale gia' successo dal vivo prima che -Archive fosse aggiunto: dati della mailbox primaria presentati per errore come "dati dell'archivio", nessun errore a segnalarlo - ora basta passare Archive:true nei parametri per avere i numeri giusti.
 - Get-M365OpsMailboxArchiveDetail {Identity} - scorciatoia comoda che combina in UNA chiamata ArchiveName/ArchiveStatus/ArchiveGuid (da Get-Mailbox -Archive) CON dimensione/item/ultimo logon dell'archivio (da Get-MailboxStatistics -Archive) - usa questa quando la domanda riguarda l'archivio nel suo complesso; usa Get-M365OpsMailboxDetail/Get-M365OpsMailboxStatistics separatamente solo se sai gia' esattamente quale dei due tagli di dati (identita' vs statistiche) ti serve
 - Get-M365OpsMailboxUsageReport {} - utilizzo/quota percentuale su tutte le mailbox
@@ -786,6 +787,7 @@ Esegue una query di SOLA LETTURA su Microsoft Teams che non e' disponibile via g
 - Get-M365OpsTeamsMembers {GroupId} - membri di UN team con ruolo owner/member/guest
 - Get-M365OpsTeamsPolicies {} - criteri di riunione/chiamata/messaggistica del tenant (es. registrazione riunioni consentita, chiamate private consentite, chi puo' modificare/eliminare messaggi)
 - Get-M365OpsTeamsExternalAccessConfig {} - federazione con organizzazioni esterne (chi puo' comunicare da fuori il tenant) + cosa possono fare gli ospiti (chat/riunioni/chiamate) - report di sicurezza classico
+- Get-M365OpsTeamDetail {GroupId} - STRUMENTO GENERALE: l'oggetto Get-Team COMPLETO per UN team (tutte le proprieta' native, non il sottoinsieme curato di Get-M365OpsTeamsList) - usalo per qualunque campo specifico di un singolo team non gia' coperto da un'altra voce qui sopra, invece di assumere che non sia disponibile
 IMPORTANTE (17/08/2026): Get-M365OpsTeamsList/Channels/Members funzionano con lo stesso certificato di Exchange, nessun permesso aggiuntivo. Get-M365OpsTeamsPolicies e Get-M365OpsTeamsExternalAccessConfig richiedono INVECE il permesso Application 'application_access' sotto l'API 'Skype and Teams Tenant Admin API' (un consenso separato, ancora diverso da Microsoft Graph e da 'SharePoint' - verifica la sezione 4.4 della guida) - se non ancora concesso, falliscono con "Access Denied. Provide different credential or request access.": riportalo cosi' com'e', non e' un tuo errore di query.
 "@
             input_schema = @{
@@ -918,7 +920,15 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
         # l'oggetto Get-Mailbox COMPLETO (tutte le proprieta', non un sottoinsieme curato) -
         # riduce il bisogno di una nuova funzione dedicata ogni volta che serve un campo non
         # ancora coperto da una funzione piu' mirata.
-        'Get-M365OpsMailboxDetail'
+        'Get-M365OpsMailboxDetail',
+        # Aggiunta subito dopo, stessa richiesta di generalizzazione estesa dall'utente "a
+        # tutta la nostra sfera - distributiongroup, shared, resources, room, teams etc." Le
+        # mailbox (utente/condivisa/risorsa/sala - sono tutte lo stesso oggetto Exchange) sono
+        # gia' coperte da Get-M365OpsMailboxDetail sopra - questa copre gli altri tipi di
+        # destinatario Exchange (gruppi di distribuzione/mail-enabled security/dinamici,
+        # mail contact, mail user) con lo stesso principio: un oggetto completo, non un
+        # sottoinsieme curato.
+        'Get-M365OpsExchangeRecipientDetail'
     )
     $exoWriteAllowlist = @(
         'New-M365OpsSharedMailbox', 'Remove-M365OpsSharedMailbox', 'Grant-M365OpsMailboxPermission', 'Revoke-M365OpsMailboxPermission',
@@ -970,7 +980,10 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
     # policy) permesso diversi dal resto del modulo, vedi Connect-M365OpsTeams.
     $teamsReadAllowlist = @(
         'Get-M365OpsTeamsList', 'Get-M365OpsTeamsChannels', 'Get-M365OpsTeamsMembers',
-        'Get-M365OpsTeamsPolicies', 'Get-M365OpsTeamsExternalAccessConfig'
+        'Get-M365OpsTeamsPolicies', 'Get-M365OpsTeamsExternalAccessConfig',
+        # Aggiunta l'11/09/2026, generalizzazione richiesta esplicitamente dall'utente - vedi
+        # Get-M365OpsExchangeRecipientDetail sotto per il contesto completo.
+        'Get-M365OpsTeamDetail'
     )
     # Scrittura Teams (18/08/2026, stesso motivo di $sharePointWriteAllowlist - SR-021/022/023
     # segnalavano il gap). Remove-M365OpsTeam e' qui nonostante l'impatto perche' il meccanismo
