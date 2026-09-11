@@ -554,8 +554,9 @@ Esegue una query di SOLA LETTURA su Exchange Online (dati non disponibili via Gr
 - Get-M365OpsMigrationEndpoints {} - endpoint di migrazione GIA' configurati (usali per New-M365OpsMigrationBatch)
 - Get-M365OpsMoveRequestDiagnostic {Identity} - diagnosi dettagliata di UNA migrazione mailbox (stato, percentuale, timeline, report diagnostico completo) - usalo quando serve capire PERCHE' una migrazione e' bloccata/lenta/fallita, non solo il suo stato sintetico (per quello basta Get-M365OpsMigrationUserStatus)
 - Get-M365OpsAllMailboxes {} - tutte le mailbox di ogni tipo
-- Get-M365OpsMailboxStatistics {Identity?} - dimensione/item/ultimo logon DELLA MAILBOX PRIMARIA (Identity opzionale = tutte). NON supporta e non ha MAI supportato -Archive: non usarlo mai per una domanda sull'archivio (dimensione archivio, ArchiveName, se l'archivio e' abilitato) - i numeri che restituisce sono sempre della mailbox primaria, anche se la domanda parla di archivio (bug reale gia' successo dal vivo: dati primari presentati per errore come "dati dell'archivio", nessun errore a segnalarlo). Per l'archivio usa SEMPRE Get-M365OpsMailboxArchiveDetail qui sotto.
-- Get-M365OpsMailboxArchiveDetail {Identity} - dettagli REALI dell'archivio (Online Archive/In-Place Archive) di UNA mailbox: se e' abilitato (ArchiveEnabled), ArchiveName, ArchiveStatus, ArchiveGuid, e dimensione/item/ultimo logon DELL'ARCHIVIO stesso (mai della mailbox primaria) - questo e' lo strumento giusto per qualunque domanda che nomina esplicitamente "archivio"/"archive"
+- Get-M365OpsMailboxDetail {Identity, Archive?} - STRUMENTO GENERALE: restituisce l'oggetto Get-Mailbox COMPLETO (tutte le proprieta' native, non un sottoinsieme curato) - usalo per QUALUNQUE campo specifico non gia' coperto in modo piu' mirato da un'altra voce di questo elenco (es. ArchiveName/ArchiveStatus/ArchiveGuid, ProhibitSendQuota, WhenMailboxCreated, EmailAddresses, RecipientTypeDetails, LitigationHoldEnabled, RetentionPolicy, ForwardingAddress, ecc. - se un campo esiste su un oggetto Mailbox di Exchange, e' qui dentro). NON assumere mai che un dato specifico non sia disponibile solo perche' non c'e' una funzione dedicata per quel nome esatto - prova prima questo prima di dirlo all'utente. -Archive restituisce l'oggetto ARCHIVIO invece della mailbox primaria (identita'/configurazione, es. ArchiveName/ArchiveStatus) - MAI dimensione/numero elementi, quelli vengono solo da Get-M365OpsMailboxStatistics (vedi sotto), Get-Mailbox non li ha mai avuti ne' con ne' senza -Archive.
+- Get-M365OpsMailboxStatistics {Identity?, Archive?} - dimensione/item/ultimo logon DELLA MAILBOX PRIMARIA per default (Identity opzionale = tutte) - con -Archive:true, le STESSE statistiche ma dell'ARCHIVIO. Bug reale gia' successo dal vivo prima che -Archive fosse aggiunto: dati della mailbox primaria presentati per errore come "dati dell'archivio", nessun errore a segnalarlo - ora basta passare Archive:true nei parametri per avere i numeri giusti.
+- Get-M365OpsMailboxArchiveDetail {Identity} - scorciatoia comoda che combina in UNA chiamata ArchiveName/ArchiveStatus/ArchiveGuid (da Get-Mailbox -Archive) CON dimensione/item/ultimo logon dell'archivio (da Get-MailboxStatistics -Archive) - usa questa quando la domanda riguarda l'archivio nel suo complesso; usa Get-M365OpsMailboxDetail/Get-M365OpsMailboxStatistics separatamente solo se sai gia' esattamente quale dei due tagli di dati (identita' vs statistiche) ti serve
 - Get-M365OpsMailboxUsageReport {} - utilizzo/quota percentuale su tutte le mailbox
 - Get-M365OpsInactiveMailboxes {DaysInactive?} - mailbox senza logon da N giorni (default 90)
 - Get-M365OpsForwardingReport {} - mailbox con inoltro automatico configurato (sicurezza)
@@ -910,7 +911,14 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
         # della mailbox PRIMARIA (Get-M365OpsMailboxStatistics, l'unica funzione disponibile,
         # non ha mai supportato -Archive) mascherati da "dati dell'archivio" - nessun errore
         # segnalava la discrepanza. Vedi la nota completa nel file della funzione.
-        'Get-M365OpsMailboxArchiveDetail'
+        'Get-M365OpsMailboxArchiveDetail',
+        # Aggiunta subito dopo, stesso giorno, su richiesta esplicita dell'utente:
+        # generalizzazione del fix sopra - "stiamo inseguendo il dettaglio ogni volta,
+        # l'IA avrebbe dovuto partire da Get-Mailbox | fl". Get-M365OpsMailboxDetail espone
+        # l'oggetto Get-Mailbox COMPLETO (tutte le proprieta', non un sottoinsieme curato) -
+        # riduce il bisogno di una nuova funzione dedicata ogni volta che serve un campo non
+        # ancora coperto da una funzione piu' mirata.
+        'Get-M365OpsMailboxDetail'
     )
     $exoWriteAllowlist = @(
         'New-M365OpsSharedMailbox', 'Remove-M365OpsSharedMailbox', 'Grant-M365OpsMailboxPermission', 'Revoke-M365OpsMailboxPermission',
