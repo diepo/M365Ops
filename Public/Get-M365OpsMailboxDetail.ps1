@@ -26,5 +26,24 @@ function Get-M365OpsMailboxDetail {
     # una funzione nuova ogni volta che serve un campo non ancora coperto. Restituisce
     # l'oggetto COSI' COM'E' (nessuna proiezione/Select-Object): tutte le proprieta' native
     # di Get-Mailbox restano disponibili all'IA, che sceglie da sola quale usare.
-    Get-Mailbox -Identity $Identity -Archive:$Archive -ErrorAction Stop
+    if (-not $Archive) {
+        return Get-Mailbox -Identity $Identity -ErrorAction Stop
+    }
+    # Bug reale trovato dal vivo l'11/09/2026, STESSO giorno: Get-Mailbox -Archive lancia
+    # SEMPRE "couldn't be found" quando la mailbox PRIMARIA esiste ma non ha nessun archivio
+    # abilitato - un messaggio fuorviante che sembra dire che la mailbox stessa non esiste
+    # (verificato dal vivo isolando la chiamata: la mailbox era presente e funzionante, solo
+    # priva di archivio). Distingue qui i due casi PRIMA di lasciar propagare l'errore
+    # originale, cosi' l'IA (e l'utente) non confondono "nessun archivio" con "mailbox
+    # inesistente" - stesso principio di Get-M365OpsMailboxArchiveDetail (non fidarsi di un
+    # segnale fuorviante quando ne esiste uno piu' diretto e verificabile).
+    try {
+        Get-Mailbox -Identity $Identity -Archive -ErrorAction Stop
+    } catch {
+        $primary = Get-Mailbox -Identity $Identity -ErrorAction SilentlyContinue
+        if ($primary -and (-not $primary.ArchiveGuid -or $primary.ArchiveGuid -eq [Guid]::Empty)) {
+            throw "La mailbox '$Identity' esiste ma NON ha nessun archivio abilitato - richiedere l'oggetto archivio (Get-Mailbox -Archive) fallisce sempre in questo caso con un errore Exchange fuorviante ('couldn't be found', che sembra riferirsi alla mailbox stessa, non e' cosi'). Nessun dato di archivio da mostrare per questa mailbox."
+        }
+        throw
+    }
 }

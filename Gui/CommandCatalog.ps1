@@ -1027,5 +1027,50 @@ function Get-M365OpsCommandCatalog {
                 return ($lines -join "`n")
             }
         }
+        [pscustomobject]@{
+            # Aggiunte l'11/09/2026, richiesta esplicita dell'utente dopo una lunga sessione
+            # di bug-hunt su "tutti i dettagli della mailbox/dell'archivio": una volta che
+            # Get-M365OpsMailboxDetail (oggetto Get-Mailbox completo) esiste gia' come
+            # strumento generale, far passare questa esatta domanda - ormai ricorrente - dal
+            # ciclo IA ogni volta era inutile: nessun ragionamento serve per "dammi tutto",
+            # solo dump del risultato. Zero IA = zero rischio di rate limit su una domanda
+            # che non ne aveva alcun bisogno.
+            Name         = "MailboxArchiveFullDetail"
+            Description  = "Elenca TUTTE le proprieta' native dell'archivio di una mailbox (non un sottoinsieme). Uso: 'dammi tutti i dettagli dell'archivio della casella nome@dominio.it'"
+            Triggers     = @('(tutt[ei]|ogni).{0,20}(dettagli|propriet[aà]).{0,50}(archivio|archive)', '(dettagli|propriet[aà]).{0,15}(complet[ei]).{0,50}(archivio|archive)')
+            CaptureRegex = '([\w\.\-]+@[\w\-]+(?:\.[\w\-]+)+)'
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b')
+            RequiresAI   = $false
+            Handler      = { param($email) Get-M365OpsMailboxDetail -Identity $email -Archive }
+            Formatter    = {
+                param($r)
+                if (-not $r) { return "Nessun dato trovato per questo archivio." }
+                $lines = @("Dettagli completi dell'archivio:", "")
+                $lines += ($r.PSObject.Properties | Where-Object { $null -ne $_.Value -and $_.Value -ne '' -and -not ($_.Value -is [array] -and $_.Value.Count -eq 0) } |
+                    ForEach-Object { "- $($_.Name): $($_.Value)" })
+                return ($lines -join "`n")
+            }
+        }
+        [pscustomobject]@{
+            Name         = "MailboxFullDetail"
+            Description  = "Elenca TUTTE le proprieta' native di una mailbox (non un sottoinsieme). Uso: 'dammi tutti i dettagli della casella nome@dominio.it'"
+            Triggers     = @('(tutt[ei]|ogni).{0,20}(dettagli|propriet[aà]).{0,40}(casella|mailbox)', '(dettagli|propriet[aà]).{0,15}(complet[ei]).{0,40}(casella|mailbox)')
+            CaptureRegex = '([\w\.\-]+@[\w\-]+(?:\.[\w\-]+)+)'
+            # 'archiv' deferisce alla voce dedicata sopra (MailboxArchiveFullDetail) - senza
+            # questo, "tutti i dettagli DELL'ARCHIVIO della casella X" matcherebbe ANCHE questo
+            # trigger generico (contiene comunque "dettagli"/"casella"), rispondendo con la
+            # mailbox primaria invece dell'archivio richiesto.
+            DeferWords   = @('e poi', 'e anche', 'quindi', 'poi\b', 'dopo\b', 'archiv')
+            RequiresAI   = $false
+            Handler      = { param($email) Get-M365OpsMailboxDetail -Identity $email }
+            Formatter    = {
+                param($r)
+                if (-not $r) { return "Nessun dato trovato per questa mailbox." }
+                $lines = @("Dettagli completi della mailbox:", "")
+                $lines += ($r.PSObject.Properties | Where-Object { $null -ne $_.Value -and $_.Value -ne '' -and -not ($_.Value -is [array] -and $_.Value.Count -eq 0) } |
+                    ForEach-Object { "- $($_.Name): $($_.Value)" })
+                return ($lines -join "`n")
+            }
+        }
     )
 }
