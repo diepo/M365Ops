@@ -2790,7 +2790,16 @@ try {
                         # WinForms/WebBrowser, che richiede un thread STA. NIENTE -WindowStyle Hidden
                         # qui: a differenza di ogni altro Start-Process di questo file, questa finestra
                         # e' pensata apposta per essere vista e usata dall'operatore.
-                        $proc = Start-Process -FilePath $pwshPath -ArgumentList @('-NoExit', '-NoProfile', '-STA', '-File', $shellScript, '-ModuleRoot', $moduleRoot, '-TenantProfile', $script:ActiveTenantProfile) -PassThru
+                        # Ogni valore va tra virgolette letterali nella stringa dell'argomento
+                        # (bug reale trovato dal vivo il 16/09/2026 sul profilo "vnsys delegata",
+                        # nome CON spazio: Start-Process -ArgumentList con un array NON aggiunge
+                        # virgolette da solo, i suoi elementi vengono uniti con spazi in un'unica
+                        # riga di comando - "vnsys delegata" diventava due argomenti separati,
+                        # pwsh interpretava "delegata" come parametro posizionale sconosciuto e
+                        # falliva subito con "A positional parameter cannot be found"). Stesso
+                        # fix applicato anche al riavvio server sotto (RestartRequested), che ha
+                        # lo stesso identico pattern e sarebbe rotto allo stesso modo.
+                        $proc = Start-Process -FilePath $pwshPath -ArgumentList @('-NoExit', '-NoProfile', '-STA', '-File', "`"$shellScript`"", '-ModuleRoot', "`"$moduleRoot`"", '-TenantProfile', "`"$($script:ActiveTenantProfile)`"") -PassThru
                         if (-not $script:OpenPowerShellProcesses) { $script:OpenPowerShellProcesses = @() }
                         $script:OpenPowerShellProcesses += $proc
                         $json = (@{ ok = $true } | ConvertTo-Json -Compress)
@@ -3256,7 +3265,11 @@ try {
             # controlli sono COM e richiedono un thread STA per essere mostrati, non lo
             # richiedono invece i flussi puramente REST (device code, certificato) gia'
             # funzionanti. Riprodotto dal vivo su Fabrikam-Prod prima di questa correzione.
-            Start-Process -FilePath $exePath -ArgumentList @("-NoProfile", "-STA", "-File", $PSCommandPath, "-TenantProfile", $script:ActiveTenantProfile, "-Port", $Port) -WindowStyle Hidden `
+            # Stesso fix di quoting del pulsante "🖥️ PowerShell" qui sopra (16/09/2026): un nome
+            # profilo CON spazio (es. "vnsys delegata") in $script:ActiveTenantProfile veniva
+            # spezzato in due argomenti separati da Start-Process -ArgumentList, che non
+            # aggiunge virgolette da solo intorno agli elementi dell'array.
+            Start-Process -FilePath $exePath -ArgumentList @("-NoProfile", "-STA", "-File", "`"$PSCommandPath`"", "-TenantProfile", "`"$($script:ActiveTenantProfile)`"", "-Port", $Port) -WindowStyle Hidden `
                 -RedirectStandardOutput (Join-Path $consoleLogDir 'server-console.log') -RedirectStandardError (Join-Path $consoleLogDir 'server-console-error.log')
             break
         }

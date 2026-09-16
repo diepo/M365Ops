@@ -211,7 +211,14 @@ try {
     # piu' fatto qui: e' stato spostato dentro Server.ps1 stesso (subito dopo il suo import del
     # modulo, che gli serve comunque) per eliminare un secondo Import-Module completo in serie
     # - vedi nota in cima al file.
-    Start-Process -FilePath $pwshPath -ArgumentList @('-NoProfile', '-STA', '-File', $serverScript, '-TenantProfile', $tenantProfile, '-Port', $Port) -WindowStyle Hidden `
+    # Ogni valore tra virgolette letterali nella stringa dell'argomento (bug reale trovato dal
+    # vivo il 16/09/2026 nello stesso identico pattern dentro Gui\Server.ps1, sul profilo "vnsys
+    # delegata" - nome CON spazio: Start-Process -ArgumentList con un array non aggiunge
+    # virgolette da solo, i suoi elementi vengono uniti con spazi in un'unica riga di comando,
+    # "vnsys delegata" diventava due argomenti separati e pwsh falliva subito con "A positional
+    # parameter cannot be found"). Qui $tenantProfile puo' essere l'ultimo tenant usato
+    # (Config\last-active-tenant.txt) - stesso rischio, stesso fix.
+    Start-Process -FilePath $pwshPath -ArgumentList @('-NoProfile', '-STA', '-File', "`"$serverScript`"", '-TenantProfile', "`"$tenantProfile`"", '-Port', $Port) -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $logDir 'server-console.log') -RedirectStandardError (Join-Path $logDir 'server-console-error.log')
 
     # Attende che risponda prima di aprire il browser, per evitare la pagina "impossibile
