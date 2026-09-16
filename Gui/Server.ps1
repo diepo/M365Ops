@@ -21,7 +21,7 @@ function Write-M365OpsStartupStage {
     try { Set-Content -Path $script:StartupStagePath -Value $Stage -Encoding UTF8 -ErrorAction Stop } catch {}
 }
 
-Write-M365OpsStartupStage "Importazione del modulo PowerShell (350+ file)..."
+Write-M365OpsStartupStage "Import del modulo PowerShell (350+ file)..."
 Import-Module (Join-Path $moduleRoot 'M365Ops.psd1') -Force
 . (Join-Path $PSScriptRoot 'CommandCatalog.ps1')
 
