@@ -28,6 +28,28 @@
     meccanismo di polling apposta) invece del solito silenzio "sembra bloccato" gia' segnalato
     una volta dall'utente proprio per questa stessa funzione lato GUI.
 
+    SECONDO BUG REALE, stesso giorno, trovato SUBITO dopo aver corretto il primo: l'utente si e'
+    connesso a Exchange delegato dalla GUI ("Accedi con il mio utente"), poi ha aperto QUESTA
+    finestra - Connect-M365OpsAllConnections ha comunque riportato Exchange Online come "richiede
+    un nuovo login interattivo", nonostante fosse GIA' connesso un attimo prima. Non e' un
+    controllo che sbaglia: e' un limite architetturale reale. Questa finestra e' un PROCESSO
+    (pwsh.exe) SEPARATO dal processo server della GUI - ciascuno ha la propria copia isolata
+    dello stato del modulo ($script:M365OpsExchangeConnected ecc.), e soprattutto la SESSIONE
+    Exchange/Teams/SharePoint vera (un oggetto .NET/PSSession vivo in memoria) non puo' in alcun
+    modo essere condivisa tra due processi diversi solo perche' entrambi hanno importato lo
+    stesso modulo - va sempre stabilita da capo in OGNI processo che la usa. La domanda giusta
+    dell'utente ("non fa a prendersi la sessione gia' connessa?") ha quindi risposta NO per
+    costruzione, non per un bug risolvibile lato codice.
+    Corretto rendendo il percorso in avanti chiaro invece di lasciare l'utente a chiedersi perche':
+    per ogni area Delegata NON ancora connessa IN QUESTO PROCESSO, stampa qui sotto il comando
+    -AllowInteractive pronto da incollare - completabile SUBITO in questa stessa finestra (mostra
+    un vero device code, l'operatore lo completa nel browser che preferisce), perche' bloccare
+    QUESTA console mentre aspetta e' del tutto accettabile (l'utente la sta guardando apposta),
+    a differenza del processo server della GUI che non puo' mai permetterselo (thread singolo,
+    bloccherebbe tutti). Nessun login viene avviato automaticamente all'apertura (5 device code
+    di fila non richiesti sarebbero fastidiosi) - l'operatore sceglie quali aree gli servono
+    davvero in QUESTA sessione.
+
     "Deve seguire il tenant" (richiesta esplicita, stessa frase): questa finestra NON e' isolata
     per tenant come i sottoprocessi MCP (Connect-M365OpsMcpServer.ps1, che restano vivi apposta
     cambiando tenant) - e' intenzionalmente legata al tenant che era attivo al momento
@@ -54,6 +76,26 @@ foreach ($r in $connectResult.Results) {
     else { Write-Host "  ERR $($r.Name): $($r.Message)" -ForegroundColor Red }
 }
 if ($connectResult.Message) { Write-Host $connectResult.Message -ForegroundColor Yellow }
+
+# Su Delegato, per ciascuna area NON connessa IN QUESTO PROCESSO (vedi .SYNOPSIS per il perche'
+# una sessione gia' attiva nel processo server non e' mai visibile qui), il comando pronto da
+# incollare per completarla subito, qui, con un vero login interattivo - questa finestra puo'
+# permettersi di bloccarsi in attesa (l'operatore la sta guardando), a differenza del server.
+if ($connectResult.AuthMode -eq 'Delegated') {
+    $interactiveCmdByArea = [ordered]@{
+        'Exchange Online'                  = 'Connect-M365OpsExchange -AllowInteractive'
+        'Microsoft Teams'                  = 'Connect-M365OpsTeams -AllowInteractive'
+        'SharePoint'                        = 'Connect-M365OpsSharePoint -AllowInteractive'
+        'Security & Compliance (Purview)'  = 'Connect-M365OpsCompliance -AllowInteractive'
+        'Intune'                            = 'Connect-M365OpsIntune -AllowInteractive'
+    }
+    $missing = @($connectResult.Results | Where-Object { -not $_.Ok -and $interactiveCmdByArea.Contains($_.Name) })
+    if ($missing.Count -gt 0) {
+        Write-Host ""
+        Write-Host "Per usare le cmdlet native di un'area sopra segnata ERR, in QUESTA finestra (login interattivo, un vero device code da completare nel browser):" -ForegroundColor Yellow
+        foreach ($r in $missing) { Write-Host "  $($interactiveCmdByArea[$r.Name])" -ForegroundColor White }
+    }
+}
 
 Write-Host ""
 Write-Host "Sessione PowerShell M365Ops pronta - tenant attivo: $TenantProfile" -ForegroundColor Cyan

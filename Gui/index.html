@@ -2935,19 +2935,24 @@
         } else if (!data.ok) {
           msg.textContent = 'Errore: ' + data.text;
         } else if (data.authMode === 'Delegated') {
-          // Su Delegato le aree che dipendono dal token utente root non vengono tentate (vedi
-          // Connect-M365OpsAllConnections.ps1) - il messaggio spiega perche' e guida al
-          // pulsante giusto. I server MCP (es. CLI Microsoft 365, che puo' avere una propria
-          // connessione salvata indipendente) VENGONO pero' tentati anche qui (corretto il
-          // 31/08/2026, prima saltati del tutto su Delegato) - se data.results ne contiene,
-          // mostrali comunque, altrimenti solo il messaggio di indicazione.
-          msg.textContent = data.message || '';
-          if ((data.results || []).length > 0) {
-            resultsBox.style.display = 'block';
-            resultsBox.innerHTML = (data.results || []).map(r =>
-              `${statusDot(r.ok)}${r.name}${r.ok ? '' : ' — ' + escapeHtmlReconnect(r.message || 'errore sconosciuto')}`
-            ).join('<br>');
-          }
+          // Su Delegato le aree che dipendono dal token utente root non vengono mai FORZATE a
+          // una nuova connessione (vedi Connect-M365OpsAllConnections.ps1: bloccherebbe il
+          // server per tutti) - ma da qui (16/09/2026, bug reale segnalato dal vivo: "ok che non
+          // puo' connettere cio' che richiede l'app, ma il resto??") vengono VERIFICATE sul loro
+          // vero stato attuale, quindi data.results contiene sempre anche Exchange/Teams/
+          // SharePoint/Purview/Intune (non solo i server MCP come prima) - un'area gia' connessa
+          // da un login interattivo fatto in precedenza nella stessa sessione (es. "Accedi con
+          // il mio utente") risulta correttamente OK invece di sparire in un messaggio generico
+          // che ignorava lo stato reale. Stesso riepilogo per-area della modalita' AppOnly,
+          // incluso l'aggiornamento dei riquadri di stato dedicati (applyReconnectResultsToBoxes).
+          const okCount = (data.results || []).filter(r => r.ok).length;
+          const total = (data.results || []).length;
+          msg.textContent = `Verificato ${okCount}/${total}.` + (data.message ? ' ' + data.message : '');
+          resultsBox.style.display = 'block';
+          resultsBox.innerHTML = (data.results || []).map(r =>
+            `${statusDot(r.ok)}${r.name}${r.ok ? '' : ' — ' + escapeHtmlReconnect(r.message || 'errore sconosciuto')}`
+          ).join('<br>');
+          applyReconnectResultsToBoxes(data.results, true);
         } else {
           // Risultati per-area riportati cosi' come sono (mai riassunti in un unico
           // successo/fallimento): un errore su un'area (es. Intune senza consenso admin) non

@@ -13,11 +13,21 @@ function Connect-M365OpsAllConnections {
         SOLO su AppOnly le aree Exchange/Teams/SharePoint/Compliance/Intune e il token Graph
         diretto fanno un lavoro reale: sono tutte certificato/client-secret based, quindi non
         richiedono mai interazione per definizione - stesso principio gia' verificato per
-        ognuna di queste funzioni singolarmente. Su Delegated queste NON vengono tentate:
-        dipendono tutte dallo stesso token utente radice (device code), che dopo una
-        disconnessione completa (token+refresh token scartati) richiede sempre un nuovo login
-        interattivo - tentarle comunque produrrebbe solo una raffica di errori identici e
-        fuorvianti ("serve login interattivo") invece di un'indicazione chiara.
+        ognuna di queste funzioni singolarmente. Su Delegated queste NON vengono mai FORZATE a
+        una nuova connessione (dipendono tutte dallo stesso token utente radice - device code -
+        e chiamarle con -Force senza -AllowInteractive fallirebbe sempre, anche con una sessione
+        gia' valida, dato che -Force scarta il controllo "gia' connesso" a monte) - vengono
+        invece VERIFICATE cosi' come sono (16/09/2026, bug reale segnalato dal vivo dall'utente:
+        "ok che non puo' connettere cio' che richiede l'app, ma il resto??" - la versione
+        precedente saltava TUTTE le 5 aree incondizionatamente, anche quando una o piu' erano
+        gia' connesse da un login interattivo fatto in precedenza nella stessa sessione del
+        server, es. tramite "Accedi con il mio utente"/i pulsanti dedicati Teams/SharePoint/
+        Purview/Intune - un risultato onesto ("gia' connesso", verificato sul vero stato del
+        processo) e' sempre meglio di un messaggio generico che ignora lo stato reale). Solo le
+        aree NON ancora connesse restano segnalate come bisognose di un nuovo login interattivo
+        - mai tentate automaticamente da qui (bloccherebbero il server a thread singolo per
+        tutti, vedi Connect-M365OpsExchange.ps1), l'utente va sempre verso l'azione dedicata
+        giusta per ciascuna.
 
         I SERVER MCP invece vengono tentati SEMPRE, anche su Delegato (corretto il 31/08/2026,
         bug reale trovato dalla maratona di stress-test: prima venivano saltati del tutto su
@@ -74,13 +84,31 @@ function Connect-M365OpsAllConnections {
             }
         }
     } else {
-        # Nessuno di questi passi viene TENTATO su Delegato (vedi .NOTES: richiederebbero tutti
-        # un nuovo login interattivo dopo una disconnessione completa) - ma senza un segnale
-        # esplicito PRIMA dei soli passi MCP che seguono, l'utente vede "Riconnessione in
-        # corso..." restare fermo per la parte piu' grossa (Exchange/Teams/SharePoint/Purview/
-        # Intune) senza sapere se e' normale o se qualcosa si e' bloccato - stesso principio di
-        # "dillo subito, non solo nel messaggio finale" gia' applicato al resto di questo fix.
-        if ($OnProgress) { try { & $OnProgress "Tenant Delegato: Exchange/Teams/SharePoint/Purview/Intune richiedono un nuovo login interattivo - salto questi passi, provo solo i server MCP (possono avere una connessione propria gia' salvata)..." } catch {} }
+        # Ognuna delle 5 aree viene VERIFICATA sul suo vero stato attuale (stessi campi usati da
+        # Get-M365OpsActiveTenantInfo per i pallini di stato in GUI), non piu' saltata a
+        # prescindere - vedi .NOTES per il bug reale che questo corregge. Nessuna di queste
+        # chiamate blocca mai il server: e' una semplice lettura di un flag booleano gia' in
+        # memoria, mai una nuova connessione.
+        $delegatedAreas = @(
+            @{ Name = 'Exchange Online';                 Connected = [bool]$script:M365OpsExchangeConnected;      Hint = "Vai al tab Tenant, sezione 'Stato connessioni', e usa 'Accedi con il mio utente' (Exchange Online)." }
+            @{ Name = 'Microsoft Teams';                 Connected = [bool]$script:M365OpsTeamsConnected;         Hint = "Vai al tab Tenant, sezione 'Stato connessioni', e usa il pulsante dedicato 'Connetti Microsoft Teams'." }
+            @{ Name = 'SharePoint';                       Connected = [bool]$script:M365OpsSharePointConnectedUrl; Hint = "Vai al tab Tenant, sezione 'Stato connessioni', e usa il pulsante dedicato 'Connetti SharePoint'." }
+            @{ Name = 'Security & Compliance (Purview)'; Connected = [bool]$script:M365OpsComplianceConnected;    Hint = "Vai al tab Tenant, sezione 'Stato connessioni', e usa il pulsante dedicato 'Connetti Purview'." }
+            @{ Name = 'Intune';                           Connected = [bool]$script:M365OpsIntuneConnected;        Hint = "Vai al tab Tenant, sezione 'Stato connessioni', e usa il pulsante dedicato 'Connetti Intune'." }
+        )
+        $missingAreas = [System.Collections.Generic.List[string]]::new()
+        foreach ($area in $delegatedAreas) {
+            if ($OnProgress) { try { & $OnProgress "Verifica $($area.Name)..." } catch {} }
+            if ($area.Connected) {
+                $results.Add([pscustomobject]@{ Name = $area.Name; Ok = $true; Message = $null })
+            } else {
+                $missingAreas.Add($area.Name)
+                $results.Add([pscustomobject]@{ Name = $area.Name; Ok = $false; Message = "Richiede un nuovo login interattivo (mai avviato automaticamente da qui, bloccherebbe il server per tutti). $($area.Hint)" })
+            }
+        }
+        if ($missingAreas.Count -gt 0 -and $OnProgress) {
+            try { & $OnProgress "Aree che richiedono un nuovo login interattivo: $($missingAreas -join ', '). Provo comunque i server MCP..." } catch {}
+        }
     }
 
     foreach ($server in @(Get-M365OpsMcpServers)) {
@@ -93,9 +121,14 @@ function Connect-M365OpsAllConnections {
         }
     }
 
+    # Messaggio finale condizionato allo stato VERO appena verificato sopra (16/09/2026, stesso
+    # fix): prima era un testo fisso, sempre lo stesso, anche quando una o piu' aree erano gia'
+    # connesse - ora avvisa solo se resta davvero qualcosa da fare a mano, altrimenti tace (i
+    # risultati per-area, tutti OK, parlano gia' da soli).
+    $delegatedMissingCount = if ($isDelegated) { @($results | Where-Object { -not $_.Ok -and $_.Name -notlike 'MCP:*' }).Count } else { 0 }
     [pscustomobject]@{
         AuthMode = $ctx.AuthMode
         Results  = $results
-        Message  = if ($isDelegated) { "Tenant Delegato: le aree che dipendono dal token utente root (Exchange/Teams/SharePoint/Purview/Intune/Graph diretto) richiedono sempre un nuovo login interattivo dopo una disconnessione completa - usa 'Accedi con il mio utente' qui sotto. I server MCP configurati (es. CLI Microsoft 365) sono stati comunque tentati sopra, dato che possono avere una propria connessione salvata indipendente dal login Graph generico." } else { $null }
+        Message  = if ($isDelegated -and $delegatedMissingCount -gt 0) { "Tenant Delegato: alcune aree richiedono un nuovo login interattivo (dettagli per-area sopra) - mai avviato automaticamente da qui, bloccherebbe il server per tutti dato che gira a thread singolo. Usa l'azione dedicata giusta per ciascuna area mancante." } elseif ($isDelegated) { "Tenant Delegato: tutte le aree gia' verificabili risultano gia' connesse." } else { $null }
     }
 }
