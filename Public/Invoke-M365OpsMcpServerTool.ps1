@@ -38,6 +38,7 @@ function Invoke-M365OpsMcpServerTool {
         $needsConnect = $script:M365OpsMcpProcesses[$tenantName][$ServerName].HasExited
     }
     $script:M365OpsCliJustInstalled = $false
+    $script:M365OpsCliJustUpdated = $null
     if ($needsConnect) { Connect-M365OpsMcpServer -Name $ServerName | Out-Null }
     # Visibilita' sull'auto-installazione silenziosa di CLI Microsoft 365 (31/08/2026,
     # richiesta esplicitamente dall'utente dopo averla vista scattare senza preavviso durante
@@ -47,9 +48,15 @@ function Invoke-M365OpsMcpServerTool {
     # a un server gia' pronto), lo anteponiamo al risultato del tool - l'UNICO punto in cui
     # questo turno di conversazione puo' ancora spiegare all'utente, dentro la risposta finale,
     # perche' e' stato piu' lento del solito, invece di scoprirlo solo nei log del server.
+    # Stesso principio esteso il 16/09/2026 all'auto-aggiornamento (richiesto esplicitamente
+    # dall'utente dopo aver notato le breaking change di CLI Microsoft 365 v11): un
+    # "npm install -g" di aggiornamento e' identico in durata/aspetto a uno di prima
+    # installazione, merita la stessa visibilita' - vedi Assert-M365OpsCliMicrosoft365Installed.ps1.
     $cliInstallNote = ""
     if ($ServerName -eq 'CLI-Microsoft365' -and $script:M365OpsCliJustInstalled) {
         $cliInstallNote = "[Nota: CLI Microsoft 365 non era ancora installata su questo PC - installata ora automaticamente (npm install -g, ~1-2 minuti), la prima volta soltanto. Le richieste successive non ne risentiranno piu'.]`n`n"
+    } elseif ($ServerName -eq 'CLI-Microsoft365' -and $script:M365OpsCliJustUpdated) {
+        $cliInstallNote = "[Nota: trovato un aggiornamento di CLI Microsoft 365 ($($script:M365OpsCliJustUpdated.From) -> $($script:M365OpsCliJustUpdated.To)) - installato ora automaticamente (npm install -g, ~1-2 minuti). Le richieste successive non ne risentiranno piu'.]`n`n"
     }
 
     $process = $script:M365OpsMcpProcesses[$tenantName][$ServerName]
