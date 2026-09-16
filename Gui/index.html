@@ -2860,30 +2860,30 @@
     // fermo in riconnessione in corso sembra freezato" - il server NON era davvero bloccato
     // (verificato subito dopo: rispondeva, tutto risultava connesso), ma "Connetti tutto"
     // concatena 8 passi reali in sequenza (token Graph, Exchange, Teams, SharePoint, Purview,
-    // Intune, 2 server MCP) in UNA sola chiamata HTTP bloccante - senza nessun segnale di
-    // progresso durante l'attesa (che puo' superare 1-2 minuti su un tenant reale, molto piu'
-    // di quanto visto sul tenant di test con tutto gia' cache/installato), un'operazione
-    // solo LENTA e' indistinguibile da una bloccata per sempre. Stesso schema gia' vissuto e
-    // corretto una volta per il solo login Teams (23/08/2026, "sembra che il server sia
-    // crashato" - vedi Start-M365OpsIsolatedModuleConnectAsync.ps1), qui riemerso perche'
-    // "Connetti tutto" e' codice nuovo che non passava da quel percorso. Non e' stato reso
-    // asincrono (richiederebbe spostare token/sessioni su un processo isolato separato, che
-    // per Exchange/Teams esiste gia' solo come RISPOSTA a un conflitto .NET rilevato, non come
-    // percorso normale - riusarlo qui per tutti gli 8 passi sarebbe un cambiamento molto piu'
-    // ampio e rischioso di quanto serva per il problema reale, che e' solo di percezione/
-    // trasparenza) - corretto invece rendendo l'attesa onesta: un messaggio iniziale che
-    // avvisa della durata attesa, piu' un contatore di secondi trascorsi aggiornato ogni
-    // secondo lato client (che il server non puo' fornire, essendo la richiesta HTTP unica e
-    // bloccante) - prova visibile che la scheda del browser NON e' bloccata, anche se il
-    // server non puo' ancora rispondere.
+    // Intune, 2 server MCP) in UNA sola chiamata HTTP bloccante.
+    //
+    // 16/09/2026, richiesta esplicita dell'utente ("non mi dice cosa sta facendo... vorrei non
+    // lasciare sospeso l'utente in questa fase, dovrebbe dire ad esempio connetto exo poi shp
+    // etc, se serve interazione utente glielo deve dire"): il contatore di secondi qui sotto
+    // (dato onesto ma generico, "sto ancora lavorando" senza dire COSA) e' stato affiancato da
+    // un segnale REALE per passo, letto man mano che arriva - non alla fine. Il server (vedi
+    // POST /api/reconnect-all, Gui\Server.ps1) e' a thread singolo e non puo' rispondere a una
+    // richiesta di polling separata mentre questa e' ancora in corso, quindi il progresso
+    // arriva sulla STESSA risposta HTTP, in streaming (NDJSON, una riga per passo, l'ultima
+    // riga e' il risultato finale) - letto qui con un ReadableStream reader invece del solito
+    // `await res.json()`, che aspetterebbe la chiusura della risposta prima di restituire
+    // qualunque cosa.
     let elapsedSeconds = 0;
     const initialMsg = mode === 'disconnect'
       ? 'Disconnessione in corso...'
-      : 'Riconnessione in corso... può richiedere fino a 2-3 minuti (connette Exchange/Teams/SharePoint/Purview/Intune/MCP in sequenza) - non chiudere la pagina.';
+      : 'Riconnessione in corso...';
     msg.textContent = initialMsg;
+    let lastStage = '';
+    const renderMsg = () => { msg.textContent = `${lastStage || initialMsg} (${elapsedSeconds}s)`; };
+    renderMsg();
     const elapsedTimer = setInterval(() => {
       elapsedSeconds++;
-      msg.textContent = `${initialMsg} (${elapsedSeconds}s)`;
+      renderMsg();
     }, 1000);
     try {
       if (mode === 'disconnect') {
@@ -2903,9 +2903,36 @@
         }
       } else {
         const res = await fetch('/api/reconnect-all', { method: 'POST' });
-        const data = await res.json();
+        // Lettura NDJSON progressiva: ogni riga completa (terminata da '\n') viene elaborata
+        // subito, un eventuale frammento incompleto a fine chunk resta in coda ('buffer') fino
+        // al pezzo successivo - un chunk TCP puo' spezzare una riga JSON in qualunque punto,
+        // non c'e' garanzia che coincida con gli attimi in cui il server ha chiamato Flush().
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let data = null;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            let obj;
+            try { obj = JSON.parse(line); } catch (e) { continue; }
+            if (obj.type === 'progress') {
+              lastStage = obj.stage || '';
+              renderMsg();
+            } else if (obj.type === 'final') {
+              data = obj;
+            }
+          }
+        }
         clearInterval(elapsedTimer);
-        if (!data.ok) {
+        if (!data) {
+          msg.textContent = 'Errore: nessuna risposta finale ricevuta dal server.';
+        } else if (!data.ok) {
           msg.textContent = 'Errore: ' + data.text;
         } else if (data.authMode === 'Delegated') {
           // Su Delegato le aree che dipendono dal token utente root non vengono tentate (vedi

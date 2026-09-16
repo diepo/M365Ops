@@ -2407,18 +2407,59 @@ try {
                     # Delegated). Risultati per-area riportati cosi' com'e' alla GUI, mai
                     # riassunti: un fallimento su un'area (es. Intune senza consenso admin) non
                     # deve nascondere il successo delle altre, ne' viceversa.
+                    #
+                    # Progresso in tempo reale (16/09/2026, richiesto esplicitamente dall'utente:
+                    # "mi scrive riconnessione in corso ma non mi dice cosa sta facendo... se
+                    # serve interazione utente gliel deve dire, come nel caso del delegated
+                    # mode"). PRIMO TENTATIVO scartato PRIMA di essere pubblicato: un file di
+                    # stage pollato da un secondo endpoint, sullo stesso schema gia' in uso per
+                    # l'avvio dell'app (Write-M365OpsStartupStage/Config\startup-stage.txt) - non
+                    # funziona qui, a differenza di li'. Launch-M365Ops.ps1 e' un PROCESSO
+                    # ESTERNO che legge il file direttamente dal disco; qui invece il polling
+                    # dovrebbe passare da una SECONDA richiesta HTTP verso QUESTO STESSO server,
+                    # che pero' e' a thread singolo (vedi il ciclo $listener.GetContext() qui
+                    # sotto) - mentre questo case e' in esecuzione, il server non chiama piu'
+                    # GetContext() e non puo' rispondere a NESSUNA altra richiesta, incluso il
+                    # polling stesso: arriverebbe in coda e risponderebbe tutto insieme solo alla
+                    # fine, esattamente il problema di prima travestito da soluzione.
+                    #
+                    # Corretto invece con una risposta HTTP in STREAMING (chunked) sulla stessa,
+                    # unica richiesta - nessuna seconda richiesta, nessun problema di
+                    # concorrenza: -OnProgress scrive una riga NDJSON e la invia subito
+                    # (OutputStream.Write + Flush) ad ogni passo, PRIMA che il passo stesso
+                    # inizi, poi l'ultima riga porta il risultato finale completo - il browser
+                    # (vedi loadInfraDiagram... ndr, in realta' il click handler di
+                    # disconnect-all-btn in Gui\index.html) legge le righe man mano che arrivano
+                    # con un ReadableStream reader, non aspettando la fine come un fetch normale.
+                    # Scrive DIRETTAMENTE su $response.OutputStream invece di passare dal
+                    # consueto $responseBytes (scritto in coda dopo lo switch, vedi sotto): quel
+                    # punto condiviso resta saltato qui lasciando $responseBytes a $null (guardia
+                    # aggiunta li' apposta).
+                    $response.SendChunked = $true
+                    $contentType = "application/x-ndjson; charset=utf-8"
+                    $response.ContentType = $contentType
+                    $writeNdjsonLine = {
+                        param($obj)
+                        try {
+                            $lineBytes = [System.Text.Encoding]::UTF8.GetBytes(((ConvertTo-Json -InputObject $obj -Compress -Depth 5) + "`n"))
+                            $response.OutputStream.Write($lineBytes, 0, $lineBytes.Length)
+                            $response.OutputStream.Flush()
+                        } catch {}
+                    }.GetNewClosure()
                     try {
-                        $result = Connect-M365OpsAllConnections
-                        $json = (@{
+                        $onProgress = { param($stage) & $writeNdjsonLine @{ type = 'progress'; stage = $stage } }.GetNewClosure()
+                        $result = Connect-M365OpsAllConnections -OnProgress $onProgress
+                        & $writeNdjsonLine @{
+                            type     = 'final'
                             ok       = $true
                             authMode = $result.AuthMode
                             message  = $result.Message
                             results  = @($result.Results | ForEach-Object { @{ name = $_.Name; ok = $_.Ok; message = $_.Message } })
-                        } | ConvertTo-Json -Compress -Depth 5)
+                        }
                     } catch {
-                        $json = (@{ ok = $false; text = "Errore: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+                        & $writeNdjsonLine @{ type = 'final'; ok = $false; text = "Errore: $($_.Exception.Message)" }
                     }
-                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                    $responseBytes = $null
                 }
                 "POST /api/lokka-reconnect" {
                     try {
@@ -3105,29 +3146,36 @@ try {
                 }
             }
 
-            $response.ContentType = $contentType
-            # try/catch dedicato (23/08/2026, bug reale segnalato dal vivo nei log: "Errore
-            # interno: Exception calling 'Write' with '3' argument(s): 'Bytes to be written to
-            # the stream exceed the Content-Length bytes size specified.'"): questa scrittura
-            # NON aveva una protezione propria, a differenza di quella di fallback subito sotto
-            # (commento del 18/08/2026 li' sotto, stesso principio) - se il client si disconnette
-            # (tab chiusa, timeout del browser, fetch abortito) esattamente durante l'invio del
-            # corpo della risposta, HttpListenerResponse puo' rifiutare il resto della scrittura
-            # con questo identico messaggio fuorviante (parla di "Content-Length" ma la causa
-            # reale e' il client sparito a meta', non un bug di conteggio byte: $responseBytes.Length
-            # e' sempre coerente, costruito una riga sopra dallo stesso valore). Senza questo
-            # try/catch, l'eccezione risaliva al blocco catch generico sotto, che poi tentava
-            # un SECONDO Write (la risposta d'errore) sullo stesso stream gia' compromesso -
-            # quel secondo tentativo falliva a sua volta con lo stesso identico errore criptico,
-            # loggato come "Errore interno" allarmante anche se si tratta solo di un client gia'
-            # andato via, mai un vero problema del server. Ora classificato correttamente: loggato
-            # come nota informativa (Info, non Error) e la richiesta finisce qui, senza secondo
-            # tentativo di scrittura ne' comparsa nel log come errore.
-            try {
-                $response.ContentLength64 = $responseBytes.Length
-                $response.OutputStream.Write($responseBytes, 0, $responseBytes.Length)
-            } catch {
-                Write-M365OpsLog "Risposta non completata (client disconnesso durante l'invio, es. tab chiusa o fetch interrotto) - non e' un errore del server: $($_.Exception.Message)"
+            # Guardia (16/09/2026): $responseBytes resta $null per le route che hanno gia'
+            # scritto e chiuso la propria risposta da sole in streaming (vedi "POST
+            # /api/reconnect-all" sopra, SendChunked) - richiamare ContentType/Write qui
+            # lancerebbe ("operazione non permessa dopo che la risposta e' gia' iniziata"), dato
+            # che quella route ha gia' inviato dati sullo stream con la propria intestazione.
+            if ($null -ne $responseBytes) {
+                $response.ContentType = $contentType
+                # try/catch dedicato (23/08/2026, bug reale segnalato dal vivo nei log: "Errore
+                # interno: Exception calling 'Write' with '3' argument(s): 'Bytes to be written to
+                # the stream exceed the Content-Length bytes size specified.'"): questa scrittura
+                # NON aveva una protezione propria, a differenza di quella di fallback subito sotto
+                # (commento del 18/08/2026 li' sotto, stesso principio) - se il client si disconnette
+                # (tab chiusa, timeout del browser, fetch abortito) esattamente durante l'invio del
+                # corpo della risposta, HttpListenerResponse puo' rifiutare il resto della scrittura
+                # con questo identico messaggio fuorviante (parla di "Content-Length" ma la causa
+                # reale e' il client sparito a meta', non un bug di conteggio byte: $responseBytes.Length
+                # e' sempre coerente, costruito una riga sopra dallo stesso valore). Senza questo
+                # try/catch, l'eccezione risaliva al blocco catch generico sotto, che poi tentava
+                # un SECONDO Write (la risposta d'errore) sullo stesso stream gia' compromesso -
+                # quel secondo tentativo falliva a sua volta con lo stesso identico errore criptico,
+                # loggato come "Errore interno" allarmante anche se si tratta solo di un client gia'
+                # andato via, mai un vero problema del server. Ora classificato correttamente: loggato
+                # come nota informativa (Info, non Error) e la richiesta finisce qui, senza secondo
+                # tentativo di scrittura ne' comparsa nel log come errore.
+                try {
+                    $response.ContentLength64 = $responseBytes.Length
+                    $response.OutputStream.Write($responseBytes, 0, $responseBytes.Length)
+                } catch {
+                    Write-M365OpsLog "Risposta non completata (client disconnesso durante l'invio, es. tab chiusa o fetch interrotto) - non e' un errore del server: $($_.Exception.Message)"
+                }
             }
         }
         catch {

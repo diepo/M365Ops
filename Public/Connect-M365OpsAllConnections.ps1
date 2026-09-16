@@ -35,7 +35,20 @@ function Connect-M365OpsAllConnections {
         blocca i fratelli) - stesso principio gia' applicato sistematicamente altrove nel
         progetto contro la classe di bug "un passo fallito blocca i passi fratelli
         indipendenti" (v0.10.17).
+    .PARAMETER OnProgress
+        Scriptblock opzionale, invocato con una singola stringa descrittiva PRIMA di iniziare
+        ciascun passo (16/09/2026, richiesto esplicitamente dall'utente: "quando clicco connetti
+        tutto mi scrive riconnessione in corso ma non mi dice cosa sta facendo... vorrei non
+        lasciare sospeso l'utente in questa fase" - prima di questo l'unico segnale durante
+        un'operazione che puo' durare 1-3 minuti era un contatore di secondi lato client, nessuna
+        indicazione di COSA stesse effettivamente succedendo in quel momento). Pensato per
+        Gui\Server.ps1 (POST /api/reconnect-all), che lo usa per scrivere un file di stage
+        pollato dalla GUI (stesso principio gia' in uso per l'avvio dell'app, vedi
+        Write-M365OpsStartupStage/Config\startup-stage.txt) - ma resta un parametro generico, non
+        legato alla GUI: chiamato senza -OnProgress il comportamento e' identico a prima.
     #>
+    param([scriptblock]$OnProgress)
+
     if (-not $script:M365OpsContext) { throw "Nessun tenant attivo." }
     $ctx = $script:M365OpsContext
     $isDelegated = $ctx.AuthMode -eq 'Delegated'
@@ -52,6 +65,7 @@ function Connect-M365OpsAllConnections {
             @{ Name = 'Intune';                            Action = { Connect-M365OpsIntune -Force } }
         )
         foreach ($step in $steps) {
+            if ($OnProgress) { try { & $OnProgress "Connessione a $($step.Name)..." } catch {} }
             try {
                 & $step.Action
                 $results.Add([pscustomobject]@{ Name = $step.Name; Ok = $true; Message = $null })
@@ -59,9 +73,18 @@ function Connect-M365OpsAllConnections {
                 $results.Add([pscustomobject]@{ Name = $step.Name; Ok = $false; Message = $_.Exception.Message })
             }
         }
+    } else {
+        # Nessuno di questi passi viene TENTATO su Delegato (vedi .NOTES: richiederebbero tutti
+        # un nuovo login interattivo dopo una disconnessione completa) - ma senza un segnale
+        # esplicito PRIMA dei soli passi MCP che seguono, l'utente vede "Riconnessione in
+        # corso..." restare fermo per la parte piu' grossa (Exchange/Teams/SharePoint/Purview/
+        # Intune) senza sapere se e' normale o se qualcosa si e' bloccato - stesso principio di
+        # "dillo subito, non solo nel messaggio finale" gia' applicato al resto di questo fix.
+        if ($OnProgress) { try { & $OnProgress "Tenant Delegato: Exchange/Teams/SharePoint/Purview/Intune richiedono un nuovo login interattivo - salto questi passi, provo solo i server MCP (possono avere una connessione propria gia' salvata)..." } catch {} }
     }
 
     foreach ($server in @(Get-M365OpsMcpServers)) {
+        if ($OnProgress) { try { & $OnProgress "Connessione al server MCP '$($server.Name)'..." } catch {} }
         try {
             Connect-M365OpsMcpServer -Name $server.Name -Force | Out-Null
             $results.Add([pscustomobject]@{ Name = "MCP: $($server.Name)"; Ok = $true; Message = $null })
