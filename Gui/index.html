@@ -360,6 +360,7 @@
     <button id="script-request-toggle-btn" class="header-btn" title="Chiedi la creazione di un nuovo script/comando personalizzato, senza dover scrivere tu il prompt tecnico completo">🧩 Richiesta script</button>
     <button id="infra-toggle-btn" class="header-btn" title="Disegna l'infrastruttura di questo tenant - on-prem, ibrida o multi-cloud">🗺️ Infrastruttura</button>
     <button id="permissions-check-btn" class="header-btn" title="Verifica quali permessi ha davvero l'app registrata su questo tenant">🔐 Stato permessi</button>
+    <button id="open-powershell-btn" class="header-btn" title="Apre una finestra PowerShell gia' collegata al tenant attivo - si chiude automaticamente cambiando tenant">🖥️ PowerShell</button>
     <button id="settings-btn" class="header-btn">⚙ Impostazioni tenant</button>
   </div>
 </header>
@@ -888,6 +889,7 @@
   const aiBadge = document.getElementById('ai-badge');
   const settingsBtn = document.getElementById('settings-btn');
   const permissionsCheckBtn = document.getElementById('permissions-check-btn');
+  const openPowerShellBtn = document.getElementById('open-powershell-btn');
   const uploadToggleBtn = document.getElementById('upload-toggle-btn');
   const uploadPanel = document.getElementById('upload-panel');
   const themeToggleBtn = document.getElementById('theme-toggle-btn');
@@ -2034,12 +2036,27 @@
         // istante, se il tab e' aperto in questo momento - stesso principio di isolamento
         // gia' applicato allo storico chat qui sopra.
         if (document.getElementById('tab-kb').style.display !== 'none') { loadKnowledgeBase(); }
-        // Stesso principio per il diagramma infrastruttura (25/08/2026): mai lasciare visibile
-        // quello del tenant precedente se il pannello e' aperto in questo momento. getElementById
-        // diretto invece di una costante gia' in scope qui (come sopra per '#tab-kb'): questa
-        // funzione e' definita PRIMA, nel file, del blocco che dichiara la costante infraPanel -
-        // usarla qui creerebbe una dipendenza dall'ordine di esecuzione dello script.
-        if (document.getElementById('infra-panel').classList.contains('open')) { loadInfraDiagram(); }
+        // Stesso principio per il diagramma infrastruttura (25/08/2026, esteso l'11/09/2026):
+        // mai lasciare visibile quello del tenant precedente. getElementById diretto invece di
+        // una costante gia' in scope qui (come sopra per '#tab-kb'): questa funzione e' definita
+        // PRIMA, nel file, del blocco che dichiara la costante infraPanel - usarla qui creerebbe
+        // una dipendenza dall'ordine di esecuzione dello script.
+        //
+        // Bug reale trovato l'11/09/2026 mentre si verificava questo stesso meccanismo su
+        // richiesta dell'utente ("il disegno fatto dentro un tenant non deve andare nell'altro
+        // e quando si cambia tenant si deve trovare l'eventuale disegno di quel tenant"): se il
+        // pannello NON e' aperto al momento del cambio, il ramo sotto non veniva mai eseguito -
+        // ma 'infraLoadedOnce' restava comunque 'true' da quando il pannello era stato aperto
+        // l'ULTIMA volta (per il tenant PRECEDENTE), quindi la prossima apertura (righe piu' in
+        // basso, sui due listener di toggle) saltava il reload perche' "gia' caricato una
+        // volta" - mostrando il diagramma del tenant sbagliato finche' non si premeva "Ricarica"
+        // a mano. I dati sul server erano SEMPRE corretti (Get/Set-M365OpsInfraDiagram sono gia'
+        // per tenant reale, non per profilo - vedi Get-M365OpsTenantStorageKey), il bug era solo
+        // qui, nel non-reset del flag lato client. Ora il flag si azzera SEMPRE ad ogni cambio
+        // tenant, pannello aperto o no - se e' aperto, si ricarica anche subito (comportamento
+        // gia' esistente, invariato).
+        infraLoadedOnce = false;
+        if (document.getElementById('infra-panel').classList.contains('open')) { infraLoadedOnce = true; loadInfraDiagram(); }
       } else {
         settingsStatus.textContent = 'Errore: ' + (data.text || 'sconosciuto');
       }
@@ -3650,6 +3667,28 @@
   }
 
   permissionsCheckBtn.addEventListener('click', () => sendMessage('verifica permessi app'));
+
+  // Pulsante "🖥️ PowerShell" (11/09/2026, richiesto esplicitamente dall'utente): apre una vera
+  // finestra PowerShell OS-level, non gestibile via fetch come le altre azioni - il server la
+  // spawna e ne tiene traccia lui stesso per poterla chiudere al prossimo cambio tenant (vedi
+  // POST /api/tenants/activate). Qui serve solo dare un feedback chiaro in chat, mai far finta
+  // che sia "aperta" senza controllare davvero la risposta del server.
+  openPowerShellBtn.addEventListener('click', async () => {
+    openPowerShellBtn.disabled = true;
+    try {
+      const res = await fetch('/api/open-powershell', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        addMessage('system', 'Finestra PowerShell aperta, collegata al tenant attivo. Si chiudera\' automaticamente se cambi tenant da qui.');
+      } else {
+        addMessage('error', 'Apertura PowerShell fallita: ' + (data.text || 'errore sconosciuto'));
+      }
+    } catch (e) {
+      addMessage('error', 'Errore di comunicazione: ' + e.message);
+    } finally {
+      openPowerShellBtn.disabled = false;
+    }
+  });
 
   // ============================================================
   // Editor "Infrastruttura tenant" (25/08/2026, richiesto esplicitamente dall'utente: sezione

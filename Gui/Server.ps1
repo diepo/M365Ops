@@ -2694,11 +2694,64 @@ try {
                     $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
                     $body = $reader.ReadToEnd() | ConvertFrom-Json
                     try {
+                        # Chiude ogni finestra PowerShell aperta dal pulsante "🖥️ PowerShell" per il
+                        # tenant PRECEDENTE (11/09/2026, richiesto esplicitamente dall'utente: "deve
+                        # seguire il tenant" - se cambio tenant, quel PS deve disconnettersi/chiudersi).
+                        # Stesso principio gia' applicato a Exchange/Teams/SharePoint/Compliance dentro
+                        # Connect-M365Ops: nessuno stato autenticato del tenant precedente deve restare
+                        # vivo dopo un cambio, qui a maggior ragione perche' e' una finestra interattiva
+                        # visibile all'operatore, non solo uno stato interno del processo server.
+                        # CloseMainWindow() prima (permette a pwsh di uscire pulito se e' al prompt
+                        # inattivo, il caso comune), Kill() come fallback se non si chiude entro 500ms
+                        # (es. un comando ancora in esecuzione dentro quella finestra).
+                        if ($script:OpenPowerShellProcesses) {
+                            foreach ($p in $script:OpenPowerShellProcesses) {
+                                try {
+                                    if (-not $p.HasExited) {
+                                        $p.CloseMainWindow() | Out-Null
+                                        Start-Sleep -Milliseconds 500
+                                        if (-not $p.HasExited) { $p.Kill() }
+                                    }
+                                } catch {}
+                            }
+                            $script:OpenPowerShellProcesses = @()
+                        }
                         Connect-M365Ops -TenantProfile $body.name
                         $script:ActiveTenantProfile = $body.name
                         $script:LastGroupId = $null
                         $script:LastAppId = $null
                         $script:PendingAction = $null
+                        $json = (@{ ok = $true } | ConvertTo-Json -Compress)
+                    }
+                    catch {
+                        $json = (@{ ok = $false; text = $_.Exception.Message } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/open-powershell" {
+                    # Pulsante "🖥️ PowerShell" in toolbar (11/09/2026, richiesto esplicitamente
+                    # dall'utente) - apre una finestra pwsh.exe VISIBILE e interattiva, gia' collegata
+                    # al tenant attivo (Tools\Open-M365OpsShell.ps1: Import-Module + Connect-M365Ops),
+                    # cosi' l'operatore puo' usare direttamente le cmdlet del modulo (le stesse della
+                    # chat/IA) senza doverle reinventare a mano. Vedi POST /api/tenants/activate sopra
+                    # per la chiusura automatica al cambio tenant.
+                    try {
+                        if (-not $script:ActiveTenantProfile) { throw "Nessun tenant attivo - attiva prima un profilo dal tab Tenant." }
+                        # Stesso pwsh.exe che sta gia' eseguendo QUESTO server (Get-Process -Id $PID),
+                        # non una nuova risoluzione via Get-Command/PATH - stesso principio gia' in uso
+                        # nel ramo di riavvio server qui sotto (RestartRequested), evita qualunque
+                        # ambiguita' se questo PC ha piu' installazioni di PowerShell nel PATH.
+                        $pwshPath = (Get-Process -Id $PID).Path
+                        if (-not $pwshPath -or -not (Test-Path $pwshPath)) { throw "Impossibile risolvere l'eseguibile PowerShell di questo processo." }
+                        $shellScript = Join-Path $moduleRoot 'Tools\Open-M365OpsShell.ps1'
+                        # -STA (stesso motivo del riavvio server sotto): una cmdlet lanciata da questa
+                        # finestra potrebbe aprire un login interattivo SharePoint/Teams basato su
+                        # WinForms/WebBrowser, che richiede un thread STA. NIENTE -WindowStyle Hidden
+                        # qui: a differenza di ogni altro Start-Process di questo file, questa finestra
+                        # e' pensata apposta per essere vista e usata dall'operatore.
+                        $proc = Start-Process -FilePath $pwshPath -ArgumentList @('-NoExit', '-NoProfile', '-STA', '-File', $shellScript, '-ModuleRoot', $moduleRoot, '-TenantProfile', $script:ActiveTenantProfile) -PassThru
+                        if (-not $script:OpenPowerShellProcesses) { $script:OpenPowerShellProcesses = @() }
+                        $script:OpenPowerShellProcesses += $proc
                         $json = (@{ ok = $true } | ConvertTo-Json -Compress)
                     }
                     catch {
