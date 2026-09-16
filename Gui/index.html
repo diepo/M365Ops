@@ -3777,6 +3777,29 @@
     Other:            { icon: '⚪', color: '#9ca3af', label: 'Altro' }
   };
   function infraTypeInfo(t) { return INFRA_TYPES[t] || INFRA_TYPES.Other; }
+
+  // Adattamento automatico del testo nei nodi (16/09/2026, segnalato dal vivo dall'utente con
+  // uno screenshot: "Exchange mailbox server" usciva dal rettangolo del nodo) - il box e' a
+  // dimensione FISSA (120x48, vedi renderInfraCanvas: le maniglie di connessione e i punti di
+  // aggancio degli edge assumono gia' 120x48 in piu' punti, cambiarla per-nodo richiederebbe
+  // toccare anche quel calcolo) - corretto invece troncando il TESTO con puntini di sospensione
+  // quando non entra, non ridimensionando il box. Misura reale via un canvas 2D offscreen
+  // condiviso (stesso font della pagina, non una stima a caratteri fissi: un font proporzionale
+  // rende una "i" molto piu' stretta di una "M", una stima a caratteri fissi sbaglierebbe in
+  // entrambe le direzioni) invece di indovinare una lunghezza massima in caratteri.
+  const infraMeasureCanvas = document.createElement('canvas');
+  const infraMeasureCtx = infraMeasureCanvas.getContext('2d');
+  function infraFitText(text, maxWidthPx, fontSizePx) {
+    if (!text) return '';
+    infraMeasureCtx.font = fontSizePx + 'px "Segoe UI Variable", "Segoe UI", system-ui, sans-serif';
+    if (infraMeasureCtx.measureText(text).width <= maxWidthPx) return text;
+    let lo = 0, hi = text.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (infraMeasureCtx.measureText(text.slice(0, mid) + '…').width <= maxWidthPx) { lo = mid; } else { hi = mid - 1; }
+    }
+    return lo > 0 ? text.slice(0, lo) + '…' : '…';
+  }
   function escapeHtmlInfra(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
@@ -3905,14 +3928,21 @@
     });
 
     let nodesSvg = '';
+    // 120 (larghezza box) - 32 (x iniziale del testo, dopo la colonna icona) - 8 (margine prima
+    // del bordo destro/maniglia di connessione) = spazio reale disponibile per il testo.
+    const INFRA_NODE_TEXT_MAX_WIDTH = 80;
     infraNodes.forEach(n => {
       const info = infraTypeInfo(n.type);
       const selClass = (infraSelectedKind === 'node' && infraSelectedId === n.id) ? ' selected' : '';
+      const fullName = n.name || '(senza nome)';
+      const fullRole = n.role || info.label;
+      const fitName = infraFitText(fullName, INFRA_NODE_TEXT_MAX_WIDTH, 11.5);
+      const fitRole = infraFitText(fullRole, INFRA_NODE_TEXT_MAX_WIDTH, 10);
       nodesSvg += '<g class="infra-node-group" data-node-id="' + n.id + '" transform="translate(' + n.x + ',' + n.y + ')">'
         + '<rect class="infra-node-box' + selClass + '" width="120" height="48" rx="8" stroke="' + info.color + '"></rect>'
         + '<text class="infra-node-type-icon" x="10" y="23">' + info.icon + '</text>'
-        + '<text class="infra-node-label" x="32" y="20">' + escapeHtmlInfra(n.name || '(senza nome)') + '</text>'
-        + '<text class="infra-node-label" x="32" y="35" style="fill:var(--text-faint); font-size:10px;">' + escapeHtmlInfra(n.role || info.label) + '</text>'
+        + '<text class="infra-node-label" x="32" y="20">' + escapeHtmlInfra(fitName) + (fitName !== fullName ? '<title>' + escapeHtmlInfra(fullName) + '</title>' : '') + '</text>'
+        + '<text class="infra-node-label" x="32" y="35" style="fill:var(--text-faint); font-size:10px;">' + escapeHtmlInfra(fitRole) + (fitRole !== fullRole ? '<title>' + escapeHtmlInfra(fullRole) + '</title>' : '') + '</text>'
         + '<circle class="infra-connect-handle" cx="120" cy="24" r="6"></circle>'
         + '</g>';
     });
