@@ -107,7 +107,9 @@ function Invoke-M365OpsAgent {
             # sotto (/openai/deployments/{deployment}/chat/completions) va sempre applicato
             # alla RADICE della risorsa - senza normalizzare, incollare la seconda forma
             # produrrebbe un URL con "/openai/" ripetuto due volte (bug reale riscontrato).
-            $endpointRoot = $endpoint.TrimEnd('/') -replace '/openai/v1$', '' -replace '/openai$', ''
+            # Qualunque forma incollata (classica, Project endpoint, "Target URI" completo di un
+            # deployment) - vedi Get-M365OpsAzureOpenAIEndpointInfo (21/09/2026).
+            $endpointRoot = (Get-M365OpsAzureOpenAIEndpointInfo -Endpoint $endpoint).Root
             $uri = "$endpointRoot/openai/deployments/$deployment/chat/completions?api-version=2024-06-01"
             $headers = @{ "api-key" = $apiKey; "Content-Type" = "application/json" }
 

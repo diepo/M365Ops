@@ -9,7 +9,7 @@ function Test-M365OpsAiConnection {
         [ValidateSet('Claude', 'AzureOpenAI')] [string]$Provider = 'Claude'
     )
     try {
-        $reply = Invoke-M365OpsAgent -Prompt "Rispondi solo con la parola: OK" -Provider $Provider -MaxTokens 10
+        $reply = Invoke-M365OpsAgent -Prompt "Rispondi solo con la parola: OK" -Provider $Provider -MaxTokens 400
         [pscustomobject]@{ Provider = $Provider; Ok = $true; Message = "Connesso. Risposta: $($reply.Trim())" }
     }
     catch {

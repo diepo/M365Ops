@@ -1452,7 +1452,10 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
             # (https://risorsa.openai.azure.com/) sia il piu' recente "Project endpoint" di
             # Azure AI Foundry (https://risorsa.services.ai.azure.com/openai/v1) - senza
             # normalizzare, la seconda forma produce un URL con "/openai/" duplicato.
-            $azureEndpointRoot = $azureEndpoint.TrimEnd('/') -replace '/openai/v1$', '' -replace '/openai$', ''
+            # Qualunque forma incollata (classica, Project endpoint, "Target URI" completo di un
+            # deployment) - vedi Get-M365OpsAzureOpenAIEndpointInfo (21/09/2026): incollare il
+            # Target URI intero produceva un percorso duplicato e un 404 su ogni chiamata.
+            $azureEndpointRoot = (Get-M365OpsAzureOpenAIEndpointInfo -Endpoint $azureEndpoint).Root
             $azureUri = "$azureEndpointRoot/openai/deployments/$azureDeployment/chat/completions?api-version=2024-06-01"
             $azureHeaders = @{ "api-key" = $azureKey; "Content-Type" = "application/json" }
             # -Depth 20, non 12: bug reale del 17/08/2026, Azure ha rifiutato l'intero schema

@@ -23,6 +23,22 @@ function Write-M365OpsStartupStage {
 
 Write-M365OpsStartupStage "Import del modulo PowerShell (350+ file)..."
 Import-Module (Join-Path $moduleRoot 'M365Ops.psd1') -Force
+
+# Impostazioni AI: il valore UTENTE (quello che scrive il tab "Motore AI" e che l'utente aggiorna) deve
+# vincere su una copia ereditata dal processo che ha lanciato il server (21/09/2026, bug reale: dopo aver
+# cambiato risorsa Azure OpenAI l'app continuava a usare la chiave/il deployment della risorsa PRECEDENTE,
+# ereditati all'avvio da un ambiente piu' vecchio - Get-M365OpsSecret legge PRIMA lo scope Process, quindi
+# una copia stantia oscurava per sempre il valore nuovo -> 401/404 "inspiegabili" con impostazioni giuste).
+# Solo se il valore utente ESISTE: una variabile fornita solo dal launcher/da Machine (es. provisioning di
+# una VM) non viene mai toccata.
+foreach ($aiVarName in 'AZURE_OPENAI_KEY', 'AZURE_OPENAI_ENDPOINT', 'AZURE_OPENAI_DEPLOYMENT', 'AZURE_OPENAI_REASONING_EFFORT', 'AZURE_OPENAI_KEYVAULT_URI', 'AZURE_OPENAI_KEYVAULT_SECRET', 'AZURE_OPENAI_KEYVAULT_CLIENT_ID', 'ANTHROPIC_API_KEY') {
+    $userValue = [System.Environment]::GetEnvironmentVariable($aiVarName, 'User')
+    if ($userValue -and $userValue -ne [System.Environment]::GetEnvironmentVariable($aiVarName, 'Process')) {
+        [System.Environment]::SetEnvironmentVariable($aiVarName, $userValue, 'Process')
+        Write-M365OpsLog "Impostazione ${aiVarName}: il valore del processo era diverso da quello utente - allineato a quello utente (mai il valore nel log)."
+    }
+}
+
 . (Join-Path $PSScriptRoot 'CommandCatalog.ps1')
 
 # Controllo prerequisiti (Node.js, Microsoft Edge, moduli PowerShell) PRIMA di connettersi al
@@ -2177,9 +2193,34 @@ try {
                     if ($body.apiKey) {
                         $varName = if ($body.provider -eq 'AzureOpenAI') { 'AZURE_OPENAI_KEY' } else { 'ANTHROPIC_API_KEY' }
                         [System.Environment]::SetEnvironmentVariable($varName, $body.apiKey, [System.EnvironmentVariableTarget]::User)
+                        # Anche lo scope Process (21/09/2026): Get-M365OpsSecret legge PRIMA quello - una
+                        # chiave nuova salvata solo come User restava oscurata da quella vecchia ereditata.
+                        [System.Environment]::SetEnvironmentVariable($varName, $body.apiKey, [System.EnvironmentVariableTarget]::Process)
                     }
-                    if ($body.endpoint) { [System.Environment]::SetEnvironmentVariable('AZURE_OPENAI_ENDPOINT', $body.endpoint, [System.EnvironmentVariableTarget]::User) }
-                    if ($body.deployment) { [System.Environment]::SetEnvironmentVariable('AZURE_OPENAI_DEPLOYMENT', $body.deployment, [System.EnvironmentVariableTarget]::User) }
+                    # Endpoint normalizzato alla RADICE della risorsa PRIMA di salvarlo (21/09/2026, bug
+                    # reale: l'utente ha incollato il "Target URI" completo di un deployment Foundry,
+                    # .../openai/deployments/model-router/chat/completions?api-version=... - salvato cosi'
+                    # com'era produceva un 404 su ogni chiamata). Se l'URL conteneva il nome del
+                    # deployment, quello e' il deployment che l'utente ha appena copiato dal portale per
+                    # QUELLA risorsa: viene adottato (il vecchio valore del campo apparteneva quasi
+                    # certamente alla risorsa precedente - verificato dal vivo: su questa risorsa
+                    # esisteva solo 'model-router', il vecchio 'gpt-4.1-mini' dava DeploymentNotFound) e
+                    # la risposta lo dice esplicitamente, non in silenzio.
+                    $endpointNote = ''
+                    if ($body.endpoint) {
+                        $endpointInfo = Get-M365OpsAzureOpenAIEndpointInfo -Endpoint "$($body.endpoint)"
+                        [System.Environment]::SetEnvironmentVariable('AZURE_OPENAI_ENDPOINT', $endpointInfo.Root, [System.EnvironmentVariableTarget]::User)
+                        [System.Environment]::SetEnvironmentVariable('AZURE_OPENAI_ENDPOINT', $endpointInfo.Root, [System.EnvironmentVariableTarget]::Process)
+                        if ($endpointInfo.Root -ne "$($body.endpoint)".TrimEnd('/')) { $endpointNote = " Endpoint ridotto alla radice della risorsa: $($endpointInfo.Root)." }
+                        if ($endpointInfo.Deployment -and $endpointInfo.Deployment -ne $body.deployment) {
+                            $body | Add-Member -NotePropertyName deployment -NotePropertyValue $endpointInfo.Deployment -Force
+                            $endpointNote += " Deployment impostato a '$($endpointInfo.Deployment)' (era scritto nell'URL incollato)."
+                        }
+                    }
+                    if ($body.deployment) {
+                        [System.Environment]::SetEnvironmentVariable('AZURE_OPENAI_DEPLOYMENT', $body.deployment, [System.EnvironmentVariableTarget]::User)
+                        [System.Environment]::SetEnvironmentVariable('AZURE_OPENAI_DEPLOYMENT', $body.deployment, [System.EnvironmentVariableTarget]::Process)
+                    }
                     # reasoningEffort (31/08/2026, richiesto esplicitamente dall'utente: "non c'e'
                     # modo di introdurre queste customizzazioni in GUI? se facciamo hardcoded e uno
                     # cambia modello non funziona piu' nulla") - a differenza di endpoint/deployment
@@ -2244,7 +2285,7 @@ try {
                             & $setKeyVaultEnv 'AZURE_OPENAI_KEYVAULT_CLIENT_ID' $(if ($kvClientToSave) { $kvClientToSave } else { $null })
                         }
                     }
-                    $saveText = if ($keyVaultSaveError) { "Impostazioni AI salvate solo in parte. $keyVaultSaveError" } else { "Impostazioni AI salvate (provider attivo: $($script:ActiveAIProvider))." }
+                    $saveText = if ($keyVaultSaveError) { "Impostazioni AI salvate solo in parte. $keyVaultSaveError" } else { "Impostazioni AI salvate (provider attivo: $($script:ActiveAIProvider)).$endpointNote" }
                     $json = (@{ text = $saveText } | ConvertTo-Json -Compress)
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
@@ -2367,7 +2408,11 @@ try {
                         $azureKeyDetect = Get-M365OpsAzureOpenAIKey
                         $azureEndpointDetect = [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_ENDPOINT', 'User')
                         if ($azureKeyDetect -and $azureEndpointDetect -and $deploymentToDetect) {
-                            $detectUri = "$($azureEndpointDetect.TrimEnd('/'))/chat/completions"
+                            # Percorso REST classico sulla RADICE della risorsa, qualunque forma di endpoint
+                            # sia salvata (vedi Get-M365OpsAzureOpenAIEndpointInfo, 21/09/2026) - prima si
+                            # accodava "/chat/completions" all'endpoint cosi' com'era, valido solo per il
+                            # Project endpoint "/openai/v1" e rotto per ogni altra forma.
+                            $detectUri = "$((Get-M365OpsAzureOpenAIEndpointInfo -Endpoint $azureEndpointDetect).Root)/openai/deployments/$deploymentToDetect/chat/completions?api-version=2024-06-01"
                             $detectBody = @{ model = $deploymentToDetect; messages = @(@{ role = "user"; content = "hi" }); max_completion_tokens = 5 } | ConvertTo-Json
                             $detectResp = Invoke-WebRequest -Method POST -Uri $detectUri -Headers @{ "api-key" = $azureKeyDetect; "Content-Type" = "application/json" } -Body $detectBody -TimeoutSec 15 -ErrorAction Stop
                             $detectedRegion = $detectResp.Headers['x-ms-region'] | Select-Object -First 1
