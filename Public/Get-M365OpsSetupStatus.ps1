@@ -99,7 +99,7 @@ function Get-M365OpsSetupStatus {
     # controlla ENTRAMBI i provider alla pari, senza trattarne nessuno come predefinito -
     # Claude e Azure OpenAI sono due alternative equivalenti, la scelta e' sempre dell'utente.
     $hasClaudeKey = [bool](Get-M365OpsSecret -Name 'ANTHROPIC_API_KEY')
-    $hasAzureKey = [bool]((Get-M365OpsSecret -Name 'AZURE_OPENAI_KEY') -and (Get-M365OpsSecret -Name 'AZURE_OPENAI_ENDPOINT') -and (Get-M365OpsSecret -Name 'AZURE_OPENAI_DEPLOYMENT'))
+    $hasAzureKey = [bool]((Test-M365OpsAzureOpenAIKeyConfigured).Configured -and (Get-M365OpsSecret -Name 'AZURE_OPENAI_ENDPOINT') -and (Get-M365OpsSecret -Name 'AZURE_OPENAI_DEPLOYMENT'))
     $items += [pscustomobject]@{
         Name = "Chiave motore AI (Claude o Azure OpenAI)"
         Status = if ($hasClaudeKey -or $hasAzureKey) { 'OK' } else { 'Missing' }

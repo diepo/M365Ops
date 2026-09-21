@@ -15,7 +15,7 @@ function Get-M365OpsAiUsageStatus {
     param([string]$ActiveProvider = 'Claude')
 
     $claudeKey = [bool](Get-M365OpsSecret -Name 'ANTHROPIC_API_KEY')
-    $azureKey = [bool](Get-M365OpsSecret -Name 'AZURE_OPENAI_KEY')
+    $azureKey = (Test-M365OpsAzureOpenAIKeyConfigured).Configured
     $azureEndpoint = [bool](Get-M365OpsSecret -Name 'AZURE_OPENAI_ENDPOINT')
     $azureDeployment = [bool](Get-M365OpsSecret -Name 'AZURE_OPENAI_DEPLOYMENT')
 

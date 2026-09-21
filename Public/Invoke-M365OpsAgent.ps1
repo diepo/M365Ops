@@ -89,11 +89,14 @@ function Invoke-M365OpsAgent {
             return $claudeText
         }
         'AzureOpenAI' {
-            $apiKey = Get-M365OpsSecret -Name 'AZURE_OPENAI_KEY'
+            # Chiave da Azure Key Vault (identita' gestita) o dalla variabile d'ambiente storica -
+            # vedi Get-M365OpsAzureOpenAIKey (21/09/2026).
+            $apiKey = Get-M365OpsAzureOpenAIKey
+            $azureKeySource = (Test-M365OpsAzureOpenAIKeyConfigured).Source
             $endpoint = Get-M365OpsSecret -Name 'AZURE_OPENAI_ENDPOINT'
             $deployment = Get-M365OpsSecret -Name 'AZURE_OPENAI_DEPLOYMENT'
             if (-not ($apiKey -and $endpoint -and $deployment)) {
-                throw "Servono AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT come variabili d'ambiente."
+                throw "Servono la chiave Azure OpenAI (AZURE_OPENAI_KEY, oppure Azure Key Vault con AZURE_OPENAI_KEYVAULT_URI), AZURE_OPENAI_ENDPOINT e AZURE_OPENAI_DEPLOYMENT come variabili d'ambiente."
             }
 
             # Normalizzazione dell'endpoint: il portale Azure mostra DUE forme diverse a
@@ -122,7 +125,20 @@ function Invoke-M365OpsAgent {
             }
             catch {
                 $detail = $_.ErrorDetails.Message
-                if ($detail -match 'max_tokens' -and $detail -match 'max_completion_tokens') {
+                $httpStatus = try { [int]$_.Exception.Response.StatusCode } catch { 0 }
+                if ($azureKeySource -eq 'KeyVault' -and $httpStatus -eq 401) {
+                    # 401 con la chiave da Key Vault: probabile rotazione (la cache dura 15 minuti) -
+                    # rilegge il secret e ritenta UNA volta (vedi lo stesso ramo in
+                    # Invoke-M365OpsAgentTools.ps1).
+                    Write-M365OpsLog "Azure OpenAI ha risposto 401 con la chiave letta da Key Vault - rileggo il secret (possibile rotazione) e ritento una volta." -Level Warn
+                    $headers["api-key"] = Get-M365OpsAzureOpenAIKey -ForceRefresh
+                    try {
+                        $response = Invoke-RestMethod -Method POST -Uri $uri -TimeoutSec 120 -Headers $headers -Body ($bodyObj | ConvertTo-Json -Depth 8) -ErrorAction Stop
+                    }
+                    catch {
+                        throw "Azure OpenAI: richiesta fallita anche dopo aver riletto la chiave da Key Vault: $($_.Exception.Message)`n$($_.ErrorDetails.Message)"
+                    }
+                } elseif ($detail -match 'max_tokens' -and $detail -match 'max_completion_tokens') {
                     $bodyObj.Remove('max_tokens')
                     $bodyObj.max_completion_tokens = $MaxTokens
                     try {

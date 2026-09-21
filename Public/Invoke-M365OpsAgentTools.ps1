@@ -159,7 +159,13 @@ function Invoke-M365OpsAgentTools {
     }
 
     if ($Provider -eq 'AzureOpenAI') {
-        $azureKey = Get-M365OpsSecret -Name 'AZURE_OPENAI_KEY'
+        # La chiave arriva da Azure Key Vault (identita' gestita, letta a runtime) oppure dalla
+        # variabile d'ambiente storica - vedi Get-M365OpsAzureOpenAIKey (21/09/2026). Se Key
+        # Vault e' configurato ma la lettura fallisce, l'errore parla di Key Vault (permessi,
+        # identita', rete), non di una variabile d'ambiente mancante.
+        $azureKey = Get-M365OpsAzureOpenAIKey
+        $azureKeySource = (Test-M365OpsAzureOpenAIKeyConfigured).Source
+        $azureKeyRefreshedAfter401 = $false
         $azureEndpoint = Get-M365OpsSecret -Name 'AZURE_OPENAI_ENDPOINT'
         $azureDeployment = Get-M365OpsSecret -Name 'AZURE_OPENAI_DEPLOYMENT'
         # Opzionale (31/08/2026, richiesto esplicitamente dall'utente: "non c'e' modo di
@@ -182,7 +188,7 @@ function Invoke-M365OpsAgentTools {
         # Server.ps1 all'avvio apposta per questo genere di lettura incrociata.
         $guidePortHint = try { (Get-Content (Join-Path $script:M365OpsModuleRoot 'Config\active-port.txt') -Raw -ErrorAction Stop).Trim() } catch { '8743' }
         if (-not ($azureKey -and $azureEndpoint -and $azureDeployment)) {
-            throw "Servono AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT come variabili d'ambiente (tab Motore AI). Nel frattempo puoi comunque consultare la guida di configurazione direttamente da http://localhost:$guidePortHint/guida, senza bisogno di nessuna chiave AI."
+            throw "Servono la chiave Azure OpenAI (AZURE_OPENAI_KEY, oppure Azure Key Vault con AZURE_OPENAI_KEYVAULT_URI), AZURE_OPENAI_ENDPOINT e AZURE_OPENAI_DEPLOYMENT come variabili d'ambiente (tab Motore AI). Nel frattempo puoi comunque consultare la guida di configurazione direttamente da http://localhost:$guidePortHint/guida, senza bisogno di nessuna chiave AI."
         }
     } else {
         $apiKey = Get-M365OpsSecret -Name 'ANTHROPIC_API_KEY'
@@ -1473,7 +1479,18 @@ NON disponibile: creazione/modifica del CONTENUTO di una policy Teams (solo asse
             }
             catch {
                 $azureErrDetail = $_.ErrorDetails.Message
-                if (-not $azureUseMaxCompletionTokens -and $azureErrDetail -match 'max_tokens' -and $azureErrDetail -match 'max_completion_tokens') {
+                $azureHttpStatus = try { [int]$_.Exception.Response.StatusCode } catch { 0 }
+                if ($azureKeySource -eq 'KeyVault' -and $azureHttpStatus -eq 401 -and -not $azureKeyRefreshedAfter401) {
+                    # 401 con la chiave letta da Key Vault: molto probabilmente e' stata RUOTATA nel
+                    # frattempo (la cache in memoria dura 15 minuti) - rilegge il secret da Key Vault
+                    # e ritenta UNA sola volta. Un secondo 401 e' un problema vero (chiave sbagliata
+                    # nel secret) e cade nel messaggio d'errore normale.
+                    $azureKeyRefreshedAfter401 = $true
+                    Write-M365OpsLog "Azure OpenAI ha risposto 401 con la chiave letta da Key Vault - rileggo il secret (possibile rotazione) e ritento una volta." -Level Warn
+                    $azureKey = Get-M365OpsAzureOpenAIKey -ForceRefresh
+                    $azureHeaders["api-key"] = $azureKey
+                    $response = Invoke-RestMethod -Method POST -Uri $azureUri -TimeoutSec 120 -Headers $azureHeaders -Body ($azureBodyObj | ConvertTo-Json -Depth 20) -ErrorAction Stop
+                } elseif (-not $azureUseMaxCompletionTokens -and $azureErrDetail -match 'max_tokens' -and $azureErrDetail -match 'max_completion_tokens') {
                     $azureUseMaxCompletionTokens = $true
                     $azureBodyObj.Remove('max_tokens')
                     $azureBodyObj.max_completion_tokens = 8000

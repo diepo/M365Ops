@@ -2128,7 +2128,14 @@ try {
                 }
                 "GET /api/ai-settings" {
                     $hasClaudeKey = [bool]([System.Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY', 'User'))
-                    $hasAzureKey = [bool]([System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_KEY', 'User'))
+                    # Azure Key Vault (21/09/2026): quando AZURE_OPENAI_KEYVAULT_URI e' impostata la
+                    # chiave arriva da li' (identita' gestita, letta a runtime) e "chiave presente"
+                    # e' vero anche senza nessuna AZURE_OPENAI_KEY locale - nessuna lettura di rete
+                    # qui, e' solo la presenza della configurazione (vedi Get-M365OpsAzureOpenAIKey).
+                    $keyVaultUriValue = [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_KEYVAULT_URI', 'User')
+                    $keyVaultSecretValue = [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_KEYVAULT_SECRET', 'User')
+                    $keyVaultClientIdValue = [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_KEYVAULT_CLIENT_ID', 'User')
+                    $hasAzureKey = [bool]($keyVaultUriValue -or [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_KEY', 'User'))
                     # endpoint/deployment/reasoningEffort restituiti qui dal 31/08/2026 (bug reale
                     # segnalato dall'utente durante un confronto tra deployment Azure diversi: il
                     # form li mostrava sempre vuoti anche quando gia' salvati, impossibile vedere
@@ -2145,6 +2152,9 @@ try {
                         endpoint        = $azureEndpointValue
                         deployment      = $azureDeploymentValue
                         reasoningEffort = $azureReasoningEffortValue
+                        keyVaultUri      = $keyVaultUriValue
+                        keyVaultSecret   = $keyVaultSecretValue
+                        keyVaultClientId = $keyVaultClientIdValue
                     } | ConvertTo-Json -Compress)
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
@@ -2179,7 +2189,70 @@ try {
                             [System.Environment]::SetEnvironmentVariable('AZURE_OPENAI_REASONING_EFFORT', $null, [System.EnvironmentVariableTarget]::User)
                         }
                     }
-                    $json = (@{ text = "Impostazioni AI salvate (provider attivo: $($script:ActiveAIProvider))." } | ConvertTo-Json -Compress)
+                    # Azure Key Vault (21/09/2026, richiesto esplicitamente dall'utente): stesso
+                    # schema di reasoningEffort qui sopra - una stringa vuota PRESENTE nel body
+                    # significa "togli questa impostazione" (tornare alla chiave locale e' una scelta
+                    # legittima), un campo assente non tocca nulla. URI/nome/Client ID non sono
+                    # segreti (solo l'indirizzo del vault e chi lo legge), quindi restano nelle
+                    # variabili d'ambiente come le altre impostazioni Azure. L'URI viene validato
+                    # QUI (solo https e host Key Vault) invece di scoprire l'errore alla prima
+                    # chiamata AI - la regola completa vive in Get-M365OpsKeyVaultSecret.
+                    $keyVaultSaveError = $null
+                    # Scrive sia lo scope User (persistente) sia Process (questo server, che altrimenti
+                    # terrebbe la copia ereditata all'avvio: cancellare la configurazione Key Vault dalla
+                    # GUI non la spegnerebbe fino al riavvio, e una chiave "tolta" resterebbe attiva).
+                    # Un valore vuoto CANCELLA davvero la variabile (verificato dal vivo: chiamare
+                    # SetEnvironmentVariable con $null/"" da PowerShell lascia in HKCU\Environment un
+                    # valore vuoto invece di rimuoverlo - innocuo per la lettura, ma "togliere Key
+                    # Vault" deve lasciare il registro com'era prima, non un residuo).
+                    $setKeyVaultEnv = {
+                        param($Name, $Value)
+                        if ($Value) {
+                            [System.Environment]::SetEnvironmentVariable($Name, $Value, [System.EnvironmentVariableTarget]::User)
+                        } else {
+                            Remove-ItemProperty -Path 'HKCU:\Environment' -Name $Name -ErrorAction SilentlyContinue
+                        }
+                        [System.Environment]::SetEnvironmentVariable($Name, $(if ($Value) { $Value } else { $null }), [System.EnvironmentVariableTarget]::Process)
+                    }
+                    if ($null -ne $body.keyVaultUri) {
+                        $kvUriToSave = "$($body.keyVaultUri)".Trim()
+                        if ($kvUriToSave -and $kvUriToSave -notmatch '^https://[A-Za-z0-9-]{3,24}\.vault\.(azure\.net|azure\.cn|usgovcloudapi\.net)/?$') {
+                            $keyVaultSaveError = "URI Key Vault non valido: '$kvUriToSave' - atteso https://<nome-vault>.vault.azure.net (solo https; il nome del vault ha 3-24 caratteri tra lettere, cifre e trattino)."
+                        } else {
+                            & $setKeyVaultEnv 'AZURE_OPENAI_KEYVAULT_URI' $(if ($kvUriToSave) { $kvUriToSave.TrimEnd('/') } else { $null })
+                        }
+                    }
+                    if ($null -ne $body.keyVaultSecret) {
+                        $kvSecretToSave = "$($body.keyVaultSecret)".Trim()
+                        if ($kvSecretToSave -and $kvSecretToSave -notmatch '^[0-9a-zA-Z-]{1,127}$') {
+                            $keyVaultSaveError = "Nome secret Key Vault non valido: '$kvSecretToSave' - ammessi solo lettere, cifre e trattino (max 127 caratteri)."
+                        } else {
+                            & $setKeyVaultEnv 'AZURE_OPENAI_KEYVAULT_SECRET' $(if ($kvSecretToSave) { $kvSecretToSave } else { $null })
+                        }
+                    }
+                    if ($null -ne $body.keyVaultClientId) {
+                        $kvClientToSave = "$($body.keyVaultClientId)".Trim()
+                        if ($kvClientToSave -and $kvClientToSave -notmatch '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
+                            $keyVaultSaveError = "Client ID non valido: '$kvClientToSave' - atteso un GUID (Client ID dell'identita' gestita user-assigned), oppure vuoto per l'identita' system-assigned."
+                        } else {
+                            & $setKeyVaultEnv 'AZURE_OPENAI_KEYVAULT_CLIENT_ID' $(if ($kvClientToSave) { $kvClientToSave } else { $null })
+                        }
+                    }
+                    $saveText = if ($keyVaultSaveError) { "Impostazioni AI salvate solo in parte. $keyVaultSaveError" } else { "Impostazioni AI salvate (provider attivo: $($script:ActiveAIProvider))." }
+                    $json = (@{ text = $saveText } | ConvertTo-Json -Compress)
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/ai-keyvault/test" {
+                    # Pulsante "Verifica Key Vault" (21/09/2026): legge DAVVERO il secret con
+                    # l'identita' gestita e riporta esito/diagnostica, MAI la chiave (solo la sua
+                    # lunghezza) ne' il token - vedi Test-M365OpsAzureOpenAIKeyVault. Una lettura
+                    # reale di rete: solo su click esplicito, mai in polling.
+                    try {
+                        $kvResult = Test-M365OpsAzureOpenAIKeyVault
+                        $json = ($kvResult | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ Ok = $false; Message = $_.Exception.Message } | ConvertTo-Json -Compress)
+                    }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
                 "GET /api/ai-usage-report" {
@@ -2285,7 +2358,7 @@ try {
                     $detectedRegion = $null
                     $detectedServedModel = $null
                     try {
-                        $azureKeyDetect = [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_KEY', 'User')
+                        $azureKeyDetect = Get-M365OpsAzureOpenAIKey
                         $azureEndpointDetect = [System.Environment]::GetEnvironmentVariable('AZURE_OPENAI_ENDPOINT', 'User')
                         if ($azureKeyDetect -and $azureEndpointDetect -and $deploymentToDetect) {
                             $detectUri = "$($azureEndpointDetect.TrimEnd('/'))/chat/completions"

@@ -688,6 +688,25 @@
         <input type="text" id="ai-reasoning-effort" placeholder="lascia vuoto se non serve - es. low, medium, none...">
         <span class="hint" style="display:block; margin-top:3px;">Solo per deployment su modelli "reasoning" (o1/o3/gpt-5.x) - controlla quanto il modello "ragiona" internamente prima di rispondere, un costo reale anche se mai mostrato in chat (fatturato come token di output). I valori accettati dipendono dal modello dietro il deployment - se quello scelto non lo supporta, l'app lo rileva da sola e ripiega sul comportamento di default senza bisogno di modificare nulla qui. Lascia vuoto per un modello non-reasoning o per lasciare il default del modello.</span>
       </div>
+      <div id="ai-azure-kv" style="display:none;">
+        <div>
+          <label>Azure Key Vault - URI (opzionale)</label>
+          <input type="text" id="ai-kv-uri" placeholder="https://miovault.vault.azure.net">
+        </div>
+        <div>
+          <label>Nome del secret</label>
+          <input type="text" id="ai-kv-secret" placeholder="azure-openai-key (predefinito se vuoto)">
+        </div>
+        <div>
+          <label>Client ID identità gestita user-assigned (opzionale)</label>
+          <input type="text" id="ai-kv-clientid" placeholder="vuoto = identità system-assigned">
+        </div>
+        <span class="hint" style="display:block; margin-top:3px;">Se compili l'URI, la chiave Azure OpenAI NON viene più letta dal campo sopra ma da Azure Key Vault, a runtime, con l'identità gestita di questa macchina (VM Azure, server Azure Arc, App Service/Container Apps) — nessuna chiave salvata su questo PC, e una chiave ruotata in Key Vault viene raccolta entro 15 minuti senza riavviare. L'identità gestita esiste solo su una macchina Azure/Arc: su un PC normale usa la chiave locale. All'identità serve il ruolo <b>Key Vault Secrets User</b> sul vault. Vuoto = comportamento di prima (chiave dalla variabile d'ambiente).</span>
+        <div class="actions" style="margin-top:6px;">
+          <button id="ai-kv-test-btn" type="button">Verifica Key Vault</button>
+          <span id="ai-kv-test-status" class="hint"></span>
+        </div>
+      </div>
       <div class="actions">
         <button id="save-ai-btn">Salva impostazioni AI</button>
         <span id="ai-settings-status"></span>
@@ -909,6 +928,10 @@
   const aiEndpointInput = document.getElementById('ai-endpoint');
   const aiDeploymentInput = document.getElementById('ai-deployment');
   const aiReasoningEffortInput = document.getElementById('ai-reasoning-effort');
+  const aiAzureKv = document.getElementById('ai-azure-kv');
+  const aiKvUriInput = document.getElementById('ai-kv-uri');
+  const aiKvSecretInput = document.getElementById('ai-kv-secret');
+  const aiKvClientIdInput = document.getElementById('ai-kv-clientid');
   const saveAiBtn = document.getElementById('save-ai-btn');
   const aiSettingsStatus = document.getElementById('ai-settings-status');
   const restartServerBtn = document.getElementById('restart-server-btn');
@@ -2141,6 +2164,7 @@
     aiAzureExtra.style.display = isAzure ? 'block' : 'none';
     aiAzureExtra2.style.display = isAzure ? 'block' : 'none';
     aiAzureExtra3.style.display = isAzure ? 'block' : 'none';
+    aiAzureKv.style.display = isAzure ? 'block' : 'none';
   }
   aiProviderSelect.addEventListener('change', updateAiFieldVisibility);
 
@@ -2151,7 +2175,13 @@
       aiProviderSelect.value = data.provider || 'Claude';
       updateAiFieldVisibility();
       const hasKey = data.provider === 'AzureOpenAI' ? data.hasAzureKey : data.hasClaudeKey;
-      aiApiKeyInput.placeholder = hasKey ? 'gia\' impostata (lascia vuoto per non toccarla)' : 'chiave API';
+      const usingKeyVault = data.provider === 'AzureOpenAI' && !!data.keyVaultUri;
+      aiApiKeyInput.placeholder = usingKeyVault
+        ? 'non usata: la chiave viene letta da Azure Key Vault'
+        : (hasKey ? 'gia\' impostata (lascia vuoto per non toccarla)' : 'chiave API');
+      aiKvUriInput.value = data.keyVaultUri || '';
+      aiKvSecretInput.value = data.keyVaultSecret || '';
+      aiKvClientIdInput.value = data.keyVaultClientId || '';
       // Precompilati dal 31/08/2026 (bug reale segnalato dall'utente: il form mostrava sempre
       // endpoint/deployment vuoti anche quando gia' salvati, impossibile vedere cosa fosse
       // davvero configurato senza indovinare) - MAI la chiave API, quella resta sempre nascosta.
@@ -2169,12 +2199,15 @@
     const endpoint = aiEndpointInput.value.trim();
     const deployment = aiDeploymentInput.value.trim();
     const reasoningEffort = aiReasoningEffortInput.value.trim();
+    const keyVaultUri = aiKvUriInput.value.trim();
+    const keyVaultSecret = aiKvSecretInput.value.trim();
+    const keyVaultClientId = aiKvClientIdInput.value.trim();
 
     aiSettingsStatus.textContent = 'salvataggio...';
     try {
       const res = await fetch('/api/ai-settings', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, apiKey, endpoint, deployment, reasoningEffort })
+        body: JSON.stringify({ provider, apiKey, endpoint, deployment, reasoningEffort, keyVaultUri, keyVaultSecret, keyVaultClientId })
       });
       const data = await res.json();
       aiSettingsStatus.textContent = data.text || 'Salvato.';
@@ -2182,6 +2215,29 @@
       loadAiSettings();
     } catch (e) {
       aiSettingsStatus.textContent = 'Errore: ' + e.message;
+    }
+  });
+
+  // "Verifica Key Vault" (21/09/2026): una lettura REALE del secret con l'identita' gestita - salva
+  // prima i campi correnti (stesso POST del pulsante "Salva"), altrimenti si verificherebbe la
+  // configurazione VECCHIA e non quella che l'utente sta guardando. Mostra solo esito e
+  // diagnostica, mai la chiave (il server ne restituisce solo la lunghezza).
+  document.getElementById('ai-kv-test-btn').addEventListener('click', async () => {
+    const status = document.getElementById('ai-kv-test-status');
+    status.textContent = 'verifica in corso...';
+    try {
+      const saveRes = await fetch('/api/ai-settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: aiProviderSelect.value, keyVaultUri: aiKvUriInput.value.trim(), keyVaultSecret: aiKvSecretInput.value.trim(), keyVaultClientId: aiKvClientIdInput.value.trim() })
+      });
+      const saveData = await saveRes.json();
+      if (saveData.text && saveData.text.indexOf('solo in parte') !== -1) { status.textContent = '✗ ' + saveData.text; return; }
+      const res = await fetch('/api/ai-keyvault/test', { method: 'POST' });
+      const data = await res.json();
+      status.textContent = (data.Ok ? '✓ ' : '✗ ') + data.Message;
+      loadAiSettings();
+    } catch (e) {
+      status.textContent = '✗ Errore: ' + e.message;
     }
   });
 
