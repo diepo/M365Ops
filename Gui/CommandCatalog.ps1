@@ -343,7 +343,12 @@ function Get-M365OpsCommandCatalog {
         [pscustomobject]@{
             Name         = "ExportAllMailboxesReport"
             Description  = "Esporta l'elenco di tutte le mailbox del tenant (ogni tipo) in CSV/Excel/PDF. Uso: 'esporta report mailbox totali'"
-            Triggers     = @('report.{0,30}mailbox.{0,30}total', 'elenco.{0,30}tutte.{0,30}mailbox', 'tutte le mailbox', 'report.{0,30}tutte.{0,30}casell')
+            # 'tutte le mailbox' NON piu' da solo (21/09/2026, bug reale segnalato dall'utente):
+            # "controlla la policy 10 anni (tutte le mailbox)" - una domanda di verifica sulla
+            # retention - conteneva la sottostringa e scatenava un export completo di 17.143 righe
+            # invece di andare all'IA. Ora serve un verbo di elenco/export davanti; le domande di
+            # controllo/policy/retention deferiscono all'IA (DeferWords sotto).
+            Triggers     = @('report.{0,30}mailbox.{0,30}total', 'elenco.{0,30}tutte.{0,30}mailbox', '(esport\w*|elenc\w*|lista|dammi|mostra\w*|scarica\w*|fammi|genera\w*).{0,25}tutte le mailbox', 'report.{0,30}tutte.{0,30}casell')
             # 'invia'/'manda'/'spedisci' aggiunti il 19/08/2026 (bug-hunt mirato): senza,
             # "invia via mail il report delle mailbox condivise" (nessun indirizzo email
             # letterale, solo l'intento "via mail") veniva risposto col solo report grezzo in
@@ -355,7 +360,7 @@ function Get-M365OpsCommandCatalog {
             # migrate correttamente, puoi controllare quali mancano?" la contiene comunque (la
             # negazione "non" precede semplicemente la stessa frase), scatenando un export
             # completo invece di rispondere alla domanda sulla migrazione.
-            DeferWords   = @('tab', 'gruppo', 'gruppi', 'distribuzione', '@\S+\.\S+', 'responsabile', 'capo', 'collega', 'invia', 'manda', 'spedisci', 'non tutte', 'perch[eé]', 'puoi (controllare|verificare)', 'mancano', 'migrat\w*')
+            DeferWords   = @('tab', 'gruppo', 'gruppi', 'distribuzione', '@\S+\.\S+', 'responsabile', 'capo', 'collega', 'invia', 'manda', 'spedisci', 'non tutte', 'perch[eé]', 'puoi (controllare|verificare)', 'mancano', 'migrat\w*', 'polic\w*', 'retention', 'conserv\w*', 'controll\w*', 'verific\w*', 'anni', 'archiv\w*')
             CaptureRegex = '\b(csv|excel|xlsx|pdf)\b'
             RequiresAI   = $false
             Handler      = { param($formatWord) Export-M365OpsExoReportChat -Cmdlet 'Get-M365OpsAllMailboxes' -Title 'Tutte le Mailbox' -FileSlug 'all-mailboxes' -FormatWord $formatWord }

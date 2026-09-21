@@ -1012,6 +1012,10 @@
       body.textContent = text;
     }
 
+    // Un solo allegato puo' arrivare come oggetto nudo invece che come array di un elemento (bug del
+    // server corretto il 21/09/2026, ma lo STORICO chat salvato prima ha ancora quella forma) -
+    // normalizzato qui cosi' anche i vecchi report tornano scaricabili, non solo i nuovi.
+    if (attachments && !Array.isArray(attachments)) { attachments = [attachments]; }
     if (attachments && attachments.length > 0) {
       const files = document.createElement('div');
       files.style.marginTop = '8px';

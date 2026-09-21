@@ -1029,8 +1029,14 @@ function Handle-ChatMessage {
             # Se l'handler ha appena generato un report (LastReportPath cambiato rispetto a
             # prima della chiamata), rendilo scaricabile dalla GUI invece di lasciare solo
             # il percorso su disco nel testo - l'utente non deve andare a cercarselo a mano.
+            # La virgola davanti all'array e' essenziale (21/09/2026, bug reale: "dove sarebbe il
+            # pulsante" su un report da 17.143 righe): un'espressione if restituisce il suo output
+            # ENUMERATO, quindi @(@{...}) a un solo elemento diventava la hashtable nuda e finiva
+            # in JSON come oggetto {"FileName":..} invece di [{"FileName":..}] - la GUI legge
+            # attachments.length, su un oggetto e' undefined e il pulsante "Scarica" non compariva
+            # MAI per nessun report del catalogo locale (il file veniva generato comunque).
             $attachments = if ($script:LastReportPath -and $script:LastReportPath -ne $reportPathBefore) {
-                @(@{ FileName = (Split-Path -Leaf $script:LastReportPath) })
+                , @(@{ FileName = (Split-Path -Leaf $script:LastReportPath) })
             } else { $null }
             return @{ role = $role; text = $text; attachments = $attachments }
         }
