@@ -2302,6 +2302,77 @@ try {
                     }
                     $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
                 }
+                "GET /api/foundry-settings" {
+                    # Canale separato "Agent Foundry" (22/09/2026, richiesto esplicitamente
+                    # dall'utente) - stesso schema di lettura di GET /api/ai-settings sopra, MAI
+                    # un segreto qui (non c'e' comunque una chiave da nascondere: l'Agent Service
+                    # non supporta le chiavi API, solo Entra ID - vedi Get-M365OpsFoundryToken.ps1).
+                    $json = (@{
+                        endpoint     = [System.Environment]::GetEnvironmentVariable('AZURE_FOUNDRY_PROJECT_ENDPOINT', 'User')
+                        model        = [System.Environment]::GetEnvironmentVariable('AZURE_FOUNDRY_MODEL', 'User')
+                        instructions = [System.Environment]::GetEnvironmentVariable('AZURE_FOUNDRY_INSTRUCTIONS', 'User')
+                    } | ConvertTo-Json -Compress)
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/foundry-settings" {
+                    $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                    $body = $reader.ReadToEnd() | ConvertFrom-Json
+                    # Stesso principio di validazione-prima-di-salvare di Key Vault: un endpoint
+                    # scritto male si scopre subito, non alla prima chiamata reale. Scritto anche
+                    # in Process (non solo User), stesso motivo di Key Vault: un server gia' in
+                    # esecuzione deve vedere subito il valore nuovo, non solo dopo un riavvio.
+                    $foundrySaveError = $null
+                    if ($null -ne $body.endpoint) {
+                        $fEndpoint = "$($body.endpoint)".Trim().TrimEnd('/')
+                        # http:// ammesso SOLO in loopback (127.0.0.1/localhost) - stessa eccezione
+                        # gia' in uso per Key Vault, serve esclusivamente ai test locali di questa
+                        # funzionalita': il bearer token Entra non deve mai uscire in chiaro verso
+                        # un host reale.
+                        if ($fEndpoint -and $fEndpoint -notmatch '^https://' -and $fEndpoint -notmatch '^http://(127\.0\.0\.1|localhost)([:/]|$)') {
+                            $foundrySaveError = "Project endpoint non valido: '$fEndpoint' - deve iniziare con https:// (si copia dalla schermata di benvenuto del progetto su ai.azure.com, es. https://tuarisorsa.services.ai.azure.com/api/projects/tuoprogetto)."
+                        } else {
+                            [System.Environment]::SetEnvironmentVariable('AZURE_FOUNDRY_PROJECT_ENDPOINT', $(if ($fEndpoint) { $fEndpoint } else { $null }), [System.EnvironmentVariableTarget]::User)
+                            [System.Environment]::SetEnvironmentVariable('AZURE_FOUNDRY_PROJECT_ENDPOINT', $(if ($fEndpoint) { $fEndpoint } else { $null }), [System.EnvironmentVariableTarget]::Process)
+                        }
+                    }
+                    if ($null -ne $body.model) {
+                        $fModel = "$($body.model)".Trim()
+                        [System.Environment]::SetEnvironmentVariable('AZURE_FOUNDRY_MODEL', $(if ($fModel) { $fModel } else { $null }), [System.EnvironmentVariableTarget]::User)
+                        [System.Environment]::SetEnvironmentVariable('AZURE_FOUNDRY_MODEL', $(if ($fModel) { $fModel } else { $null }), [System.EnvironmentVariableTarget]::Process)
+                    }
+                    if ($null -ne $body.instructions) {
+                        $fInstr = "$($body.instructions)".Trim()
+                        [System.Environment]::SetEnvironmentVariable('AZURE_FOUNDRY_INSTRUCTIONS', $(if ($fInstr) { $fInstr } else { $null }), [System.EnvironmentVariableTarget]::User)
+                        [System.Environment]::SetEnvironmentVariable('AZURE_FOUNDRY_INSTRUCTIONS', $(if ($fInstr) { $fInstr } else { $null }), [System.EnvironmentVariableTarget]::Process)
+                    }
+                    $json = (@{ text = if ($foundrySaveError) { "Impostazioni Agent Foundry salvate solo in parte. $foundrySaveError" } else { "Impostazioni Agent Foundry salvate." } } | ConvertTo-Json -Compress)
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/foundry-test" {
+                    try {
+                        $fResult = Test-M365OpsFoundryAgentConnection
+                        $json = ($fResult | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ Ok = $false; Message = $_.Exception.Message } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
+                "POST /api/foundry-ask" {
+                    # Il canale "Agent Foundry" vero e proprio: un prompt libero, MAI registrato
+                    # nello storico della chat principale (e' deliberatamente separato) ne'
+                    # passato dal catalogo comandi/dagli strumenti M365 - solo testo dentro, testo
+                    # fuori, esattamente come richiesto.
+                    $reader = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                    $body = $reader.ReadToEnd() | ConvertFrom-Json
+                    try {
+                        if (-not "$($body.prompt)".Trim()) { throw "Scrivi prima una domanda." }
+                        $askResult = Invoke-M365OpsFoundryAgent -Prompt "$($body.prompt)"
+                        $json = (@{ ok = $true; text = $askResult.Text } | ConvertTo-Json -Compress)
+                    } catch {
+                        $json = (@{ ok = $false; text = $_.Exception.Message } | ConvertTo-Json -Compress)
+                    }
+                    $responseBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                }
                 "GET /api/ai-usage-report" {
                     # Sezione "Costi IA" (31/08/2026, richiesta esplicitamente dall'utente: "una
                     # sezione di report... dove compaiono giorno per giorno i token inviati

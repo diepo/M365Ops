@@ -19,7 +19,12 @@ function Write-M365OpsAiUsageLog {
         fallimento non deve mai nascondere quella risposta.
     #>
     param(
-        [Parameter(Mandatory)] [ValidateSet('Claude', 'AzureOpenAI')] [string]$Provider,
+        # 'FoundryAgent' aggiunto il 22/09/2026 (canale separato verso Microsoft Foundry Agent
+        # Service, richiesto esplicitamente dall'utente) - SOLO qui: il ValidateSet dei
+        # parametri Provider della chat/degli strumenti principali (Invoke-M365OpsAgent(Tools),
+        # Test-M365OpsAiConnection, ecc.) resta apposta Claude/AzureOpenAI, l'agent Foundry non
+        # e' un provider di chat selezionabile la' - vedi Invoke-M365OpsFoundryAgent.ps1.
+        [Parameter(Mandatory)] [ValidateSet('Claude', 'AzureOpenAI', 'FoundryAgent')] [string]$Provider,
         [string]$Model,
         [Parameter(Mandatory)] [int]$InputTokens,
         [Parameter(Mandatory)] [int]$OutputTokens,

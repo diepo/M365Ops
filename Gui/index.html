@@ -145,6 +145,17 @@
   }
   #script-request-panel.open { display: block; }
 
+  /* Pannello "Agent Foundry" (22/09/2026, richiesto esplicitamente dall'utente: "integra la
+     possibilita' di chiamare un agent da foundry" - canale SEPARATO dalla chat principale, un
+     prompt semplice verso un agent Microsoft Foundry, nessuno strumento M365 collegato - vedi
+     Invoke-M365OpsFoundryAgent.ps1 per il perche' e come). Stesso schema del pannello Richiesta
+     script sopra (toggle + open), coerenza visiva col resto della toolbar. */
+  #foundry-panel {
+    display: none; background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 16px 18px; flex-shrink: 0;
+  }
+  #foundry-panel.open { display: block; }
+
   /* Pannello "Infrastruttura tenant" (25/08/2026, richiesto esplicitamente dall'utente: editor
      grafico per disegnare l'infrastruttura del tenant - anche ibrida on-prem/cloud, Domain
      Controller/Entra Connect/sedi/firewall con nome macchina/ruolo/IP/dominio - salvato per
@@ -358,6 +369,7 @@
     <button id="upload-toggle-btn" class="header-btn" title="Carica un file da pacchettizzare, un'icona o un CSV di migrazione">📎 Upload</button>
     <button id="headers-toggle-btn" class="header-btn" title="Analizza intestazioni email o un blocco di diagnostica NDR">📧 Intestazioni email</button>
     <button id="script-request-toggle-btn" class="header-btn" title="Chiedi la creazione di un nuovo script/comando personalizzato, senza dover scrivere tu il prompt tecnico completo">🧩 Richiesta script</button>
+    <button id="foundry-toggle-btn" class="header-btn" title="Chiama un agent Microsoft Foundry - canale separato, non collegato ai dati del tenant">🧭 Agent Foundry</button>
     <button id="infra-toggle-btn" class="header-btn" title="Disegna l'infrastruttura di questo tenant - on-prem, ibrida o multi-cloud">🗺️ Infrastruttura</button>
     <button id="permissions-check-btn" class="header-btn" title="Verifica quali permessi ha davvero l'app registrata su questo tenant">🔐 Stato permessi</button>
     <button id="open-powershell-btn" class="header-btn" title="Apre una finestra PowerShell gia' collegata al tenant attivo - si chiude automaticamente cambiando tenant">🖥️ PowerShell</button>
@@ -412,6 +424,36 @@
     <input type="file" id="custom-scripts-import-input" accept=".zip" style="display:none">
     <span id="custom-scripts-io-status-msg" class="hint"></span>
   </div>
+</div>
+
+<div id="foundry-panel">
+  <h2 style="margin-top:0;">🧭 Agent Foundry</h2>
+  <p class="hint">Canale <b>separato</b> dalla chat principale: un prompt semplice inviato a un agent Microsoft Foundry (Responses API sul project endpoint), senza accesso ai dati del tenant (nessuno strumento graph_api_call/exo_query/ecc. collegato). L'Agent Service non supporta le chiavi API - autenticazione solo Entra ID, con la stessa App Registration gia' usata per Graph/Exchange (serve pero' assegnarle il ruolo <b>Foundry Agent Consumer</b> sul progetto - vedi la guida) o con un'identita' gestita se questo PC gira su Azure.</p>
+  <div>
+    <label>Project endpoint</label>
+    <input type="text" id="foundry-endpoint" placeholder="https://tuarisorsa.services.ai.azure.com/api/projects/tuoprogetto" style="width:100%; padding:7px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+  </div>
+  <div style="margin-top:8px;">
+    <label>Nome modello/deployment nel progetto</label>
+    <input type="text" id="foundry-model" placeholder="es. gpt-4o" style="width:100%; padding:7px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+  </div>
+  <div style="margin-top:8px;">
+    <label>Istruzioni (opzionale)</label>
+    <input type="text" id="foundry-instructions" placeholder="es. Sei un assistente conciso per l'IT." style="width:100%; padding:7px 9px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); font-family:inherit;">
+  </div>
+  <div class="actions" style="margin-top:8px;">
+    <button id="foundry-save-btn" style="background:var(--surface-alt);">Salva impostazioni</button>
+    <button id="foundry-test-btn" style="background:var(--surface-alt);">Verifica connessione</button>
+    <span id="foundry-settings-status" class="hint"></span>
+  </div>
+  <hr style="margin:16px 0; border:none; border-top:1px solid var(--border);">
+  <label>Prompt</label>
+  <textarea id="foundry-prompt-input" rows="3" style="width:100%; font-family:inherit; font-size:14px; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); resize:vertical;" placeholder="Scrivi qui la domanda per l'agent Foundry..."></textarea>
+  <div class="actions" style="margin-top:8px;">
+    <button id="foundry-ask-btn">Invia</button>
+    <span id="foundry-ask-status" class="hint"></span>
+  </div>
+  <div id="foundry-answer" class="hint" style="display:none; margin-top:10px; white-space:pre-wrap; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg);"></div>
 </div>
 
 <div id="infra-panel">
@@ -4236,6 +4278,75 @@
   // normale messaggio in chat tramite sendMessage(presetText) - la stessa funzione gia' usata
   // per ogni altro invio, cosi' la proposta risultante passa dallo stesso identico
   // proponi->conferma->salva->riavvio di ogni script personalizzato scritto a mano.
+  const foundryToggleBtn = document.getElementById('foundry-toggle-btn');
+  const foundryPanel = document.getElementById('foundry-panel');
+  const foundryEndpointInput = document.getElementById('foundry-endpoint');
+  const foundryModelInput = document.getElementById('foundry-model');
+  const foundryInstructionsInput = document.getElementById('foundry-instructions');
+  const foundrySettingsStatus = document.getElementById('foundry-settings-status');
+  const foundryTestStatus = foundrySettingsStatus;
+  const foundryPromptInput = document.getElementById('foundry-prompt-input');
+  const foundryAskStatus = document.getElementById('foundry-ask-status');
+  const foundryAnswerBox = document.getElementById('foundry-answer');
+  let foundrySettingsLoaded = false;
+  async function loadFoundrySettings() {
+    try {
+      const res = await fetch('/api/foundry-settings');
+      const data = await res.json();
+      foundryEndpointInput.value = data.endpoint || '';
+      foundryModelInput.value = data.model || '';
+      foundryInstructionsInput.value = data.instructions || '';
+    } catch (e) { /* pannello ancora usabile senza impostazioni precaricate */ }
+  }
+  foundryToggleBtn.addEventListener('click', () => {
+    const isOpen = foundryPanel.classList.toggle('open');
+    foundryToggleBtn.classList.toggle('active', isOpen);
+    if (isOpen && !foundrySettingsLoaded) { foundrySettingsLoaded = true; loadFoundrySettings(); }
+    if (isOpen) foundryPromptInput.focus();
+  });
+  document.getElementById('foundry-save-btn').addEventListener('click', async () => {
+    foundrySettingsStatus.textContent = 'salvataggio...';
+    try {
+      const res = await fetch('/api/foundry-settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: foundryEndpointInput.value.trim(), model: foundryModelInput.value.trim(), instructions: foundryInstructionsInput.value.trim() })
+      });
+      const data = await res.json();
+      foundrySettingsStatus.textContent = data.text || 'Salvato.';
+    } catch (e) { foundrySettingsStatus.textContent = 'Errore: ' + e.message; }
+  });
+  document.getElementById('foundry-test-btn').addEventListener('click', async () => {
+    foundryTestStatus.textContent = 'verifica in corso...';
+    try {
+      const res = await fetch('/api/foundry-test', { method: 'POST' });
+      const data = await res.json();
+      foundryTestStatus.textContent = (data.Ok ? '✓ ' : '✗ ') + data.Message;
+    } catch (e) { foundryTestStatus.textContent = '✗ Errore: ' + e.message; }
+  });
+  document.getElementById('foundry-ask-btn').addEventListener('click', async () => {
+    const prompt = foundryPromptInput.value.trim();
+    if (!prompt) { foundryAskStatus.textContent = 'Scrivi prima una domanda.'; return; }
+    foundryAskStatus.textContent = 'invio in corso...';
+    foundryAnswerBox.style.display = 'none';
+    try {
+      const res = await fetch('/api/foundry-ask', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        foundryAskStatus.textContent = '';
+        foundryAnswerBox.textContent = data.text;
+        foundryAnswerBox.style.display = 'block';
+      } else {
+        foundryAskStatus.textContent = '✗ ' + data.text;
+      }
+    } catch (e) { foundryAskStatus.textContent = '✗ Errore: ' + e.message; }
+  });
+  foundryPromptInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.getElementById('foundry-ask-btn').click(); }
+  });
+
   const scriptRequestToggleBtn = document.getElementById('script-request-toggle-btn');
   const scriptRequestPanel = document.getElementById('script-request-panel');
   const scriptRequestInput = document.getElementById('script-request-input');
